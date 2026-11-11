@@ -29,6 +29,12 @@ export interface FaceInfo {
   smile: number
   /** Relative sharpness of the eye region, comparable between frames. */
   sharpness: number
+  /** How open the mouth is, 0..1. With a smile, this is a laugh. */
+  jawOpen?: number
+  /** Cheeks raised and eyes narrowed, 0..1: what separates a felt smile from a posed one. */
+  squint?: number
+  /** Head turn, about -1 (facing image-left) to 1 (facing image-right). */
+  yaw?: number
   /** Mean skin hue (degrees) and saturation (0..1) sampled on the cheeks. */
   skinHue: number | null
   skinSat: number | null
@@ -67,16 +73,43 @@ export interface Analysis {
 export type Decision = 'pick' | 'reject' | null
 export type Suggestion = 'pick' | 'alternate' | 'reject'
 
+export type MomentTag = 'laugh' | 'joy' | 'connection' | 'embrace' | 'peak'
+
 export interface Score {
-  /** 0..100 */
+  /** Craft and moment combined by the project's balance, 0..100. */
   overall: number
+  /** Technical quality: focus, eyes, exposure. */
+  craft: number
+  /** What the frame carries emotionally. null when it cannot be judged (no faces, no read). */
+  moment: number | null
   focus: number
   exposure: number
   /** null when there are no faces. */
   faces: number | null
-  /** Plain-language reasons, best and worst first. */
+  /** Plain-language reasons about craft. */
   notes: string[]
+  /** Plain-language reasons about the moment. */
+  momentNotes: string[]
+  tags: MomentTag[]
   warnings: Warning[]
+  /** Technically imperfect, but the moment may be worth more than the flaw. */
+  gem: boolean
+}
+
+/** One chapter of the story a shoot of this kind is expected to tell. */
+export interface Beat {
+  name: string
+  /** What makes a frame from this chapter worth keeping. */
+  look: string
+}
+
+/** A picture editor's reading of one frame (from the optional AI read). */
+export interface NarrativeRead {
+  beat: string
+  /** 0..10: how much the frame carries emotionally and for the story. */
+  moment: number
+  gem: boolean
+  note: string
 }
 
 export type Warning = 'blink' | 'soft' | 'soft-face' | 'clipped' | 'dark'
@@ -101,6 +134,7 @@ export interface Shot {
   sceneId?: number
   stackId?: number
   suggestion?: Suggestion
+  read?: NarrativeRead
   decision: Decision
   rating: number
   /** Set when the file could not be read or analysed. */
@@ -144,6 +178,12 @@ export interface Project {
   shots: Shot[]
   /** Seconds of inactivity that start a new scene. */
   sceneGapSec: number
+  /** How much the moment counts against craft when suggesting keepers, 0..1. */
+  balance: number
+  /** The chapters this shoot should contain. */
+  storyPlan: Beat[]
+  /** Running total spent on editor's reads for this project. */
+  readCostUsd: number
   storyOrder: string[]
   storyAdvice?: StoryAdvice
   gradeAdvice: Record<string, GradeAdvice>
@@ -210,6 +250,7 @@ export interface StudioApi {
   ai: {
     story(req: StoryRequest): Promise<StoryAdvice>
     grade(req: GradeRequest): Promise<GradeAdvice>
+    read(req: ReadRequest): Promise<ReadResult>
   }
 }
 
@@ -218,6 +259,19 @@ export interface StoryRequest {
   genre: Genre
   brief: Brief
   frames: { shotId: string; scene: number; time: string; shotType: ShotType; faces: number; picked: boolean }[]
+}
+
+export interface ReadRequest {
+  projectId: string
+  genre: Genre
+  brief: Brief
+  beats: Beat[]
+  frames: { shotId: string; scene: number; time: string; shotType: ShotType; flaws: string }[]
+}
+
+export interface ReadResult {
+  reads: Record<string, NarrativeRead>
+  usage: Usage
 }
 
 export interface GradeRequest {

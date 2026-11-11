@@ -11,6 +11,7 @@
   --reject: #d2605a;
   --alt: #d9b24c;
   --warn: #e0913f;
+  --gem: #b9a2f0;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   font-size: 14px;
   color: var(--text);
@@ -126,6 +127,16 @@ kbd { font: 11px ui-monospace, Consolas, monospace; background: #171717; border:
 .decide .on kbd { background: transparent; border-color: rgba(0,0,0,.4); color: inherit; }
 .decide .on.reject { background: var(--reject); color: #111; border-color: var(--reject); }
 .empty { display: grid; place-items: center; height: 100%; text-align: center; color: var(--muted); padding: 40px; }
+
+.thumb .w.gem { color: var(--gem); }
+.chip.gem { color: var(--gem); border-color: #54467a; }
+.balance { display: flex; align-items: center; gap: 6px; margin: 0; font-weight: 400; }
+.balance input { width: 110px; padding: 0; border: 0; background: none; }
+.cull-bar button.on { background: #383838; }
+.cull.with-read { grid-template-rows: auto auto 1fr; }
+.read-panel { grid-column: 1 / -1; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 10px 14px; background: var(--panel-2); border-bottom: 1px solid var(--line); font-size: 13px; line-height: 1.5; }
+.plan-row { display: grid; grid-template-columns: 220px 1fr auto; gap: 8px; margin-bottom: 6px; align-items: start; }
+.plan-row textarea { min-height: 38px; }
 
 /* Story + coach */
 .film { display: flex; gap: 6px; flex-wrap: wrap; }

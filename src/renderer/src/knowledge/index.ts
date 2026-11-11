@@ -74,6 +74,112 @@ Motion blur in a dance, grain in a dark church, a missed-focus frame of the one 
     ]
   },
   {
+    id: 'cull-soul',
+    category: 'Culling',
+    title: 'Culling for the soul of a shoot',
+    summary: 'Why the frame people treasure is rarely the sharpest one.',
+    body: `
+A technically perfect cull answers "which frames are free of faults?" A good cull answers "which frames will these people still be looking at in twenty years?" They are different questions, and they often have different answers.
+
+## What a moment is made of
+- **Gesture**: a hand on a shoulder, a head thrown back, fingers gripping a bouquet too tightly. Gesture tells you what someone feels before their face does.
+- **Expression that is not for the camera**: the laugh after the posed smile, the look when they think nobody is watching.
+- **Connection**: two people turned toward each other. The picture is about the space between them.
+- **Anticipation and aftermath**: the breath before the kiss, the collapse into laughter after the speech. The frames either side of the "main" one are often stronger than it.
+- **Specificity**: something that could only be this person, this family, this day.
+
+## Flaws that do not matter, and flaws that do
+Forgive, when the moment is real: motion blur, grain, a soft focus plane, closed eyes in a laugh or an embrace, a tilted horizon, a hand cut by the frame.
+
+Do not forgive: a main subject who looks unwell or unhappy with how they appear, a distraction that pulls the eye off the moment, focus so far gone it reads as a mistake at the delivery size.
+
+The test: **look at it at the size it will be seen**, not at 100%. A 30 cm album page or a phone screen hides most of what a loupe shows, and hides none of the feeling.
+
+## How to cull this way
+1. On the first pass, do not ask "is it sharp?" Ask **"did something happen?"** Mark anything that makes you react, before you look at why.
+2. Only then check craft, and only to choose between frames of the same moment.
+3. Keep a **"flawed but alive"** set (the Hidden gems filter here) and revisit it once the main selection is done. A handful of these is what stops a gallery from feeling like a catalogue.
+4. For every chapter of the day, make sure at least one frame is about **feeling** rather than record.
+
+## Why software alone cannot do this
+A program can measure sharpness, find closed eyes and, with care, notice laughter and closeness. It cannot know that the man in the corner is the bride's father, or that the couple had been waiting three years for this day. That knowledge is yours, and it is the reason your selection is worth paying for.
+`,
+    sources: [
+      { label: 'Narrative: Why photo culling matters', url: 'https://narrative.so/blog/why-photo-culling-matters' },
+      { label: 'Fstoppers (sponsored): How Narrative keeps the story in your hands', url: 'https://fstoppers.com/sponsored/best-photo-culling-software-2026-how-narrative-keeps-story-your-hands-904050' },
+      { label: 'Henri Cartier-Bresson, "The Decisive Moment" (1952)' },
+      { label: 'Sam Abell, "The Life of a Photograph"' }
+    ]
+  },
+  {
+    id: 'cull-contact-sheets',
+    category: 'Culling',
+    title: 'How great photographers choose: the contact sheet',
+    summary: 'What famous selections teach about picking the one.',
+    body: `
+A contact sheet shows every frame from a roll, in order, with the chosen one marked. Studying them is the closest thing there is to watching a master cull, and the lessons repeat.
+
+## What the famous sheets show
+- **The chosen frame is seldom the first or the cleanest.** Photographers work a situation: they shoot, move, wait, shoot again. The pick is usually where gesture, expression and geometry finally line up, often late in the sequence.
+- **Small differences decide.** On many sheets the neighbouring frames look almost identical. The selected one has the eyes a fraction more open to the world, a hand that completes a line, a figure that has stepped clear of the background.
+- **Emotion outranks polish.** Dorothea Lange made a handful of exposures of Florence Owens Thompson in 1936, moving closer each time. The famous one is the closest and the least "composed": the hand at the mouth and the children turned away carry it.
+- **Ruthlessness.** Robert Frank exposed roughly 27,000 frames across the United States and published 83 in "The Americans". The selection, and its order, is the work.
+- **The pick depends on the purpose.** The same sheet yields different choices for a magazine cover, a book and an exhibition. This is why your brief comes first.
+
+## Questions editors ask
+1. Where does my eye go first, and is that where the meaning is?
+2. What is the relationship in this frame: between people, or between a person and their surroundings?
+3. Is this the peak of the action, or the more interesting moment just beside it?
+4. What does this frame add that the set does not already have?
+5. Would I still choose it tomorrow?
+
+## Practise it
+- After each shoot, look at one burst and write a single sentence on **why** you chose the frame you did. The sentence is the skill.
+- Look at published contact sheets and guess the pick before you look for the mark.
+- Compare your selection with what the client actually shares and prints. They are telling you what the pictures are for.
+`,
+    sources: [
+      { label: 'Kristen Lubben (ed.), "Magnum Contact Sheets" (Thames & Hudson, 2011)' },
+      { label: 'Library of Congress: Dorothea Lange\'s "Migrant Mother" photographs', url: 'https://www.loc.gov/rr/print/list/128_migm.html' },
+      { label: 'Robert Frank, "The Americans" (1958); Sarah Greenough, "Looking In: Robert Frank\'s The Americans"' },
+      { label: 'John Loengard, "Pictures Under Discussion"' }
+    ]
+  },
+  {
+    id: 'cull-brief',
+    category: 'Culling',
+    title: 'Culling to a brief',
+    summary: 'The same frames, a different selection, depending on what the work is for.',
+    body: `
+"This is a wedding" changes what a good frame is. So does "this is a lookbook" or "this is a portrait for a book jacket". Before the first pass, decide what the shoot must deliver, chapter by chapter.
+
+## A wedding
+What the couple want, years later, is to **feel the day again** and to **see the people who were there**. So:
+- Reactions matter as much as actions: the parent during the vows, the friends during the speech.
+- Every important person should appear at least once, looking like themselves.
+- Family formals are the one chapter where craft comes first: everyone visible, eyes open.
+- The party forgives everything. Blur and grain are how it felt.
+- Deliver a story with a shape, not every frame that worked.
+
+## A portrait
+The subject wants to **recognise themselves at their best**. Look for the frame where the face is at rest between expressions, and the one that is unmistakably them. Skin and eyes must hold up to scrutiny: craft counts more than at a wedding, but a stiff, perfect frame still loses to a slightly soft, alive one.
+
+## Fashion and commercial
+The client wants the **product and the mood**. The garment must read: line, drape, colour. Attitude carries the image, and it is rarely a smile. Here an unflattering fold or a lost silhouette disqualifies a frame no matter how good the expression.
+
+## An event
+The organiser wants **proof it happened and that it was good**: the room, the speakers at a peak gesture, people engaged, the details they paid for. Coverage beats artistry; then two or three frames with real feeling lift the whole set.
+
+## Using it here
+Set the kind of shoot and edit the **story plan** in the Brief. The balance between craft and moment starts where that kind of shoot usually needs it, and the Story screen shows which chapters your picks cover. Move the balance when a job is different: a documentary wedding wants more moment, a beauty campaign more craft.
+`,
+    sources: [
+      { label: 'Imagen: Photo culling tips for wedding photographers', url: 'https://imagen-ai.com/valuable-tips/photo-culling-tips-for-wedding-photographers/' },
+      { label: 'FilterPixel: How to cull wedding photos', url: 'https://filterpixel.com/blog/how-to-cull-wedding-photos' },
+      { label: 'Davina + Daniel Kudish, "The Wedding Story" (CreativeLive)', url: 'https://www.creativelive.com/class/the-wedding-story-capture-creative-and-authentic-photos-davina-kudish-daniel-kudish' }
+    ]
+  },
+  {
     id: 'cull-sequence',
     category: 'Culling',
     title: 'Sequencing: turning selects into a story',

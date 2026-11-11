@@ -9,6 +9,9 @@ import {
   type Genre,
   type GradeAdvice,
   type GradeRequest,
+  type NarrativeRead,
+  type ReadRequest,
+  type ReadResult,
   type StoryAdvice,
   type StoryRequest,
   type Usage
@@ -171,4 +174,47 @@ export async function gradeAdvice(req: GradeRequest): Promise<GradeAdvice> {
     }
   ])
   return { ...value, usage }
+}
+
+const ReadSchema = z.object({
+  frames: z.array(
+    z.object({
+      frame: z.number().describe('Frame number as labelled.'),
+      beat: z.string().describe('The chapter of the story plan this frame belongs to, by its exact name, or "Other".'),
+      moment: z.number().describe('0 to 10: how much this frame carries emotionally and for the story. 5 is a competent, unremarkable frame.'),
+      gem: z.boolean().describe('True only if the frame has a listed technical flaw and is still worth keeping for what it holds.'),
+      note: z.string().describe('One short sentence: what is happening between or within the people, and why it matters or does not.')
+    })
+  )
+})
+
+/**
+ * The editor's read: looks at one or two thumbnails per moment and says what
+ * each frame carries, beyond whether it is sharp. Called once per chunk of frames.
+ */
+export async function narrativeRead(req: ReadRequest): Promise<ReadResult> {
+  const plan = req.beats.map((b) => `- ${b.name}: ${b.look}`).join('\n')
+  const content: Anthropic.ContentBlockParam[] = [
+    {
+      type: 'text',
+      text: `${briefText(req.genre, req.brief)}\n\nStory plan for this shoot:\n${plan}\n\nBelow are ${req.frames.length} frames in capture order, each labelled with a number, scene, time, shot type and any technical flaws already measured.`
+    }
+  ]
+  for (const [i, f] of req.frames.entries()) {
+    content.push({ type: 'text', text: `Frame ${i + 1} | scene ${f.scene} | ${f.time} | ${f.shotType}${f.flaws ? ` | flaws: ${f.flaws}` : ''}` })
+    content.push(await image(req.projectId, `${safeId(f.shotId)}_t.jpg`))
+  }
+  content.push({
+    type: 'text',
+    text: `Read every frame the way an experienced picture editor would on a first pass through a contact sheet. Technical quality has already been measured, so do not grade sharpness or exposure. Look for what cannot be measured: gesture, expression, connection between people, anticipation, the in-between moment, an unrepeatable instant, a frame that says something about who these people are. A blurred or badly exposed frame of a real moment can be worth more than a clean frame of nothing; mark those as gems. Be discriminating: most frames in any shoot are a 4 to 6, and a set where everything scores 8 is useless to the photographer. Return one entry per frame.`
+  })
+
+  const { value, usage } = await ask(ReadSchema, content)
+  const reads: Record<string, NarrativeRead> = {}
+  for (const f of value.frames) {
+    const shot = req.frames[f.frame - 1]
+    if (!shot) continue
+    reads[shot.shotId] = { beat: f.beat, moment: Math.min(10, Math.max(0, f.moment)), gem: f.gem && !!shot.flaws, note: f.note }
+  }
+  return { reads, usage }
 }

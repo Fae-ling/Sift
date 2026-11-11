@@ -3,7 +3,8 @@ import type { FaceInfo, Shot } from '@shared/types'
 import { previewUrl } from '../analysis/pipeline'
 import { BLINK_LIMIT } from '../analysis/scoring'
 import { Thumb } from '../components/Thumb'
-import { useStore, visibleShots, type Filter } from '../store'
+import { estimateCost, formatCost } from '../components/AiCost'
+import { READ_TOKENS, readCandidates, useStore, visibleShots, type Filter } from '../store'
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -11,20 +12,34 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: 'undecided', label: 'Undecided' },
   { id: 'picks', label: 'Picks' },
   { id: 'rejects', label: 'Rejects' },
-  { id: 'warnings', label: 'Flagged' }
+  { id: 'warnings', label: 'Flagged' },
+  { id: 'gems', label: 'Hidden gems' }
 ]
 
 const time = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 export function Cull(): React.JSX.Element {
-  const { project, selectedId, select, filter, setFilter, decide, updateShot, acceptSuggestions, setView } = useStore()
+  const { project, selectedId, select, filter, setFilter, decide, updateShot, acceptSuggestions, setView, setBalance } = useStore()
   const [zoom, setZoom] = useState(false)
+  const [showRead, setShowRead] = useState(false)
   const stripRef = useRef<HTMLDivElement>(null)
 
   const shots = useMemo(() => project?.shots.filter((s) => s.analysis) ?? [], [project?.shots])
   const list = useMemo(() => visibleShots(shots, filter), [shots, filter])
   const current = list.find((s) => s.id === selectedId) ?? list[0]
   const stack = useMemo(() => (current ? shots.filter((s) => s.stackId === current.stackId) : []), [shots, current])
+
+  // The chapter each scene belongs to: whichever beat the editor's read named most often.
+  const sceneBeat = useMemo(() => {
+    const votes = new Map<number, Map<string, number>>()
+    for (const s of shots) {
+      if (!s.read || s.read.beat === 'Other') continue
+      const m = votes.get(s.sceneId ?? 0) ?? new Map<string, number>()
+      m.set(s.read.beat, (m.get(s.read.beat) ?? 0) + 1)
+      votes.set(s.sceneId ?? 0, m)
+    }
+    return new Map([...votes].map(([id, m]) => [id, [...m].sort((a, b) => b[1] - a[1])[0][0]]))
+  }, [shots])
 
   // Scenes -> stacks, for the visible shots.
   const scenes = useMemo(() => {
@@ -110,7 +125,7 @@ export function Cull(): React.JSX.Element {
   const target = project.brief.targetCount
 
   return (
-    <div className="cull">
+    <div className={`cull ${showRead ? 'with-read' : ''}`}>
       <div className="cull-bar">
         <div className="tabs" role="tablist">
           {FILTERS.map((f) => (
@@ -125,6 +140,14 @@ export function Cull(): React.JSX.Element {
           <span className="muted">{undecided} to decide</span>
         </span>
         <div className="spacer" />
+        <label className="balance" title="How much the moment counts against technical quality when suggesting keepers">
+          <span className="muted small">Craft</span>
+          <input type="range" min={0} max={1} step={0.05} value={project.balance} onChange={(e) => setBalance(Number(e.target.value))} aria-label="Balance between craft and moment" />
+          <span className="muted small">Moment</span>
+        </label>
+        <button className={showRead ? 'on' : ''} onClick={() => setShowRead((v) => !v)}>
+          Editor's read
+        </button>
         <button onClick={() => acceptSuggestions()} disabled={undecided === 0} title="Applies every suggestion to frames you have not decided yourself">
           Accept all remaining suggestions
         </button>
@@ -133,6 +156,8 @@ export function Cull(): React.JSX.Element {
         </button>
       </div>
 
+      {showRead && <ReadPanel />}
+
       <div className="strip" ref={stripRef}>
         {list.length === 0 && <p className="muted small" style={{ padding: 8 }}>Nothing matches this filter.</p>}
         {scenes.map((scene) => (
@@ -140,6 +165,7 @@ export function Cull(): React.JSX.Element {
             <div className="scene-head">
               <span>
                 Scene {scene.id} · {time(scene.stacks[0][0].time)}
+                {sceneBeat.has(scene.id) && <b style={{ color: 'var(--text)' }}> · {sceneBeat.get(scene.id)}</b>}
               </span>
               <span>
                 {scene.stacks.length} moment{scene.stacks.length === 1 ? '' : 's'}
@@ -198,7 +224,16 @@ export function Cull(): React.JSX.Element {
   )
 }
 
-function Meter({ label, value }: { label: string; value: number }): React.JSX.Element {
+function Meter({ label, value }: { label: string; value: number | null }): React.JSX.Element {
+  if (value === null) {
+    return (
+      <div className="meter">
+        <span className="muted">{label}</span>
+        <span className="muted small">not measurable here</span>
+        <span />
+      </div>
+    )
+  }
   const v = Math.round(value)
   return (
     <div className="meter">
@@ -211,9 +246,11 @@ function Meter({ label, value }: { label: string; value: number }): React.JSX.El
   )
 }
 
+const TAG_TEXT = { laugh: 'laughter', joy: 'joy', connection: 'connection', embrace: 'embrace', peak: 'peak of the burst' }
+
 const SUGGESTION_TEXT = {
   pick: 'Suggested keeper: the strongest frame of this moment.',
-  alternate: 'Close second: nearly as strong as the suggested keeper. Compare expression and gesture.',
+  alternate: 'Worth a look: nearly as strong as the suggested keeper, or flawed but holding a moment. Compare expression and gesture.',
   reject: 'Suggested reject: a stronger frame of the same moment exists, or it has a flaw.'
 }
 
@@ -248,9 +285,32 @@ function Inspector({ shot, projectId }: { shot: Shot; projectId: string }): Reac
         <>
           <h3>Why</h3>
           {shot.suggestion && <p className="small">{SUGGESTION_TEXT[shot.suggestion]}</p>}
-          <Meter label="Overall" value={score.overall} />
+          <Meter label="Moment" value={score.moment} />
+          <Meter label="Craft" value={score.craft} />
+          <div style={{ margin: '8px 0' }}>
+            {score.gem && <span className="chip gem">hidden gem</span>}
+            {score.tags.map((t) => (
+              <span className="chip" key={t}>
+                {TAG_TEXT[t]}
+              </span>
+            ))}
+            {shot.read && <span className="chip">{shot.read.beat}</span>}
+          </div>
+          {shot.read && (
+            <div className="note teach">
+              <p className="small">
+                <b>Editor's read ({shot.read.moment}/10).</b> {shot.read.note}
+              </p>
+            </div>
+          )}
+          <ul className="small" style={{ paddingLeft: 18, lineHeight: 1.5 }}>
+            {score.momentNotes.map((n, i) => (
+              <li key={i}>{n}</li>
+            ))}
+          </ul>
+          <h3>Craft in detail</h3>
           <Meter label="Focus" value={score.focus} />
-          {score.faces !== null && <Meter label="Faces" value={score.faces} />}
+          {score.faces !== null && <Meter label="Eyes" value={score.faces} />}
           <Meter label="Exposure" value={score.exposure} />
           <ul className="small" style={{ paddingLeft: 18, lineHeight: 1.5 }}>
             {score.notes.map((n, i) => (
@@ -258,8 +318,8 @@ function Inspector({ shot, projectId }: { shot: Shot; projectId: string }): Reac
             ))}
           </ul>
           <p className="muted small">
-            Focus is measured against the sharpest frames of the same scene. These numbers describe craft, not meaning:
-            a technically weaker frame with the right gesture is still the right frame.
+            Craft is measured; the moment is only partly measurable. A frame can score low on both and still be the one.
+            The numbers are there to save you time on the obvious, not to make the choice.
           </p>
         </>
       )}
@@ -326,6 +386,59 @@ function FaceCrops({ src, faces }: { src: string; faces: FaceInfo[] }): React.JS
           <div>{f.blink > BLINK_LIMIT ? 'eyes closed' : f.smile > 0.5 ? 'smiling' : 'eyes open'}</div>
         </div>
       ))}
+    </div>
+  )
+}
+
+/** Explains the paid editor's read, shows its cost before and after, and runs it. */
+function ReadPanel(): React.JSX.Element {
+  const { project, settings, reading, readShoot, cancelRead, setView } = useStore()
+  if (!project) return <></>
+  const todo = readCandidates(project.shots)
+  const read = project.shots.filter((s) => s.read).length
+  const chunks = Math.ceil(todo.length / READ_TOKENS.chunk)
+  const estimate = estimateCost(
+    settings.model,
+    todo.length * READ_TOKENS.inPerFrame + chunks * READ_TOKENS.inPerChunk,
+    todo.length * READ_TOKENS.outPerFrame + chunks * READ_TOKENS.outPerChunk
+  )
+  return (
+    <div className="read-panel">
+      <div style={{ flex: 1, minWidth: 280 }}>
+        <b>Editor's read.</b>{' '}
+        <span className="muted">
+          Shows one to three small thumbnails of each moment to Claude, with your brief and story plan. For every frame
+          it says which chapter it belongs to, how much it carries, and why, and it points out hidden gems: flawed
+          frames worth keeping. It informs the suggestions; it decides nothing.
+        </span>
+        {read > 0 && (
+          <span className="muted">
+            {' '}
+            {read} frames read so far, {formatCost(project.readCostUsd)} spent on this project.
+          </span>
+        )}
+      </div>
+      {reading.running ? (
+        <div className="row">
+          <span>
+            Reading {reading.done} of {reading.total}…
+          </span>
+          <button onClick={cancelRead}>Pause after this batch</button>
+        </div>
+      ) : !settings.hasApiKey ? (
+        <button onClick={() => setView('settings')}>Add an API key in Settings</button>
+      ) : todo.length === 0 ? (
+        <span className="muted">Every moment has been read.</span>
+      ) : (
+        <div className="row">
+          <span className="muted small">
+            {todo.length} frames · {estimate}
+          </span>
+          <button className="primary" onClick={() => void readShoot()}>
+            {read ? 'Read the rest' : 'Read the shoot'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

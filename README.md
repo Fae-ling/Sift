@@ -12,13 +12,14 @@ and shadow times, gear, pricing) come next; see [Roadmap](#roadmap).
 
 | Step | What happens | Cost |
 | --- | --- | --- |
-| **Brief** | Client ask, your intention, mood words, references, target count. Every later judgement is made against it. | free |
+| **Brief** | The kind of shoot, client ask, your intention, mood words, references, target count, and an editable **story plan**: the chapters this shoot should contain and what makes a frame from each worth keeping. | free |
 | **Import** | Reads the JPEG preview your camera embeds in each RAW (Sony `.ARW`, Fujifilm `.RAF`, also CR2/CR3/NEF/DNG/ORF/RW2 and JPEG). Measures focus, closed eyes, smiles, exposure, colour; groups the shoot into scenes and stacks of near-identical frames. | free, on your machine |
-| **Cull** | One decision per *moment* instead of per frame. Each stack shows its strongest frame and why. Face close-ups, keyboard-driven. | free |
-| **Story** | Your picks as a sequence: coverage by shot type, gaps, reordering. Optionally asks Claude for a picture editor's sequence. | optional, cents |
+| **Cull** | One decision per *moment* instead of per frame. Every frame has a **craft** score and a **moment** score; a slider sets how much each counts. Laughter, closeness and the peak of a burst are recognised, closed eyes in a laugh or embrace are not treated as blinks, and flawed frames that hold a moment are surfaced as **hidden gems** instead of rejected. | free |
+| **Editor's read** | Optional. Claude looks at one to three thumbnails per moment with your brief and story plan, and says for each which chapter it belongs to, how much it carries and why. Runs in batches; can be paused and resumed. | optional; shows an estimate first |
+| **Story** | Your picks as a sequence: coverage by chapter and shot type, gaps, reordering. **Your eye** compares your decisions with the suggestions and can tune the balance to your taste. Optionally asks Claude for a picture editor's sequence. | optional, cents |
 | **Edit coach** | Histogram, vectorscope with skin line, palette, and plain-language notes on tone, white balance, skin, harmony and consistency. Optionally asks Claude for a grading plan aimed at your brief, in Lightroom terms with a Resolve note. | notes free; plan optional, ~2¢ |
 | **Hand off** | Writes star ratings and colour labels to XMP sidecars that Lightroom Classic reads. | free |
-| **Learn** | 23 short articles on culling, photo editing, colour, graphic design and video, each with further reading. | free |
+| **Learn** | 26 short articles on culling, photo editing, colour, graphic design and video, each with further reading. | free |
 
 Your originals are never modified, moved or uploaded. An existing `.xmp` sidecar is
 updated in place, never replaced.
@@ -83,8 +84,16 @@ ATELIER_SAMPLES=/path/to/photos npm run test:e2e
 4. **Grouping.** A pause in shooting starts a new scene. Within a scene, consecutive
    frames with a near-identical 64-bit difference hash, taken within 20 seconds, form
    a stack.
-5. **Suggestion.** In each stack the best clean frame is suggested, close seconds are
-   marked, blinks and soft frames are suggested as rejects. Your own decision always wins.
+5. **Moment.** From the face landmarks: smiles that reach the eyes, laughter, faces
+   turned toward or touching each other, and the frame where a burst's expression
+   peaks. Weighted by the kind of shoot, so an unsmiling fashion frame is not marked down.
+6. **Suggestion.** Craft and moment are combined by the project's balance. In each
+   stack the best frame is suggested and close seconds are marked. Unexplained blinks
+   and soft frames are suggested as rejects, unless the moment is strong enough to make
+   them a hidden gem. Your own decision always wins.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design of the whole suite,
+including the Inspiration and Planning phases that are not built yet.
 
 ### Known limits
 
@@ -92,6 +101,10 @@ ATELIER_SAMPLES=/path/to/photos npm run test:e2e
   particular looks worse in the preview than it is.
 - "Eyes closed" also fires for a deliberate downward glance. It is a flag, not a verdict.
 - Small faces in large group shots can be missed by the face model.
+- The local moment score sees joy and closeness. It cannot see intensity, tension or
+  tenderness in a quiet face; the editor's read and your own eye cover that.
+- The app does not learn from other photographers' actual selections (there is no such
+  data in it). It learns from yours, and Learn describes how well-known selections were made.
 - Not yet tested on real `.ARW` files or on Windows hardware; the RAW path was verified
   with a Fujifilm `.RAF` sample. Colour labels rely on Lightroom's default label names.
 

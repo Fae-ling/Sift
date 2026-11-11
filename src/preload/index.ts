@@ -21,7 +21,7 @@ const api: StudioApi = {
   copySelects: call('copySelects'),
   reveal: call('reveal'),
   settings: { get: call('settings:get'), set: call('settings:set') },
-  ai: { story: call('ai:story'), grade: call('ai:grade') }
+  ai: { story: call('ai:story'), grade: call('ai:grade'), read: call('ai:read') }
 }
 
 contextBridge.exposeInMainWorld('studio', api)

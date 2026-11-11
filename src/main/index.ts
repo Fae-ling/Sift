@@ -1,8 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type { GradeRequest, Project, StoryRequest, XmpItem } from '@shared/types'
-import { gradeAdvice, storyAdvice } from './ai'
+import type { GradeRequest, Project, ReadRequest, StoryRequest, XmpItem } from '@shared/types'
+import { gradeAdvice, narrativeRead, storyAdvice } from './ai'
 import { copySelects, exportXmp } from './exporter'
 import { exiftool, extractPreview, savePreview, scanFolder } from './ingest'
 import {
@@ -67,6 +67,7 @@ function registerIpc(): void {
   handle('settings:set', (patch: { apiKey?: string; model?: string }) => setSettings(patch))
   handle('ai:story', (req: StoryRequest) => storyAdvice(req))
   handle('ai:grade', (req: GradeRequest) => gradeAdvice(req))
+  handle('ai:read', (req: ReadRequest) => narrativeRead(req))
 }
 
 void app.whenReady().then(() => {

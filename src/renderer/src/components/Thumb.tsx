@@ -23,7 +23,7 @@ export const Thumb = memo(function Thumb(props: {
     >
       {shot.analysis ? <img src={thumbUrl(projectId, shot.id)} loading="lazy" draggable={false} alt={shot.name} /> : null}
       {flag && <span className={`flag ${flag}`} />}
-      {warning && <span className="w">{WARNING_MARK[warning]}</span>}
+      {shot.score?.gem ? <span className="w gem">gem</span> : warning && <span className="w">{WARNING_MARK[warning]}</span>}
       {shot.rating > 0 && <span className="stars">{'★'.repeat(shot.rating)}</span>}
     </div>
   )

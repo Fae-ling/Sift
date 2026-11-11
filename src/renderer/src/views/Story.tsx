@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { Shot, ShotType } from '@shared/types'
 import { thumbUrl } from '../analysis/pipeline'
+import { tasteOf } from '../analysis/scoring'
 import { estimateCost, formatCost } from '../components/AiCost'
 import { Thumb } from '../components/Thumb'
 import { useStore } from '../store'
@@ -40,7 +41,7 @@ function localNotes(shots: Shot[], picks: Shot[], target: number): string[] {
 }
 
 export function Story(): React.JSX.Element {
-  const { project, update, settings, setView, notify, select } = useStore()
+  const { project, update, settings, setView, notify, select, setBalance } = useStore()
   const [busy, setBusy] = useState(false)
 
   const shots = useMemo(() => project?.shots.filter((s) => s.analysis) ?? [], [project?.shots])
@@ -57,6 +58,13 @@ export function Story(): React.JSX.Element {
   const advice = project.storyAdvice
   const notes = localNotes(shots, picks, project.brief.targetCount)
   const counts = TYPES.map((t) => [t, picks.filter((s) => s.analysis!.shotType === t).length] as const)
+  const hasReads = shots.some((s) => s.read)
+  const coverage = project.storyPlan.map((beat) => ({
+    beat,
+    frames: shots.filter((s) => s.read?.beat === beat.name).length,
+    picks: picks.filter((s) => s.read?.beat === beat.name).length
+  }))
+  const taste = tasteOf(shots)
 
   const ask = async (): Promise<void> => {
     setBusy(true)
@@ -128,6 +136,55 @@ export function Story(): React.JSX.Element {
           <p>{n}</p>
         </div>
       ))}
+
+      <h2>Chapters</h2>
+      {hasReads ? (
+        <>
+          <p className="muted small">Your story plan against what was shot and what you kept.</p>
+          {coverage.map(({ beat, frames, picks: kept }) => (
+            <div className="row small" key={beat.name} style={{ padding: '5px 0', borderBottom: '1px solid var(--line)' }}>
+              <b style={{ width: 230 }}>{beat.name}</b>
+              <span className={kept ? 'chip pick' : frames ? 'chip warn' : 'chip'}>
+                {kept} kept of {frames} read
+              </span>
+              <span className="muted" style={{ flex: 1, minWidth: 200 }}>
+                {kept ? '' : frames ? 'Shot but nothing kept. Is this chapter meant to be missing?' : 'Nothing found for this chapter.'}
+              </span>
+            </div>
+          ))}
+        </>
+      ) : (
+        <p className="muted small">
+          Run the editor's read in Cull to sort frames into the chapters of your story plan and see which ones are thin.
+        </p>
+      )}
+
+      {taste.decided >= 20 && (
+        <>
+          <h2>Your eye</h2>
+          <div className="note teach">
+            <p>
+              Of {taste.decided} decisions, you kept <b>{taste.rescued}</b> frames the app suggested rejecting
+              {taste.rescuedFlawed > 0 && <> ({taste.rescuedFlawed} of them technically flawed)</>} and rejected <b>{taste.overruled}</b> it
+              suggested keeping.{' '}
+              {taste.momentGap > taste.craftGap + 4
+                ? 'Your picks stand out from your rejects more by moment than by craft: you are choosing with your gut, which is what clients feel.'
+                : taste.craftGap > taste.momentGap + 4
+                  ? 'Your picks stand out from your rejects more by craft than by moment. Worth a second look at the Hidden gems filter: is there a flawed frame you passed over that the couple would treasure?'
+                  : 'Your picks are balanced between craft and moment.'}
+            </p>
+            {taste.fittedBalance !== null && Math.abs(taste.fittedBalance - project.balance) >= 0.1 && (
+              <p>
+                Within bursts, your choices are best matched by weighing the moment at {Math.round(taste.fittedBalance * 100)}%
+                (now {Math.round(project.balance * 100)}%).{' '}
+                <button className="link" onClick={() => setBalance(taste.fittedBalance!)}>
+                  Tune the suggestions to my choices
+                </button>
+              </p>
+            )}
+          </div>
+        </>
+      )}
 
       <h2>Your sequence</h2>
       <p className="muted small">Capture order by default. Use the arrows to reorder; click a frame to open it in Cull.</p>

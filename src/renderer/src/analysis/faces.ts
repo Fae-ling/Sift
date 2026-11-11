@@ -60,6 +60,9 @@ export async function facesAvailable(): Promise<boolean> {
 // Landmark indices of the MediaPipe face mesh.
 const EYES = [33, 133, 159, 145, 362, 263, 386, 374]
 const CHEEKS = [50, 280]
+const NOSE = 1
+const EDGE_A = 234
+const EDGE_B = 454
 
 /**
  * Finds faces and reads, for each: whether the eyes are open, how much it is
@@ -132,6 +135,10 @@ export async function analyseFaces(preview: HTMLCanvasElement, pixels: ImageData
       h,
       blink: Math.max(shape('eyeBlinkLeft'), shape('eyeBlinkRight')),
       smile: (shape('mouthSmileLeft') + shape('mouthSmileRight')) / 2,
+      jawOpen: shape('jawOpen'),
+      squint: (shape('cheekSquintLeft') + shape('cheekSquintRight') + shape('eyeSquintLeft') + shape('eyeSquintRight')) / 4,
+      // Where the nose sits between the two edges of the face tells which way the head is turned.
+      yaw: Math.max(-1, Math.min(1, ((marks[NOSE].x - (marks[EDGE_A].x + marks[EDGE_B].x) / 2) / Math.max(1e-6, Math.abs(marks[EDGE_B].x - marks[EDGE_A].x))) * 2)),
       sharpness,
       skinHue: skin ? skin[0] : null,
       skinSat: skin ? skin[1] : null

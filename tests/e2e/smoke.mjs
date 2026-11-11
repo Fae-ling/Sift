@@ -42,9 +42,25 @@ try {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] })
   }, samples)
 
+  // The paid editor's read is replaced by a stand-in, so the test spends nothing and needs no key.
+  await app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('settings:get')
+    ipcMain.handle('settings:get', () => ({ hasApiKey: true, model: 'claude-opus-5-5' }))
+    ipcMain.removeHandler('ai:read')
+    ipcMain.handle('ai:read', (_event, req) => ({
+      reads: Object.fromEntries(
+        req.frames.map((f) => [f.shotId, { beat: req.beats[0].name, moment: 9, gem: !!f.flaws, note: 'Stand-in read.' }])
+      ),
+      usage: { model: 'stand-in', inputTokens: 1000, outputTokens: 100, costUsd: 0.01 }
+    }))
+  })
+  await page.reload()
+
   await page.getByLabel('Project name').fill('Smoke test')
+  await page.getByLabel('Genre').selectOption('wedding')
   await page.getByRole('button', { name: 'Create project' }).click()
   await page.getByLabel('Mood words').fill('warm, quiet')
+  assert.equal(await page.getByLabel('Chapter 4 name').inputValue(), 'Ceremony', 'a wedding gets the wedding story plan')
   await snap('1-brief')
   await page.getByRole('button', { name: /import the shoot/ }).click()
   await page.getByRole('button', { name: /Choose shoot folder/ }).click()
@@ -58,9 +74,21 @@ try {
   assert.equal(await page.locator('.strip .thumb').count(), photoCount, 'every photo appears in the strip')
   assert.ok((await page.locator('.strip .flag.s-pick').count()) > 0, 'some keepers are suggested')
 
+  // The editor's read sorts frames into chapters and feeds the moment score.
+  await page.getByRole('button', { name: "Editor's read" }).click()
+  await page.getByRole('button', { name: 'Read the shoot' }).click()
+  await page.getByText('Every moment has been read.').waitFor()
+  await page.getByText(/Editor's read \(9\/10\)/).first().waitFor()
+  assert.ok((await page.locator('.scene-head b').count()) > 0, 'scenes are labelled with their chapter')
+  await snap('3-cull-read')
+  await page.getByRole('button', { name: "Editor's read" }).click()
+
   // Enter accepts the suggestion for the current moment and moves to the next one.
   const moments = await page.locator('.strip .stack').count()
   for (let i = 0; i < moments; i++) await page.keyboard.press('Enter')
+  // A hidden gem is left for the photographer to decide; decide the first frame by hand.
+  await page.locator('.strip .thumb').first().click()
+  await page.keyboard.press('p')
   assert.ok((await page.locator('.strip .flag.pick').count()) >= 1, 'accepting a suggestion makes a pick')
   await snap('3-cull-accepted')
 
