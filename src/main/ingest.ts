@@ -97,7 +97,8 @@ async function readMeta(tags: Tags, path: string): Promise<ExtractResult['meta']
     aperture: num(tags.FNumber),
     focal: num(tags.FocalLength),
     lens: tags.LensModel ?? (tags.LensID != null ? String(tags.LensID) : undefined),
-    camera: tags.Model
+    camera: tags.Model,
+    body: [tags.Model, tags.SerialNumber ?? tags.InternalSerialNumber].filter(Boolean).join(' #') || undefined
   }
 }
 

@@ -45,16 +45,36 @@ export async function listProjects(): Promise<ProjectSummary[]> {
 }
 
 export async function loadProject(id: string): Promise<Project> {
-  return JSON.parse(await fs.readFile(join(projectDir(id), 'project.json'), 'utf8'))
+  const file = join(projectDir(id), 'project.json')
+  try {
+    return JSON.parse(await fs.readFile(file, 'utf8'))
+  } catch (err) {
+    // A damaged project file: fall back to the last backup rather than lose the cull.
+    try {
+      return JSON.parse(await fs.readFile(join(projectDir(id), 'project.bak.json'), 'utf8'))
+    } catch {
+      throw err
+    }
+  }
 }
+
+const BACKUP_EVERY_MS = 10 * 60 * 1000
 
 export async function saveProject(project: Project): Promise<void> {
   const dir = projectDir(project.id)
   await fs.mkdir(dir, { recursive: true })
+  const file = join(dir, 'project.json')
+  const backup = join(dir, 'project.bak.json')
+  // Keep a copy of the previous state, refreshed at most every ten minutes.
+  const age = await fs.stat(backup).then(
+    (st) => Date.now() - st.mtimeMs,
+    () => Infinity
+  )
+  if (age > BACKUP_EVERY_MS) await fs.copyFile(file, backup).catch(() => {})
   // Write then rename, so a crash mid-save cannot leave a half-written project.
   const tmp = join(dir, 'project.json.tmp')
   await fs.writeFile(tmp, JSON.stringify(project))
-  await fs.rename(tmp, join(dir, 'project.json'))
+  await fs.rename(tmp, file)
 }
 
 /** Removes the project record and its preview cache. Original photos are never touched. */
@@ -81,6 +101,25 @@ export async function saveLearned(learned: Learned): Promise<void> {
 }
 
 export const removeStyleSamples = (styleId: string): Promise<void> => removeProject(styleCacheId(styleId))
+
+// --- what the optional AI advice has cost ---
+
+const spendFile = (): string => join(app.getPath('userData'), 'spend.json')
+
+export async function getSpend(): Promise<Record<string, number>> {
+  try {
+    return JSON.parse(await fs.readFile(spendFile(), 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
+export async function recordSpend(usd: number): Promise<void> {
+  const spend = await getSpend()
+  const month = new Date().toISOString().slice(0, 7)
+  spend[month] = (spend[month] ?? 0) + usd
+  await fs.writeFile(spendFile(), JSON.stringify(spend))
+}
 
 // --- settings ---------------------------------------------------------------
 

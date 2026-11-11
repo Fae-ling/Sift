@@ -148,3 +148,26 @@ describe('tasteOf', () => {
     expect(taste.fittedBalance).toBeGreaterThan(0.2)
   })
 })
+
+describe('two cameras', () => {
+  const a = (t: number, hash: string): Shot => ({ ...shot(t, hash), body: 'A7 #1' })
+  const b = (t: number, hash: string): Shot => ({ ...shot(t, hash), body: 'X-T5 #2' })
+
+  it('puts a camera with a wrong clock back in order', () => {
+    // Body B's clock runs an hour ahead.
+    const shots = [a(0, '1'.repeat(16)), b(3605, '2'.repeat(16)), a(10, '3'.repeat(16))]
+    expect(new Set(groupShots(shots, 120).map((s) => s.sceneId)).size).toBe(2)
+    const fixed = groupShots(shots, 120, { 'X-T5 #2': -3600 })
+    expect(fixed.map((s) => s.body)).toEqual(['A7 #1', 'X-T5 #2', 'A7 #1'])
+    expect(new Set(fixed.map((s) => s.sceneId)).size).toBe(1)
+  })
+
+  it('keeps each camera\'s burst together when the two interleave, and never mixes them', () => {
+    const h = 'ff00ff00ff00ff00'
+    const out = groupShots([a(0, h), b(0.5, h), a(1, h), b(1.5, h)], 120)
+    const stackOf = (body: string): Set<number | undefined> => new Set(out.filter((s) => s.body === body).map((s) => s.stackId))
+    expect(stackOf('A7 #1').size).toBe(1)
+    expect(stackOf('X-T5 #2').size).toBe(1)
+    expect([...stackOf('A7 #1')][0]).not.toBe([...stackOf('X-T5 #2')][0])
+  })
+})

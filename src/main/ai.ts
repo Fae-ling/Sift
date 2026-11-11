@@ -19,7 +19,7 @@ import {
   type StoryRequest,
   type Usage
 } from '@shared/types'
-import { cacheDir, getApiKey, getModel, safeId } from './store'
+import { cacheDir, getApiKey, getModel, recordSpend, safeId } from './store'
 
 /**
  * The paid layer. Everything measurable (focus, blinks, duplicates, exposure)
@@ -96,7 +96,9 @@ async function ask<T>(
   if (response.stop_reason === 'max_tokens' || !response.parsed_output) {
     throw new Error('The advice came back incomplete. Try again with fewer frames.')
   }
-  return { value: response.parsed_output, usage: usage(model, response.usage) }
+  const cost = usage(model, response.usage)
+  await recordSpend(cost.costUsd).catch(() => {})
+  return { value: response.parsed_output, usage: cost }
 }
 
 const StorySchema = z.object({

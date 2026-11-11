@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { facesAvailable } from '../analysis/faces'
+import { bodyOf } from '../analysis/grouping'
 import { useStore } from '../store'
 
 export function Import(): React.JSX.Element {
-  const { project, ingest, importFolder, cancelIngest, regroup, setView, notify } = useStore()
+  const { project, ingest, importFolder, cancelIngest, regroup, setView, notify, setClockOffset } = useStore()
   const [faces, setFaces] = useState<boolean | null>(null)
   useEffect(() => void facesAvailable().then(setFaces), [])
   if (!project) return <></>
@@ -15,6 +16,9 @@ export function Import(): React.JSX.Element {
   const stacks = new Set(analysed.map((s) => s.stackId)).size
   const suggested = analysed.filter((s) => s.suggestion === 'pick').length
   const warnings = analysed.filter((s) => s.score?.warnings.some((w) => w === 'blink' || w === 'soft' || w === 'soft-face')).length
+
+  const bodies = new Map<string, number>()
+  for (const s of analysed) bodies.set(bodyOf(s), (bodies.get(bodyOf(s)) ?? 0) + 1)
 
   const elapsed = (Date.now() - ingest.startedAt) / 1000
   const remaining = ingest.done > 3 ? Math.round((elapsed / ingest.done) * (ingest.total - ingest.done)) : null
@@ -125,6 +129,32 @@ export function Import(): React.JSX.Element {
           </label>
           <input id="gap" type="range" min={30} max={900} step={30} value={project.sceneGapSec} onChange={(e) => regroup(Number(e.target.value))} />
           <p className="muted small">Shorter pauses split the day into more scenes. Pick what matches how you shot.</p>
+
+          {bodies.size > 1 && (
+            <>
+              <h2>Camera clocks</h2>
+              <p className="muted small" style={{ maxWidth: 680 }}>
+                This shoot comes from {bodies.size} cameras. If their clocks disagree, frames interleave in the wrong
+                order and scenes split oddly. Find one moment both cameras caught, note the time each shows for it in
+                Cull, and enter the difference in seconds for one of them (negative if that camera runs ahead).
+              </p>
+              {[...bodies].map(([body, count]) => (
+                <div className="row" key={body} style={{ marginBottom: 6 }}>
+                  <span style={{ width: 280 }}>
+                    {body} <span className="muted small">· {count} frames</span>
+                  </span>
+                  <input
+                    type="number"
+                    style={{ width: 110 }}
+                    aria-label={`Clock correction for ${body} in seconds`}
+                    defaultValue={project.clockOffsets[body] ?? 0}
+                    onBlur={(e) => setClockOffset(body, Math.round(Number(e.target.value) || 0))}
+                  />
+                  <span className="muted small">seconds</span>
+                </div>
+              ))}
+            </>
+          )}
 
           <div className="row" style={{ marginTop: 16 }}>
             <button className="primary" onClick={() => setView('cull')}>

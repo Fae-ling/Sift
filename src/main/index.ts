@@ -8,6 +8,7 @@ import { copySelects, exportXmp, readDevelop } from './exporter'
 import { exiftool, extractPreview, savePreview, scanFolder } from './ingest'
 import {
   getLearned,
+  getSpend,
   getSettings,
   listProjects,
   loadProject,
@@ -86,6 +87,7 @@ function registerIpc(): void {
   handle('exportXmp', (items: XmpItem[]) => exportXmp(items))
   handle('copySelects', (paths: string[], dest: string) => copySelects(paths, dest))
   handle('reveal', (path: string) => shell.showItemInFolder(path))
+  handle('spend', getSpend)
   handle('settings:get', getSettings)
   handle('settings:set', (patch: { apiKey?: string; model?: string }) => setSettings(patch))
   handle('ai:story', (req: StoryRequest) => storyAdvice(req))

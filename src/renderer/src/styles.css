@@ -170,3 +170,11 @@ kbd { font: 11px ui-monospace, Consolas, monospace; background: #171717; border:
 .look-grid canvas { width: 100%; border-radius: 4px; display: block; }
 .look-grid figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .cull-bar select { width: auto; padding: 4px 8px; }
+
+/* Side-by-side compare */
+.two-up { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px; overflow: auto; }
+.two-up figure { margin: 0; min-width: 0; border: 2px solid transparent; border-radius: 4px; padding: 4px; cursor: pointer; }
+.two-up figure.here { border-color: #fff; }
+.two-up img { display: block; max-width: 100%; max-height: calc(100vh - 360px); margin: 0 auto; }
+.two-up figcaption { font-size: 12px; color: var(--muted); margin: 6px 0; text-align: center; }
+.two-up .closeups { justify-content: center; }

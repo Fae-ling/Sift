@@ -21,7 +21,7 @@ import { buildProfile, feelOf, mergeProfiles, profileFacts, STARTER_PROFILES, st
 import type { StyleProfile } from '@shared/types'
 
 export type View = 'projects' | 'profiles' | 'look' | 'brief' | 'import' | 'cull' | 'story' | 'coach' | 'export' | 'learn' | 'settings'
-export type Filter = 'all' | 'suggested' | 'undecided' | 'picks' | 'rejects' | 'warnings' | 'gems'
+export type Filter = 'all' | 'suggested' | 'undecided' | 'picks' | 'rejects' | 'warnings' | 'gems' | 'unkept'
 
 interface IngestState {
   running: boolean
@@ -29,6 +29,13 @@ interface IngestState {
   total: number
   failed: number
   startedAt: number
+}
+
+/** A frame's decision and rating before a change, so the change can be undone. */
+interface Before {
+  id: string
+  decision: Decision
+  rating: number
 }
 
 interface ReadState {
@@ -78,6 +85,11 @@ interface State {
   /** Progress of a reference gallery being analysed. */
   learning: { running: boolean; done: number; total: number }
   toast: string | null
+  /** Only frames of this chapter are shown in Cull; null shows every chapter. */
+  chapter: string | null
+  /** Decisions that can be undone and redone: each entry is what the changed frames were before. */
+  undoStack: Before[][]
+  redoStack: Before[][]
 
   setView(view: View): void
   setFilter(filter: Filter): void
@@ -95,6 +107,11 @@ interface State {
   importFolder(folder: string): Promise<void>
   cancelIngest(): void
   regroup(sceneGapSec?: number): void
+  setClockOffset(body: string, seconds: number): void
+  setChapter(chapter: string | null): void
+  setRating(id: string, rating: number): void
+  undo(): void
+  redo(): void
   setBalance(balance: number): void
   setGenre(genre: Genre): void
   loadLearned(): Promise<void>
@@ -138,6 +155,23 @@ function scoring(p: Pick<Project, 'genre' | 'balance' | 'styleIds'>, learned: Le
 
 export const activeStyles = (p: Project, learned: Learned): Style[] => learned.styles.filter((s) => p.styleIds.includes(s.id))
 
+/** Records the current decision and rating of the frames about to change. */
+function remember(get: () => State, set: (p: Partial<State>) => void, changes: (s: Shot) => boolean): void {
+  const before = (get().project?.shots ?? []).filter(changes).map((s) => ({ id: s.id, decision: s.decision, rating: s.rating }))
+  if (before.length) set({ undoStack: [...get().undoStack.slice(-199), before], redoStack: [] })
+}
+
+/** Restores the newest entry of one history stack and files the present state on the other. */
+function swap(get: () => State, set: (p: Partial<State>) => void, from: 'undoStack' | 'redoStack', to: 'undoStack' | 'redoStack'): void {
+  const entry = get()[from].at(-1)
+  if (!entry || !get().project) return
+  const byId = new Map(entry.map((b) => [b.id, b]))
+  const present = get().project!.shots.filter((s) => byId.has(s.id)).map((s) => ({ id: s.id, decision: s.decision, rating: s.rating }))
+  get().update((p) => ({ ...p, shots: p.shots.map((s) => (byId.has(s.id) ? { ...s, decision: byId.get(s.id)!.decision, rating: byId.get(s.id)!.rating } : s)) }))
+  set({ [from]: get()[from].slice(0, -1), [to]: [...get()[to], present] } as Partial<State>)
+  if (entry.length === 1) set({ selectedId: entry[0].id })
+}
+
 type Get = () => State
 type Set = (partial: Partial<State>) => void
 
@@ -178,6 +212,9 @@ export const useStore = create<State>((set, get) => ({
   learned: { styles: [], balance: {} },
   learning: { running: false, done: 0, total: 0 },
   toast: null,
+  chapter: null,
+  undoStack: [],
+  redoStack: [],
 
   setView: (view) => set({ view }),
   setFilter: (filter) => set({ filter }),
@@ -206,6 +243,7 @@ export const useStore = create<State>((set, get) => ({
       storyPlan: STORY_PLANS[genre],
       readCostUsd: 0,
       styleIds: [],
+      clockOffsets: {},
       storyOrder: [],
       gradeAdvice: {}
     }
@@ -221,12 +259,13 @@ export const useStore = create<State>((set, get) => ({
       balance: loaded.balance ?? DEFAULT_BALANCE[loaded.genre],
       storyPlan: loaded.storyPlan ?? STORY_PLANS[loaded.genre],
       readCostUsd: loaded.readCostUsd ?? 0,
+      clockOffsets: loaded.clockOffsets ?? {},
       styleIds: (loaded.styleIds ?? []).filter((id) => get().learned.styles.some((s) => s.id === id))
     }
     if (loaded.balance === undefined) project.shots = scoreAndSuggest(project.shots, scoring(project, get().learned))
     const has = project.shots.length > 0
     // Open on the frames the cull would keep; everything else is one click away.
-    set({ project, view: has ? 'cull' : 'brief', selectedId: null, filter: has ? 'suggested' : 'all' })
+    set({ project, view: has ? 'cull' : 'brief', selectedId: null, filter: has ? 'suggested' : 'all', chapter: null, undoStack: [], redoStack: [] })
   },
 
   closeProject: () => {
@@ -267,20 +306,35 @@ export const useStore = create<State>((set, get) => ({
     get().update((p) => ({ ...p, shots: p.shots.map((s) => (s.id === id ? { ...s, ...patch } : s)) })),
 
   decide: (ids, decision) => {
-    const set_ = new Set(ids)
-    get().update((p) => ({ ...p, shots: p.shots.map((s) => (set_.has(s.id) ? { ...s, decision } : s)) }))
+    const wanted = new Set(ids)
+    remember(get, set, (s) => wanted.has(s.id) && s.decision !== decision)
+    get().update((p) => ({ ...p, shots: p.shots.map((s) => (wanted.has(s.id) ? { ...s, decision } : s)) }))
+  },
+
+  setRating: (id, rating) => {
+    remember(get, set, (s) => s.id === id && s.rating !== rating)
+    get().updateShot(id, { rating })
   },
 
   // Turns proposals into decisions, but never overrides a choice already made.
   acceptSuggestions: (ids) => {
     const only = ids ? new Set(ids) : null
+    const applies = (s: Shot): boolean => (!only || only.has(s.id)) && s.decision === null && (s.suggestion === 'pick' || s.suggestion === 'reject')
+    remember(get, set, applies)
     get().update((p) => ({
       ...p,
-      shots: p.shots.map((s) => {
-        if ((only && !only.has(s.id)) || s.decision !== null || !s.suggestion) return s
-        return { ...s, decision: s.suggestion === 'pick' ? 'pick' : s.suggestion === 'reject' ? 'reject' : null }
-      })
+      shots: p.shots.map((s) => (applies(s) ? { ...s, decision: s.suggestion === 'pick' ? 'pick' : 'reject' } : s))
     }))
+  },
+
+  undo: () => swap(get, set, 'undoStack', 'redoStack'),
+  redo: () => swap(get, set, 'redoStack', 'undoStack'),
+
+  setChapter: (chapter) => set({ chapter }),
+
+  setClockOffset: (body, seconds) => {
+    get().update((p) => ({ ...p, clockOffsets: { ...p.clockOffsets, [body]: seconds } }))
+    get().regroup()
   },
 
   importFolder: async (folder) => {
@@ -341,7 +395,7 @@ export const useStore = create<State>((set, get) => ({
   regroup: (sceneGapSec) =>
     get().update((p) => {
       const gap = sceneGapSec ?? p.sceneGapSec
-      return { ...p, sceneGapSec: gap, shots: scoreAndSuggest(groupShots(p.shots, gap), scoring(p, get().learned)) }
+      return { ...p, sceneGapSec: gap, shots: scoreAndSuggest(groupShots(p.shots, gap, p.clockOffsets), scoring(p, get().learned)) }
     }),
 
   setBalance: (balance) =>
@@ -512,6 +566,17 @@ export function visibleShots(shots: Shot[], filter: Filter): Shot[] {
       return shots.filter((s) => (s.score?.warnings.length ?? 0) > 0)
     case 'gems':
       return shots.filter((s) => s.score?.gem)
+    case 'unkept': {
+      // A second look: for every moment you kept nothing from, its strongest frame.
+      const stacks = new Map<number, Shot[]>()
+      for (const s of shots) stacks.set(s.stackId ?? 0, [...(stacks.get(s.stackId ?? 0) ?? []), s])
+      const best = new Set<string>()
+      for (const stack of stacks.values()) {
+        if (stack.some((s) => s.decision === 'pick')) continue
+        best.add([...stack].sort((a, b) => (b.score?.overall ?? 0) - (a.score?.overall ?? 0))[0].id)
+      }
+      return shots.filter((s) => best.has(s.id))
+    }
     default:
       return shots
   }

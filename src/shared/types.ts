@@ -208,6 +208,8 @@ export interface Shot {
   focal?: number
   lens?: string
   camera?: string
+  /** Which camera body took it (model plus serial number), for clock correction. */
+  body?: string
   analysis?: Analysis
   score?: Score
   sceneId?: number
@@ -263,6 +265,8 @@ export interface Project {
   storyPlan: Beat[]
   /** Running total spent on editor's reads for this project. */
   readCostUsd: number
+  /** Seconds to add to each camera body's clock so that two cameras line up. */
+  clockOffsets: Record<string, number>
   /** The culling profile(s) this project is culled with. */
   styleIds: string[]
   storyOrder: string[]
@@ -296,7 +300,7 @@ export interface ExtractResult {
   url: string
   /** EXIF orientation (1..8) the renderer still has to apply itself. */
   applyOrientation: number
-  meta: Pick<Shot, 'time' | 'iso' | 'shutter' | 'aperture' | 'focal' | 'lens' | 'camera'>
+  meta: Pick<Shot, 'time' | 'iso' | 'shutter' | 'aperture' | 'focal' | 'lens' | 'camera' | 'body'>
 }
 
 export interface XmpItem {
@@ -337,6 +341,8 @@ export interface StudioApi {
   exportXmp(items: XmpItem[]): Promise<ExportResult>
   copySelects(paths: string[], dest: string): Promise<ExportResult>
   reveal(path: string): Promise<void>
+  /** What the optional Claude advice has cost, by month (YYYY-MM) in US dollars. */
+  spend(): Promise<Record<string, number>>
   settings: {
     get(): Promise<Settings>
     set(patch: { apiKey?: string; model?: string }): Promise<Settings>

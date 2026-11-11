@@ -89,6 +89,28 @@ try {
   // Enter accepts the suggestion for the current moment and moves to the next one.
   const moments = await page.locator('.strip .stack').count()
   for (let i = 0; i < moments; i++) await page.keyboard.press('Enter')
+  // Decisions can be undone and redone.
+  const picked = await page.locator('.strip .flag.pick').count()
+  await page.keyboard.press('Control+z')
+  assert.ok((await page.locator('.strip .flag.pick').count()) < picked, 'undo takes back the last decision')
+  await page.keyboard.press('Control+Shift+z')
+  assert.equal(await page.locator('.strip .flag.pick').count(), picked, 'redo restores it')
+
+  // Side-by-side compare, for a moment with more than one take.
+  const multi = page.locator('.strip .stack.multi .thumb').first()
+  if (await multi.count()) {
+    await multi.click()
+    await page.keyboard.press('c')
+    await page.locator('.two-up figure').nth(1).waitFor()
+    await snap('3-cull-compare')
+    await page.keyboard.press('c')
+  }
+
+  // The second look lists the best frame of every moment nothing was kept from.
+  await page.getByRole('button', { name: /^Second look/ }).click()
+  await snap('3-cull-second-look')
+  await page.getByRole('button', { name: /^All \d/ }).click()
+
   // A hidden gem is left for the photographer to decide; decide the first frame by hand.
   await page.locator('.strip .thumb').first().click()
   await page.keyboard.press('p')

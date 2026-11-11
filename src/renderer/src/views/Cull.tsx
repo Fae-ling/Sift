@@ -9,6 +9,7 @@ import { READ_TOKENS, readCandidates, useStore, visibleShots, type Filter } from
 const FILTERS: { id: Filter; label: string; hint: string }[] = [
   { id: 'suggested', label: 'Keepers', hint: 'The frames the cull would keep, plus your own picks' },
   { id: 'gems', label: 'Hidden gems', hint: 'Flawed frames that may hold a moment' },
+  { id: 'unkept', label: 'Second look', hint: 'The strongest frame of every moment you kept nothing from: check here for a missed shot-list moment before you finish' },
   { id: 'undecided', label: 'Undecided', hint: 'Frames you have not picked or rejected' },
   { id: 'picks', label: 'Picks', hint: 'Frames you picked' },
   { id: 'rejects', label: 'Rejects', hint: 'Frames you rejected' },
@@ -19,15 +20,26 @@ const FILTERS: { id: Filter; label: string; hint: string }[] = [
 const time = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 export function Cull(): React.JSX.Element {
-  const { project, selectedId, select, filter, setFilter, decide, updateShot, acceptSuggestions, setView, setBalance, learned, chooseStyle } = useStore()
+  const { project, selectedId, select, filter, setFilter, decide, acceptSuggestions, setView, setBalance, learned, chooseStyle, chapter, setChapter, setRating, undo, redo } = useStore()
+  const [compare, setCompare] = useState(false)
   const [zoom, setZoom] = useState(false)
   const [showRead, setShowRead] = useState(false)
   const stripRef = useRef<HTMLDivElement>(null)
 
   const shots = useMemo(() => project?.shots.filter((s) => s.analysis) ?? [], [project?.shots])
-  const list = useMemo(() => visibleShots(shots, filter), [shots, filter])
+  const chapters = useMemo(() => [...new Set(shots.flatMap((s) => (s.read ? [s.read.beat] : [])))], [shots])
+  const list = useMemo(
+    () => visibleShots(shots, filter).filter((s) => !chapter || s.read?.beat === chapter),
+    [shots, filter, chapter]
+  )
   const current = list.find((s) => s.id === selectedId) ?? list[0]
   const stack = useMemo(() => (current ? shots.filter((s) => s.stackId === current.stackId) : []), [shots, current])
+  // What to compare against: the suggested frame of this moment, or the runner-up if this is it.
+  const rival = useMemo(() => {
+    if (!current) return undefined
+    const ranked = stack.filter((s) => s.id !== current.id).sort((a, b) => (b.score?.overall ?? 0) - (a.score?.overall ?? 0))
+    return ranked.find((s) => s.suggestion === 'pick') ?? ranked[0]
+  }, [stack, current])
 
   // The chapter each scene belongs to: whichever beat the editor's read named most often.
   const sceneBeat = useMemo(() => {
@@ -85,9 +97,17 @@ export function Cull(): React.JSX.Element {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (!current || e.ctrlKey || e.metaKey || e.altKey) return
       if ((e.target as HTMLElement).closest('input, textarea, select')) return
       const key = e.key.toLowerCase()
+      if ((e.ctrlKey || e.metaKey) && key === 'z') {
+        e.preventDefault()
+        return e.shiftKey ? redo() : undo()
+      }
+      if ((e.ctrlKey || e.metaKey) && key === 'y') {
+        e.preventDefault()
+        return redo()
+      }
+      if (!current || e.ctrlKey || e.metaKey || e.altKey) return
       if (key === 'arrowright') move(1)
       else if (key === 'arrowleft') move(-1)
       else if (key === 'arrowdown') moveStack(1)
@@ -97,13 +117,14 @@ export function Cull(): React.JSX.Element {
       else if (key === 'u') decide([current.id], null)
       else if (key === 'enter') (acceptSuggestions(stack.map((s) => s.id)), moveStack(1))
       else if (key === 'z' || key === ' ') setZoom((z) => !z)
-      else if (/^[0-5]$/.test(key)) updateShot(current.id, { rating: Number(key) })
+      else if (key === 'c') setCompare((c) => !c)
+      else if (/^[0-5]$/.test(key)) setRating(current.id, Number(key))
       else return
       e.preventDefault()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [current, stack, move, moveStack, decide, acceptSuggestions, updateShot])
+  }, [current, stack, move, moveStack, decide, acceptSuggestions, setRating, undo, redo])
 
   if (!project) return <></>
   if (shots.length === 0) {
@@ -135,6 +156,16 @@ export function Cull(): React.JSX.Element {
             </button>
           ))}
         </div>
+        {chapters.length > 0 && (
+          <select value={chapter ?? ''} onChange={(e) => setChapter(e.target.value || null)} aria-label="Chapter" title="Show only frames from one chapter of the story">
+            <option value="">All chapters</option>
+            {chapters.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        )}
         <span className="small">
           <span style={{ color: 'var(--pick)' }}>{picks} picks</span>
           {target > 0 && <span className="muted"> / {target} target</span>} · <span style={{ color: 'var(--reject)' }}>{rejects} rejected</span> ·{' '}
@@ -199,7 +230,22 @@ export function Cull(): React.JSX.Element {
       {current ? (
         <>
           <div className="loupe">
-            <div className={`loupe-img ${zoom ? 'zoom' : ''}`} onClick={() => setZoom((z) => !z)} title="Click or press Z to zoom">
+            {compare && rival ? (
+              <div className="two-up" title="Press C to leave compare">
+                {[current, rival].map((s) => (
+                  <figure key={s.id} className={s.id === current.id ? 'here' : ''} onClick={() => select(s.id)}>
+                    <img src={previewUrl(project.id, s.id)} alt={s.name} draggable={false} />
+                    <figcaption>
+                      {s.name} · moment {s.score?.moment === null || !s.score ? '–' : Math.round(s.score.moment)} · craft {Math.round(s.score?.craft ?? 0)}
+                      {s.suggestion === 'pick' ? ' · suggested' : ''}
+                      {s.decision ? ` · ${s.decision}` : ''}
+                    </figcaption>
+                    <FaceCrops src={previewUrl(project.id, s.id)} faces={s.analysis!.faces.slice(0, 6)} />
+                  </figure>
+                ))}
+              </div>
+            ) : (
+              <div className={`loupe-img ${zoom ? 'zoom' : ''}`} onClick={() => setZoom((z) => !z)} title="Click or press Z to zoom">
               <div className="frame">
                 <img src={previewUrl(project.id, current.id)} alt={current.name} draggable={false} />
                 {!zoom &&
@@ -212,6 +258,7 @@ export function Cull(): React.JSX.Element {
                   ))}
               </div>
             </div>
+            )}
             <div className="compare">
               {stack.map((s) => (
                 <div key={s.id}>
@@ -269,7 +316,7 @@ const SUGGESTION_TEXT = {
 }
 
 function Inspector({ shot, projectId }: { shot: Shot; projectId: string }): React.JSX.Element {
-  const { decide, updateShot } = useStore()
+  const { decide, setRating } = useStore()
   const score = shot.score
   const a = shot.analysis!
   return (
@@ -289,7 +336,7 @@ function Inspector({ shot, projectId }: { shot: Shot; projectId: string }): Reac
       </div>
       <div className="row" style={{ gap: 2 }}>
         {[1, 2, 3, 4, 5].map((n) => (
-          <button key={n} className="link" style={{ fontSize: 18, textDecoration: 'none', color: n <= shot.rating ? '#fff' : '#555' }} onClick={() => updateShot(shot.id, { rating: shot.rating === n ? 0 : n })} aria-label={`${n} stars`}>
+          <button key={n} className="link" style={{ fontSize: 18, textDecoration: 'none', color: n <= shot.rating ? '#fff' : '#555' }} onClick={() => setRating(shot.id, shot.rating === n ? 0 : n)} aria-label={`${n} stars`}>
             ★
           </button>
         ))}
@@ -359,11 +406,13 @@ function Inspector({ shot, projectId }: { shot: Shot; projectId: string }): Reac
       <div className="small muted" style={{ lineHeight: 2 }}>
         <kbd>←</kbd> <kbd>→</kbd> frame · <kbd>↑</kbd> <kbd>↓</kbd> moment
         <br />
-        <kbd>P</kbd> pick · <kbd>X</kbd> reject · <kbd>U</kbd> undo
+        <kbd>P</kbd> pick · <kbd>X</kbd> reject · <kbd>U</kbd> clear
         <br />
         <kbd>Enter</kbd> accept suggestion for this moment
         <br />
-        <kbd>1</kbd>–<kbd>5</kbd> stars · <kbd>Z</kbd> zoom
+        <kbd>1</kbd>–<kbd>5</kbd> stars · <kbd>Z</kbd> zoom · <kbd>C</kbd> compare
+        <br />
+        <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo
       </div>
     </div>
   )

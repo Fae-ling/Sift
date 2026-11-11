@@ -2,9 +2,13 @@ import { useState } from 'react'
 import type { ExportResult, XmpItem } from '@shared/types'
 import { useStore } from '../store'
 
+/** A starting star rating for a pick you have not rated yourself. */
+const starsFor = (overall: number): number => (overall >= 85 ? 5 : overall >= 75 ? 4 : overall >= 62 ? 3 : overall >= 48 ? 2 : 1)
+
 export function Export(): React.JSX.Element {
   const { project, notify } = useStore()
   const [includeRejects, setIncludeRejects] = useState(true)
+  const [autoStars, setAutoStars] = useState(false)
   const [result, setResult] = useState<{ kind: string; r: ExportResult } | null>(null)
   const [busy, setBusy] = useState(false)
   if (!project) return <></>
@@ -12,7 +16,7 @@ export function Export(): React.JSX.Element {
   const picks = project.shots.filter((s) => s.decision === 'pick')
   const rejects = project.shots.filter((s) => s.decision === 'reject')
   const items: XmpItem[] = [
-    ...picks.map((s) => ({ path: s.path, rating: s.rating, label: 'Green' })),
+    ...picks.map((s) => ({ path: s.path, rating: s.rating || (autoStars ? starsFor(s.score?.overall ?? 0) : 0), label: 'Green' })),
     ...(includeRejects ? rejects.map((s) => ({ path: s.path, rating: 0, label: 'Red' })) : [])
   ]
 
@@ -50,6 +54,11 @@ export function Export(): React.JSX.Element {
       <label style={{ fontWeight: 400 }} className="row">
         <input type="checkbox" style={{ width: 'auto' }} checked={includeRejects} onChange={(e) => setIncludeRejects(e.target.checked)} />
         Also label rejects, so you can filter them out in Lightroom
+      </label>
+
+      <label style={{ fontWeight: 400 }} className="row">
+        <input type="checkbox" style={{ width: 'auto' }} checked={autoStars} onChange={(e) => setAutoStars(e.target.checked)} />
+        Give picks I have not rated a starting star rating from their scores (a first sort for the edit, yours to change)
       </label>
 
       <div className="row" style={{ marginTop: 16 }}>

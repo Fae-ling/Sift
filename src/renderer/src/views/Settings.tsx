@@ -1,10 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { MODELS } from '@shared/types'
 import { useStore } from '../store'
 
 export function SettingsView(): React.JSX.Element {
   const { settings, saveSettings, notify } = useStore()
   const [key, setKey] = useState('')
+  const [spend, setSpend] = useState<Record<string, number>>({})
+  useEffect(() => void window.studio.spend().then(setSpend), [])
+  const month = new Date().toISOString().slice(0, 7)
+  const total = Object.values(spend).reduce((a, b) => a + b, 0)
 
   return (
     <div className="page">
@@ -22,6 +26,19 @@ export function SettingsView(): React.JSX.Element {
           first and the real cost after.
         </p>
       </div>
+
+      <h2>Spent on advice</h2>
+      <div className="stats" style={{ maxWidth: 420 }}>
+        <div className="card">
+          <div className="stat">${(spend[month] ?? 0).toFixed(2)}</div>
+          <div className="muted small">this month</div>
+        </div>
+        <div className="card">
+          <div className="stat">${total.toFixed(2)}</div>
+          <div className="muted small">in total</div>
+        </div>
+      </div>
+      <p className="muted small">Counted from what each request actually used, at the list prices below. Your Anthropic console has the authoritative figure.</p>
 
       <h2>Anthropic API key</h2>
       <p className="muted small">
