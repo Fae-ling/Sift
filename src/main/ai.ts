@@ -1,0 +1,174 @@
+import { promises as fs } from 'node:fs'
+import { join } from 'node:path'
+import Anthropic from '@anthropic-ai/sdk'
+import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
+import { z } from 'zod'
+import {
+  MODELS,
+  type Brief,
+  type Genre,
+  type GradeAdvice,
+  type GradeRequest,
+  type StoryAdvice,
+  type StoryRequest,
+  type Usage
+} from '@shared/types'
+import { cacheDir, getApiKey, getModel, safeId } from './store'
+
+/**
+ * The paid layer. Everything measurable (focus, blinks, duplicates, exposure)
+ * is done on the user's machine for free; Claude is only asked the questions
+ * that need taste and the brief: which frames tell the story, and how to grade.
+ */
+
+const MENTOR = `You are a mentor to a working photographer who also shoots cinematic video and does graphic design. They do their own culling and editing in Lightroom Classic, Photoshop and DaVinci Resolve. Your job is to make them a better artist, not to do the work for them.
+
+How to advise:
+- Ground every suggestion in what is visible in the frames and in the brief. Name the principle behind it (colour contrast, tonal hierarchy, pacing, visual rhythm, eye-line, and so on) so the reasoning transfers to the next shoot.
+- Give direction and rough magnitude ("pull highlights down a little, about a third of a stop"), never a preset or exact slider recipe to copy. They decide the final values by eye.
+- Where the client's ask and the photographer's intention pull in different directions, say so plainly and suggest how to serve both.
+- Be honest. If a frame is weak or the set has a hole, say it kindly and specifically.
+- Write plainly and briefly. No flattery, no filler.`
+
+const briefText = (genre: Genre, b: Brief): string =>
+  [
+    `Genre: ${genre}`,
+    `Client: ${b.client || 'not given'}`,
+    `Client asked for: ${b.clientAsk || 'not given'}`,
+    `Photographer's intention: ${b.intention || 'not given'}`,
+    `Mood words: ${b.moodWords || 'not given'}`,
+    `Colour / visual references: ${b.references || 'not given'}`,
+    `Deliverables: ${b.deliverables || 'not given'}`,
+    `Target number of final images: ${b.targetCount || 'undecided'}`
+  ].join('\n')
+
+async function client(): Promise<Anthropic> {
+  const apiKey = await getApiKey()
+  if (!apiKey) throw new Error('Add your Anthropic API key in Settings to use AI advice.')
+  return new Anthropic({ apiKey })
+}
+
+async function image(projectId: string, file: string): Promise<Anthropic.ImageBlockParam> {
+  const data = await fs.readFile(join(cacheDir(projectId), file))
+  return { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: data.toString('base64') } }
+}
+
+function usage(model: string, u: Anthropic.Usage): Usage {
+  const price = MODELS.find((m) => m.id === model) ?? MODELS[0]
+  const input = u.input_tokens + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0)
+  return {
+    model,
+    inputTokens: input,
+    outputTokens: u.output_tokens,
+    costUsd: (input * price.inPerM + u.output_tokens * price.outPerM) / 1_000_000
+  }
+}
+
+async function ask<T>(
+  schema: z.ZodType<T>,
+  content: Anthropic.ContentBlockParam[]
+): Promise<{ value: T; usage: Usage }> {
+  const model = await getModel()
+  const anthropic = await client()
+  let response
+  try {
+    response = await anthropic.messages.parse({
+      model,
+      max_tokens: 16000,
+      system: MENTOR,
+      output_config: { effort: 'medium', format: zodOutputFormat(schema) },
+      messages: [{ role: 'user', content }]
+    })
+  } catch (err) {
+    if (err instanceof Anthropic.AuthenticationError) throw new Error('The API key was rejected. Check it in Settings.')
+    if (err instanceof Anthropic.RateLimitError) throw new Error('Rate limited by the API. Wait a minute and try again.')
+    if (err instanceof Anthropic.APIConnectionError) throw new Error('Could not reach the API. Check your connection.')
+    if (err instanceof Anthropic.APIError) throw new Error(`The API returned an error: ${err.message}`)
+    throw err
+  }
+  if (response.stop_reason === 'refusal') throw new Error('The model declined to comment on these images.')
+  if (response.stop_reason === 'max_tokens' || !response.parsed_output) {
+    throw new Error('The advice came back incomplete. Try again with fewer frames.')
+  }
+  return { value: response.parsed_output, usage: usage(model, response.usage) }
+}
+
+const StorySchema = z.object({
+  summary: z.string().describe('Two or three sentences: what story these frames can tell and how well they serve the brief.'),
+  sequence: z
+    .array(
+      z.object({
+        frame: z.number().describe('Frame number as labelled.'),
+        role: z.string().describe('Its job in the sequence, e.g. "opener: sets the place", "emotional peak", "breather", "closer".'),
+        why: z.string().describe('One sentence on why this frame, here.')
+      })
+    )
+    .describe('The recommended delivery sequence, in viewing order.'),
+  cut: z
+    .array(z.object({ frame: z.number(), why: z.string() }))
+    .describe('Frames to leave out, and the specific reason for each (repeats another frame, weak expression, breaks the mood...).'),
+  gaps: z.array(z.string()).describe('What the story is missing that could still be found among unpicked frames or shot next time.'),
+  lesson: z.string().describe('One transferable sequencing principle this set illustrates, in two or three sentences.')
+})
+
+/** Sends small thumbnails of the candidate frames and asks for a sequence. */
+export async function storyAdvice(req: StoryRequest): Promise<StoryAdvice> {
+  const content: Anthropic.ContentBlockParam[] = [
+    {
+      type: 'text',
+      text: `${briefText(req.genre, req.brief)}\n\nBelow are ${req.frames.length} candidate frames in capture order. Each is labelled with a frame number, its scene, capture time and shot type. "picked" means the photographer has already chosen it.`
+    }
+  ]
+  for (const [i, f] of req.frames.entries()) {
+    content.push({
+      type: 'text',
+      text: `Frame ${i + 1} | scene ${f.scene} | ${f.time} | ${f.shotType}${f.faces ? `, ${f.faces} face(s)` : ''}${f.picked ? ' | picked' : ''}`
+    })
+    content.push(await image(req.projectId, `${safeId(f.shotId)}_t.jpg`))
+  }
+  content.push({
+    type: 'text',
+    text: `Build the strongest delivery sequence${req.brief.targetCount ? ` of about ${req.brief.targetCount} frames` : ''} from these candidates. Think like a picture editor: an opener that sets the scene, variety of scale (wide, medium, close, detail), a rhythm of energy and rest, and a closer that lands. Refer to frames by number.`
+  })
+
+  const { value, usage } = await ask(StorySchema, content)
+  const id = (n: number): string | undefined => req.frames[n - 1]?.shotId
+  return {
+    summary: value.summary,
+    sequence: value.sequence.flatMap((s) => (id(s.frame) ? [{ shotId: id(s.frame)!, role: s.role, why: s.why }] : [])),
+    cut: value.cut.flatMap((c) => (id(c.frame) ? [{ shotId: id(c.frame)!, why: c.why }] : [])),
+    gaps: value.gaps,
+    lesson: value.lesson,
+    usage
+  }
+}
+
+const GradeSchema = z.object({
+  read: z.string().describe('What the image is doing now: where the light comes from, the tonal structure, the existing colour relationships, where the eye goes.'),
+  direction: z.string().describe('The grade to aim for and how it serves the brief and mood words, including the colour harmony to build.'),
+  steps: z
+    .array(
+      z.object({
+        panel: z.string().describe('Lightroom Classic panel or tool, in the order to work: Profile, White Balance, Tone, Tone Curve, HSL / Color Mixer, Color Grading, Masking, Detail, Crop...'),
+        move: z.string().describe('The direction and rough size of the adjustment.'),
+        why: z.string().describe('The principle behind it.')
+      })
+    )
+    .describe('Ordered editing plan: correct first, then shape, then style.'),
+  watchOut: z.array(z.string()).describe('Specific risks in this image, e.g. skin going orange, banding in the sky, a distracting bright edge.'),
+  resolveNote: z.string().describe('How the same look would be approached for matching video in DaVinci Resolve (nodes, scopes), in two or three sentences.'),
+  lesson: z.string().describe('One transferable principle about colour or light that this image teaches.')
+})
+
+/** Sends one preview plus its measured statistics and asks for a grading plan. */
+export async function gradeAdvice(req: GradeRequest): Promise<GradeAdvice> {
+  const { value, usage } = await ask(GradeSchema, [
+    { type: 'text', text: briefText(req.genre, req.brief) },
+    await image(req.projectId, `${safeId(req.shotId)}.jpg`),
+    {
+      type: 'text',
+      text: `This is the camera's unedited embedded preview of one selected frame. Measurements taken from it:\n${req.measurements}\n\nCoach me through grading it for this brief. The measurements are from the preview, so treat them as a guide to what the RAW holds, not as exact values.`
+    }
+  ])
+  return { ...value, usage }
+}

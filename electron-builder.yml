@@ -1,0 +1,18 @@
+appId: studio.atelier.app
+productName: Atelier
+directories:
+  output: release
+files:
+  - out/**
+  - package.json
+# ExifTool is a separate executable and cannot run from inside the asar archive.
+asarUnpack:
+  - node_modules/exiftool-vendored.exe/**
+  - node_modules/exiftool-vendored.pl/**
+win:
+  target: nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+linux:
+  target: dir
