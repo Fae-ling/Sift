@@ -6,20 +6,20 @@ import { Thumb } from '../components/Thumb'
 import { estimateCost, formatCost } from '../components/AiCost'
 import { READ_TOKENS, readCandidates, useStore, visibleShots, type Filter } from '../store'
 
-const FILTERS: { id: Filter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'suggested', label: 'Suggested' },
-  { id: 'undecided', label: 'Undecided' },
-  { id: 'picks', label: 'Picks' },
-  { id: 'rejects', label: 'Rejects' },
-  { id: 'warnings', label: 'Flagged' },
-  { id: 'gems', label: 'Hidden gems' }
+const FILTERS: { id: Filter; label: string; hint: string }[] = [
+  { id: 'suggested', label: 'Keepers', hint: 'The frames the cull would keep, plus your own picks' },
+  { id: 'gems', label: 'Hidden gems', hint: 'Flawed frames that may hold a moment' },
+  { id: 'undecided', label: 'Undecided', hint: 'Frames you have not picked or rejected' },
+  { id: 'picks', label: 'Picks', hint: 'Frames you picked' },
+  { id: 'rejects', label: 'Rejects', hint: 'Frames you rejected' },
+  { id: 'warnings', label: 'Flagged', hint: 'Closed eyes, soft, or badly exposed' },
+  { id: 'all', label: 'All', hint: 'Every frame of the shoot' }
 ]
 
 const time = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 export function Cull(): React.JSX.Element {
-  const { project, selectedId, select, filter, setFilter, decide, updateShot, acceptSuggestions, setView, setBalance } = useStore()
+  const { project, selectedId, select, filter, setFilter, decide, updateShot, acceptSuggestions, setView, setBalance, learned, chooseStyle } = useStore()
   const [zoom, setZoom] = useState(false)
   const [showRead, setShowRead] = useState(false)
   const stripRef = useRef<HTMLDivElement>(null)
@@ -129,8 +129,9 @@ export function Cull(): React.JSX.Element {
       <div className="cull-bar">
         <div className="tabs" role="tablist">
           {FILTERS.map((f) => (
-            <button key={f.id} className={filter === f.id ? 'on' : ''} onClick={() => setFilter(f.id)}>
+            <button key={f.id} className={filter === f.id ? 'on' : ''} onClick={() => setFilter(f.id)} title={f.hint}>
               {f.label}
+              <span className="muted"> {visibleShots(shots, f.id).length}</span>
             </button>
           ))}
         </div>
@@ -140,13 +141,26 @@ export function Cull(): React.JSX.Element {
           <span className="muted">{undecided} to decide</span>
         </span>
         <div className="spacer" />
+        <select
+          value={project.styleIds[0] ?? ''}
+          onChange={(e) => chooseStyle(e.target.value || null)}
+          aria-label="Culling profile"
+          title="The feeling this shoot is culled for. Manage profiles under Culling profiles."
+        >
+          <option value="">No profile</option>
+          {learned.styles.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
         <label className="balance" title="How much the moment counts against technical quality when suggesting keepers">
           <span className="muted small">Craft</span>
           <input type="range" min={0} max={1} step={0.05} value={project.balance} onChange={(e) => setBalance(Number(e.target.value))} aria-label="Balance between craft and moment" />
           <span className="muted small">Moment</span>
         </label>
         <button className={showRead ? 'on' : ''} onClick={() => setShowRead((v) => !v)}>
-          Editor's read
+          Cull with Claude
         </button>
         <button onClick={() => acceptSuggestions()} disabled={undecided === 0} title="Applies every suggestion to frames you have not decided yourself">
           Accept all remaining suggestions
@@ -392,8 +406,9 @@ function FaceCrops({ src, faces }: { src: string; faces: FaceInfo[] }): React.JS
 
 /** Explains the paid editor's read, shows its cost before and after, and runs it. */
 function ReadPanel(): React.JSX.Element {
-  const { project, settings, reading, readShoot, cancelRead, setView } = useStore()
+  const { project, settings, reading, readShoot, cancelRead, setView, learned } = useStore()
   if (!project) return <></>
+  const profile = learned.styles.find((s) => project.styleIds.includes(s.id))
   const todo = readCandidates(project.shots)
   const read = project.shots.filter((s) => s.read).length
   const chunks = Math.ceil(todo.length / READ_TOKENS.chunk)
@@ -405,11 +420,12 @@ function ReadPanel(): React.JSX.Element {
   return (
     <div className="read-panel">
       <div style={{ flex: 1, minWidth: 280 }}>
-        <b>Editor's read.</b>{' '}
+        <b>Cull with Claude.</b>{' '}
         <span className="muted">
-          Shows one to three small thumbnails of each moment to Claude, with your brief and story plan. For every frame
-          it says which chapter it belongs to, how much it carries, and why, and it points out hidden gems: flawed
-          frames worth keeping. It informs the suggestions; it decides nothing.
+          Claude looks at one to three small thumbnails of each moment, knowing your brief, your story plan
+          {profile ? <> and the profile “{profile.name}”</> : ', and your culling profile if you choose one'}. For every
+          frame it says which chapter it belongs to, how much it carries for this feeling, and why, and it points out
+          hidden gems. Its read is folded into the Keepers; you still make every decision.
         </span>
         {read > 0 && (
           <span className="muted">

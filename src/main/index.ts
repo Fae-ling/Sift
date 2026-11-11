@@ -1,15 +1,19 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type { GradeRequest, Project, ReadRequest, StoryRequest, XmpItem } from '@shared/types'
-import { gradeAdvice, narrativeRead, storyAdvice } from './ai'
-import { copySelects, exportXmp } from './exporter'
+import type { EssenceRequest, GradeRequest, Learned, Project, ReadRequest, StoryRequest, XmpItem } from '@shared/types'
+import { gradeAdvice, narrativeRead, storyAdvice, styleEssence } from './ai'
+import { promises as fs } from 'node:fs'
+import { copySelects, exportXmp, readDevelop } from './exporter'
 import { exiftool, extractPreview, savePreview, scanFolder } from './ingest'
 import {
+  getLearned,
   getSettings,
   listProjects,
   loadProject,
   removeProject,
+  removeStyleSamples,
+  saveLearned,
   resolveMediaPath,
   saveProject,
   setSettings
@@ -60,7 +64,21 @@ function registerIpc(): void {
     })
     return result.canceled ? null : result.filePaths[0]
   })
-  handle('scan', (folder: string) => scanFolder(folder))
+  handle('pickImage', async () => {
+    const result = await dialog.showOpenDialog({ title: 'Choose a photo', properties: ['openFile'] })
+    return result.canceled ? null : result.filePaths[0]
+  })
+  handle('saveText', async (defaultName: string, content: string) => {
+    const result = await dialog.showSaveDialog({ defaultPath: defaultName })
+    if (result.canceled || !result.filePath) return null
+    await fs.writeFile(result.filePath, content)
+    return result.filePath
+  })
+  handle('readDevelop', (path: string) => readDevelop(path))
+  handle('scan', (folder: string, anyImage?: boolean) => scanFolder(folder, anyImage))
+  handle('learned:get', getLearned)
+  handle('learned:save', (learned: Learned) => saveLearned(learned))
+  handle('learned:removeSamples', (styleId: string) => removeStyleSamples(styleId))
   handle('extract', (projectId: string, shotId: string, path: string) => extractPreview(projectId, shotId, path))
   handle('savePreview', (projectId: string, shotId: string, preview: ArrayBuffer, thumb: ArrayBuffer) =>
     savePreview(projectId, shotId, preview, thumb)
@@ -73,6 +91,7 @@ function registerIpc(): void {
   handle('ai:story', (req: StoryRequest) => storyAdvice(req))
   handle('ai:grade', (req: GradeRequest) => gradeAdvice(req))
   handle('ai:read', (req: ReadRequest) => narrativeRead(req))
+  handle('ai:essence', (req: EssenceRequest) => styleEssence(req))
 }
 
 void app.whenReady().then(() => {

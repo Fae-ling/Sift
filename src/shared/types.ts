@@ -103,6 +103,85 @@ export interface Beat {
   look: string
 }
 
+/**
+ * What a set of chosen photographs has in common, measured on-device. Built
+ * from a photographer's gallery or from the user's own picks.
+ */
+export interface StyleProfile {
+  count: number
+  /** Share of frames with at least one face. */
+  facesShare: number
+  /** Mean joy and closeness (0..1) among frames with faces. */
+  expression: number
+  connection: number
+  laughShare: number
+  /** Share of frames with faces where eyes are closed or lowered: chosen anyway. */
+  closedEyesShare: number
+  shotTypes: Record<ShotType, number>
+  luma: number
+  contrast: number
+  saturation: number
+  warmth: number
+}
+
+/** What Claude distilled from looking at a reference gallery. */
+export interface StyleEssence {
+  summary: string
+  /** How this photographer seems to choose. */
+  principles: string[]
+  lookFor: string[]
+  forgive: string[]
+  usage?: Usage
+}
+
+/** Something a culling profile has learned from. */
+export interface StyleSource {
+  name: string
+  kind: 'gallery' | 'own-picks'
+  count: number
+  addedAt: number
+}
+
+/**
+ * A culling profile: a feeling to cull for. It holds the words that describe
+ * the atmosphere and everything learned from the galleries and picks added to
+ * it. Shared by all projects. (Called "Style" in code.)
+ */
+export interface Style {
+  id: string
+  name: string
+  /** Atmosphere words, e.g. "intimate", "joyful", "editorial". They steer the cull. */
+  tags: string[]
+  /** The feeling in a sentence or two, in the photographer's words. */
+  feeling: string
+  createdAt: number
+  sources: StyleSource[]
+  /** What the added photographs have in common. null until something is added. */
+  profile: StyleProfile | null
+  /** Ids of the sample thumbnails kept for display and for the essence. */
+  samples: string[]
+  essence?: StyleEssence
+  /** How many photographs the profile held when the essence was distilled. */
+  essenceCount?: number
+}
+
+/** What the app has learned across projects. */
+export interface Learned {
+  styles: Style[]
+  /** The craft/moment balance that matched the user's own choices, per kind of shoot. */
+  balance: Partial<Record<Genre, { value: number; projects: number }>>
+  /** True once the starter profiles have been created (so deleting them sticks). */
+  seeded?: boolean
+}
+
+/** Lightroom develop settings read from a photo's XMP sidecar. */
+export interface DevelopSettings {
+  /** When the sidecar was last written, ms since epoch. */
+  modified: number
+  /** Setting name (as Lightroom's XMP calls it) to value. Only settings that are present. */
+  values: Record<string, number | string>
+}
+
 /** A picture editor's reading of one frame (from the optional AI read). */
 export interface NarrativeRead {
   beat: string
@@ -184,6 +263,8 @@ export interface Project {
   storyPlan: Beat[]
   /** Running total spent on editor's reads for this project. */
   readCostUsd: number
+  /** The culling profile(s) this project is culled with. */
+  styleIds: string[]
   storyOrder: string[]
   storyAdvice?: StoryAdvice
   gradeAdvice: Record<string, GradeAdvice>
@@ -237,7 +318,20 @@ export interface StudioApi {
     remove(id: string): Promise<void>
   }
   pickFolder(): Promise<string | null>
-  scan(folder: string): Promise<ScannedFile[]>
+  /** Lets the user choose one image file of any kind. */
+  pickImage(): Promise<string | null>
+  /** Asks where to save, then writes the text. Returns the path, or null if cancelled. */
+  saveText(defaultName: string, content: string): Promise<string | null>
+  /** Reads the develop settings Lightroom wrote next to a RAW, or null if there are none. */
+  readDevelop(path: string): Promise<DevelopSettings | null>
+  /** `anyImage` also lists PNG and WebP, for reference galleries saved from the web. */
+  scan(folder: string, anyImage?: boolean): Promise<ScannedFile[]>
+  learned: {
+    get(): Promise<Learned>
+    save(learned: Learned): Promise<void>
+    /** Deletes the sample thumbnails of a removed style. */
+    removeSamples(styleId: string): Promise<void>
+  }
   extract(projectId: string, shotId: string, path: string): Promise<ExtractResult>
   savePreview(projectId: string, shotId: string, preview: ArrayBuffer, thumb: ArrayBuffer): Promise<void>
   exportXmp(items: XmpItem[]): Promise<ExportResult>
@@ -251,6 +345,7 @@ export interface StudioApi {
     story(req: StoryRequest): Promise<StoryAdvice>
     grade(req: GradeRequest): Promise<GradeAdvice>
     read(req: ReadRequest): Promise<ReadResult>
+    essence(req: EssenceRequest): Promise<StyleEssence>
   }
 }
 
@@ -261,11 +356,21 @@ export interface StoryRequest {
   frames: { shotId: string; scene: number; time: string; shotType: ShotType; faces: number; picked: boolean }[]
 }
 
+export interface EssenceRequest {
+  styleId: string
+  name: string
+  samples: string[]
+  /** The measured profile, in words. */
+  facts: string
+}
+
 export interface ReadRequest {
   projectId: string
   genre: Genre
   brief: Brief
   beats: Beat[]
+  /** The feeling being culled for and what the active profile has learned, if any. */
+  styleNotes: string
   frames: { shotId: string; scene: number; time: string; shotType: ShotType; flaws: string }[]
 }
 
@@ -280,10 +385,15 @@ export interface GradeRequest {
   brief: Brief
   shotId: string
   measurements: string
+  /** The current Lightroom settings for this photo, if a sidecar exists. */
+  develop: string
 }
 
 export const RAW_EXTENSIONS = ['arw', 'raf', 'cr2', 'cr3', 'nef', 'dng', 'orf', 'rw2', 'pef', 'srw']
 export const IMAGE_EXTENSIONS = [...RAW_EXTENSIONS, 'jpg', 'jpeg']
+export const WEB_EXTENSIONS = ['png', 'webp']
+/** Styles keep their sample thumbnails in a cache folder named like a project. */
+export const styleCacheId = (styleId: string): string => `style-${styleId}`
 
 export const MODELS: { id: string; label: string; inPerM: number; outPerM: number }[] = [
   { id: 'claude-opus-5-5', label: 'Claude Opus 5.5 — best advice', inPerM: 4, outPerM: 20 },

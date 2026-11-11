@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
-import { coachNotes, measurementText } from '../analysis/coach'
+import { useEffect, useMemo, useState } from 'react'
+import type { DevelopSettings } from '@shared/types'
+import { coachNotes, developText, developTips, measurementText } from '../analysis/coach'
 import { previewUrl } from '../analysis/pipeline'
 import { estimateCost, formatCost } from '../components/AiCost'
 import { Scopes } from '../components/Scopes'
@@ -26,6 +27,27 @@ export function Coach(): React.JSX.Element {
 
   const shots = useMemo(() => project?.shots.filter((s) => s.analysis) ?? [], [project?.shots])
   const picks = useMemo(() => shots.filter((s) => s.decision === 'pick'), [shots])
+  const [develop, setDevelop] = useState<DevelopSettings | null>(null)
+  const current = picks.find((s) => s.id === chosen) ?? picks[0]
+
+  // Follow the edit: Lightroom rewrites the sidecar as you work, so look again every few seconds.
+  useEffect(() => {
+    if (!current) return
+    let live = true
+    const check = (): void => {
+      void window.studio
+        .readDevelop(current.path)
+        .then((d) => live && setDevelop((prev) => (prev?.modified === d?.modified ? prev : d)))
+        .catch(() => live && setDevelop(null))
+    }
+    setDevelop(null)
+    check()
+    const timer = setInterval(check, 3000)
+    return () => {
+      live = false
+      clearInterval(timer)
+    }
+  }, [current?.id, current?.path])
   if (!project) return <></>
   if (picks.length === 0) {
     return (
@@ -53,7 +75,8 @@ export function Coach(): React.JSX.Element {
         genre: project.genre,
         brief: project.brief,
         shotId: shot.id,
-        measurements: measurementText(shot)
+        measurements: measurementText(shot),
+        develop: develop && Object.keys(develop.values).length ? developText(develop.values) : ''
       })
       update((p) => ({ ...p, gradeAdvice: { ...p.gradeAdvice, [shot.id]: result } }))
     } catch (err) {
@@ -100,6 +123,29 @@ export function Coach(): React.JSX.Element {
             <p className="small">{n.advice}</p>
           </div>
         ))}
+
+        <h3>Your edit so far</h3>
+        {develop && Object.keys(develop.values).length > 3 ? (
+          <>
+            <p className="small muted">
+              Read from Lightroom's sidecar, saved {new Date(develop.modified).toLocaleTimeString()}. Updates by itself as you edit.
+            </p>
+            {developTips(develop.values, shot, project.brief).map((n, i) => (
+              <div className={`note ${n.level === 'attention' ? 'warn' : 'teach'}`} key={i}>
+                <p>
+                  <b>{n.topic}.</b> {n.finding}
+                </p>
+                <p className="small">{n.advice}</p>
+              </div>
+            ))}
+          </>
+        ) : (
+          <p className="small muted">
+            No Lightroom settings found for this photo yet. To get tips while you edit, turn on Catalog Settings →
+            Metadata → <b>Automatically write changes into XMP</b> in Lightroom Classic (or press Ctrl+S on a photo).
+            Lightroom then saves your sliders next to the RAW and this panel follows along.
+          </p>
+        )}
 
         <h3>Grading plan for your brief</h3>
         {!project.brief.moodWords && !project.brief.intention && (

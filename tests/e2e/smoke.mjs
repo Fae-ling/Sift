@@ -5,7 +5,7 @@
 //
 // On a machine without a display, prefix with `xvfb-run -a`.
 import { createRequire } from 'node:module'
-import { mkdtempSync, existsSync, readdirSync, readFileSync } from 'node:fs'
+import { mkdtempSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import assert from 'node:assert/strict'
@@ -46,6 +46,8 @@ try {
   await app.evaluate(({ ipcMain }) => {
     ipcMain.removeHandler('settings:get')
     ipcMain.handle('settings:get', () => ({ hasApiKey: true, model: 'claude-opus-5-5' }))
+    ipcMain.removeHandler('ai:essence')
+    ipcMain.handle('ai:essence', () => ({ summary: 'Stand-in essence.', principles: ['Keeps laughter.'], lookFor: ['Hands'], forgive: ['Blur'] }))
     ipcMain.removeHandler('ai:read')
     ipcMain.handle('ai:read', (_event, req) => ({
       reads: Object.fromEntries(
@@ -75,13 +77,14 @@ try {
   assert.ok((await page.locator('.strip .flag.s-pick').count()) > 0, 'some keepers are suggested')
 
   // The editor's read sorts frames into chapters and feeds the moment score.
-  await page.getByRole('button', { name: "Editor's read" }).click()
+  await page.getByLabel('Culling profile').selectOption({ label: 'Joyful and candid' })
+  await page.getByRole('button', { name: 'Cull with Claude' }).click()
   await page.getByRole('button', { name: 'Read the shoot' }).click()
   await page.getByText('Every moment has been read.').waitFor()
   await page.getByText(/Editor's read \(9\/10\)/).first().waitFor()
   assert.ok((await page.locator('.scene-head b').count()) > 0, 'scenes are labelled with their chapter')
   await snap('3-cull-read')
-  await page.getByRole('button', { name: "Editor's read" }).click()
+  await page.getByRole('button', { name: 'Cull with Claude' }).click()
 
   // Enter accepts the suggestion for the current moment and moves to the next one.
   const moments = await page.locator('.strip .stack').count()
@@ -92,10 +95,56 @@ try {
   assert.ok((await page.locator('.strip .flag.pick').count()) >= 1, 'accepting a suggestion makes a pick')
   await snap('3-cull-accepted')
 
+  // A culling profile learns from a folder of photographs, then has its essence distilled.
+  await page.getByRole('button', { name: 'Culling profiles' }).click()
+  const card = page.locator('.card', { has: page.locator('input[value="Joyful and candid"]') })
+  await card.getByRole('button', { name: /Learn from a gallery folder/ }).click()
+  await card.getByText(/photographs; \d+% show people/).waitFor({ timeout: 60_000 })
+  await card.getByRole('button', { name: /Distil the essence/ }).click()
+  await card.getByText('Stand-in essence.').waitFor()
+  await snap('4-profiles')
+
+  // The look extractor turns a reference photo into a LUT.
+  const jpgs = readdirSync(samples).filter((f) => /\.jpe?g$/i.test(f))
+  if (jpgs.length >= 2) {
+    const lut = join(userData, 'look.cube')
+    await app.evaluate(({ dialog }, [files, out]) => {
+      let call = 0
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [files[call++ % files.length]] })
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: out })
+    }, [[join(samples, jpgs[0]), join(samples, jpgs[jpgs.length - 1])], lut])
+    await page.getByRole('button', { name: 'Look extractor' }).click()
+    await page.getByRole('button', { name: /Choose reference photo/ }).click()
+    await page.getByText('What the look is made of').waitFor()
+    await page.getByRole('button', { name: /Add one of my unedited photos/ }).click()
+    await page.getByText('Yours, with the look applied').waitFor()
+    await snap('4-look')
+    await page.getByRole('button', { name: /Save LUT/ }).click()
+    await page.getByText(/^Saved /).waitFor()
+    assert.match(readFileSync(lut, 'utf8'), /LUT_3D_SIZE 33/)
+    await app.evaluate(({ dialog }, folder) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] })
+    }, samples)
+  }
+
   for (const view of ['Story', 'Edit coach', 'Hand off', 'Learn', 'Settings']) {
     await page.getByRole('button', { name: view, exact: false }).first().click()
     await page.waitForTimeout(400)
     await snap(`4-${view.toLowerCase().replace(/\W+/g, '-')}`)
+  }
+
+  // The edit coach follows Lightroom's sidecar: write one, as Lightroom would, and expect a tip about it.
+  const rawFile = readdirSync(samples).find((f) => /\.(raf|arw)$/i.test(f))
+  if (rawFile) {
+    writeFileSync(
+      join(samples, rawFile.replace(/\.\w+$/, '.xmp')),
+      `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="+0.30" crs:Saturation="+50" crs:Highlights2012="-90" crs:Shadows2012="+90" crs:Sharpness="40"/></rdf:RDF></x:xmpmeta>`
+    )
+    await page.getByRole('button', { name: 'Edit coach' }).click()
+    await page.locator(`.coach .thumb[title="${rawFile}"]`).click()
+    await page.getByText('Saturation is +50.').waitFor({ timeout: 15_000 })
+    await page.getByText('Highlights -90, Shadows +90.').waitFor()
+    await snap('4-edit-coach-live')
   }
 
   await page.getByRole('button', { name: 'Hand off' }).click()
@@ -105,7 +154,9 @@ try {
   if (raw) {
     const sidecar = join(samples, raw.replace(/\.\w+$/, '.xmp'))
     assert.ok(existsSync(sidecar), 'an XMP sidecar is written next to the RAW')
-    assert.match(readFileSync(sidecar, 'utf8'), /xmp:Label="(Green|Red)"/)
+    const written = readFileSync(sidecar, 'utf8')
+    assert.match(written, /Label[=>"]+(Green|Red)/, 'the label is written')
+    assert.match(written, /Saturation/, 'develop settings already in the sidecar are kept')
   }
   await snap('5-exported')
 

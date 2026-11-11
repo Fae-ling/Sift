@@ -1,4 +1,5 @@
-import type { Analysis, FaceInfo, Genre, MomentTag, NarrativeRead, Score, Shot, ShotType, Suggestion, Warning } from '@shared/types'
+import type { Analysis, FaceInfo, Genre, MomentTag, NarrativeRead, Score, Shot, ShotType, StyleProfile, Suggestion, Warning } from '@shared/types'
+import { styleBonus, type Feel } from './style'
 
 const clamp = (v: number, lo = 0, hi = 1): number => Math.min(hi, Math.max(lo, v))
 const smooth = (lo: number, hi: number, v: number): number => {
@@ -139,13 +140,21 @@ export interface ScoreOptions {
   genre: Genre
   /** How much the moment counts against craft, 0..1. */
   balance: number
+  /** What the active culling profile has learned, merged. Tilts close calls toward what it favours. */
+  style?: StyleProfile
+  /** What the profile's atmosphere words ask for. */
+  feel?: Feel
 }
 
 const FATAL: Warning[] = ['blink', 'soft', 'soft-face']
 /** A moment this strong can outweigh a technical flaw. */
 const GEM_MOMENT = 72
 
+/** The balance after the profile's atmosphere words have nudged it. */
+const effectiveBalance = (o: ScoreOptions): number => clamp(o.balance + (o.feel?.balance ?? 0))
+
 export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?: NarrativeRead): Score {
+  const balance = effectiveBalance(options)
   const notes: string[] = []
   const momentNotes: string[] = []
   const warnings: Warning[] = []
@@ -207,7 +216,14 @@ export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?:
   // The moment: what the faces show, and what the editor's read saw if there is one.
   let local: number | null = null
   if (moment) {
-    const w = MOMENT_WEIGHTS[options.genre]
+    const g = MOMENT_WEIGHTS[options.genre]
+    const feel = options.feel
+    // The profile's atmosphere words shift what counts: joy, closeness, or a quiet face.
+    const w = {
+      base: g.base + (feel?.quiet ?? 0),
+      expression: Math.max(0, g.expression + (feel?.expression ?? 0)),
+      connection: Math.max(0, g.connection + (feel?.connection ?? 0))
+    }
     local = 100 * clamp(w.base + w.expression * moment.expression + w.connection * moment.connection)
     if (moment.laughing) {
       tags.push('laugh')
@@ -231,17 +247,24 @@ export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?:
   } else if (!read) {
     momentNotes.push('No faces to read. Whether this frame matters to the story is yours to judge.')
   }
+  if (options.style) {
+    const bonus = styleBonus(options.style, moment, a.shotType)
+    if (local !== null) local = Math.max(0, Math.min(100, local + bonus.points))
+    if (bonus.reasons.length) momentNotes.push(`Fits your reference: ${bonus.reasons.join('; ')}.`)
+  }
   const momentScore = read ? (local === null ? read.moment * 10 : 0.4 * local + 0.6 * read.moment * 10) : local
 
   const flawed = warnings.some((w) => FATAL.includes(w))
-  const gem = flawed && (read?.gem === true || (momentScore !== null && momentScore >= GEM_MOMENT && options.balance >= 0.4))
+  // A reference whose photographer keeps closed-eye frames lowers the bar for a gem.
+  const gemBar = GEM_MOMENT - (options.style && options.style.closedEyesShare > 0.08 ? 8 : 0) - (options.feel?.forgiving ? 8 : 0)
+  const gem = flawed && (read?.gem === true || (momentScore !== null && momentScore >= gemBar && balance >= 0.4))
   if (gem) {
     momentNotes.unshift(
       'Possible hidden gem: technically imperfect, but the moment may be worth more than the flaw. Look at it at the size it will be seen.'
     )
   }
 
-  const overall = momentScore === null ? craft : (1 - options.balance) * craft + options.balance * momentScore
+  const overall = momentScore === null ? craft : (1 - balance) * craft + balance * momentScore
   return { overall, craft, moment: momentScore, focus, exposure, faces, notes, momentNotes, tags, warnings, gem }
 }
 
@@ -277,7 +300,8 @@ export function scoreAndSuggest(shots: Shot[], options: ScoreOptions): Shot[] {
   const suggestion = new Map<string, Suggestion>()
   for (const stack of stacks.values()) {
     // The peak of a burst: the frame where the expression crests.
-    if (stack.length > 1) {
+    // (Skipped when the profile asks for quiet, composed frames: there the crest of a smile is not the goal.)
+    if (stack.length > 1 && (options.feel?.expression ?? 0) >= 0) {
       const expr = stack.map((s) => readMoment(s.analysis!.faces)?.expression ?? 0)
       const top = Math.max(...expr)
       const mean = expr.reduce((a, b) => a + b, 0) / expr.length
@@ -287,7 +311,8 @@ export function scoreAndSuggest(shots: Shot[], options: ScoreOptions): Shot[] {
         peak.momentNotes.push('The peak of this burst: the expression crests here and is weaker in the frames around it.')
         if (peak.moment !== null) {
           peak.moment = Math.min(100, peak.moment + 8)
-          peak.overall = (1 - options.balance) * peak.craft + options.balance * peak.moment
+          const balance = effectiveBalance(options)
+          peak.overall = (1 - balance) * peak.craft + balance * peak.moment
         }
       }
     }

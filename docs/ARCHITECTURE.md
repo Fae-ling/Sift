@@ -166,3 +166,27 @@ taste rather than toward an average.
 3. Inspiration: moodboard, palette, type.
 4. Planning: gear, pricing, quote PDF.
 5. Video selects.
+
+## Culling profiles and learning (built)
+
+`<userData>/learned.json` holds what the app has learned, shared by every project:
+
+- **Profiles** (`Style` in code): a name, atmosphere words, a description, and a
+  measured `StyleProfile` merged from every gallery folder and set of picks added to
+  it. Atmosphere words are mapped to scoring adjustments (`feelOf`); the measured
+  profile tilts close calls (`styleBonus`); both are passed to Claude in the read.
+  A few thumbnails per profile live in `projects/style-<id>/cache`.
+- **Balance per kind of shoot**: when a project closes, the craft/moment balance that
+  best matched the user's own decisions is averaged in, and new projects start there.
+
+## Look extractor (built)
+
+`analysis/look.ts` measures a look as a tone curve, a colour shift for shadows,
+midtones and highlights, and a saturation factor, either between two images or
+estimated from one. The same `Look` is written as a 33-point `.cube` LUT or as a
+Lightroom preset using the point curve, colour grading and saturation.
+
+## Live edit tips (built)
+
+The edit coach polls the XMP sidecar of the selected RAW and runs `developTips` over
+the Camera Raw settings in it. Read-only: the app never writes develop settings.

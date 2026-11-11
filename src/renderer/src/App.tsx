@@ -7,6 +7,8 @@ import { Export } from './views/Export'
 import { Import } from './views/Import'
 import { Learn } from './views/Learn'
 import { Projects } from './views/Projects'
+import { Look } from './views/Look'
+import { Profiles } from './views/Profiles'
 import { SettingsView } from './views/Settings'
 import { Story } from './views/Story'
 
@@ -20,12 +22,13 @@ const PROJECT_NAV: { view: View; label: string; hint: string }[] = [
 ]
 
 export function App(): React.JSX.Element {
-  const { view, project, setView, closeProject, refreshProjects, loadSettings, toast } = useStore()
+  const { view, project, setView, closeProject, refreshProjects, loadSettings, loadLearned, toast } = useStore()
 
   useEffect(() => {
     void refreshProjects()
     void loadSettings()
-  }, [refreshProjects, loadSettings])
+    void loadLearned()
+  }, [refreshProjects, loadSettings, loadLearned])
 
   const picks = project?.shots.filter((s) => s.decision === 'pick').length ?? 0
 
@@ -51,6 +54,12 @@ export function App(): React.JSX.Element {
           </>
         )}
         <div className="spacer" />
+        <button className={`nav ${view === 'profiles' ? 'active' : ''}`} onClick={() => setView('profiles')} title="The feelings you cull for, and what each has learned">
+          Culling profiles
+        </button>
+        <button className={`nav ${view === 'look' ? 'active' : ''}`} onClick={() => setView('look')} title="Turn a photo's look into a preset or LUT">
+          Look extractor
+        </button>
         <button className={`nav ${view === 'learn' ? 'active' : ''}`} onClick={() => setView('learn')}>
           Learn
         </button>
@@ -60,6 +69,8 @@ export function App(): React.JSX.Element {
       </nav>
       <main className="main">
         {view === 'projects' && <Projects />}
+        {view === 'profiles' && <Profiles />}
+        {view === 'look' && <Look />}
         {view === 'learn' && <Learn />}
         {view === 'settings' && <SettingsView />}
         {project && view === 'brief' && <Brief />}

@@ -16,8 +16,12 @@ and shadow times, gear, pricing) come next; see [Roadmap](#roadmap).
 | **Import** | Reads the JPEG preview your camera embeds in each RAW (Sony `.ARW`, Fujifilm `.RAF`, also CR2/CR3/NEF/DNG/ORF/RW2 and JPEG). Measures focus, closed eyes, smiles, exposure, colour; groups the shoot into scenes and stacks of near-identical frames. | free, on your machine |
 | **Cull** | One decision per *moment* instead of per frame. Every frame has a **craft** score and a **moment** score; a slider sets how much each counts. Laughter, closeness and the peak of a burst are recognised, closed eyes in a laugh or embrace are not treated as blinks, and flawed frames that hold a moment are surfaced as **hidden gems** instead of rejected. | free |
 | **Editor's read** | Optional. Claude looks at one to three thumbnails per moment with your brief and story plan, and says for each which chapter it belongs to, how much it carries and why. Runs in batches; can be paused and resumed. | optional; shows an estimate first |
+| **Culling profiles** | A profile is a feeling to cull for: a name, atmosphere words ("intimate", "documentary", "editorial") and a description. The words change what the cull rewards. Each profile keeps learning from **gallery folders** (photographs you admire) and from **your own picks**; Claude can optionally distil a gallery into selection principles. Five starter profiles are included. | learning free; distilling optional |
+| **Cull with Claude** | The editor's read, now aware of the chosen profile as well as the brief and story plan. | optional |
 | **Story** | Your picks as a sequence: coverage by chapter and shot type, gaps, reordering. **Your eye** compares your decisions with the suggestions and can tune the balance to your taste. Optionally asks Claude for a picture editor's sequence. | optional, cents |
 | **Edit coach** | Histogram, vectorscope with skin line, palette, and plain-language notes on tone, white balance, skin, harmony and consistency. Optionally asks Claude for a grading plan aimed at your brief, in Lightroom terms with a Resolve note. | notes free; plan optional, ~2¢ |
+| **Edit coach, live** | Reads the develop settings Lightroom writes into the XMP sidecar and comments on the edit in progress (flattened light, orange skin, unmasked sharpening, moves that fight the brief). Refreshes every few seconds. Needs "Automatically write changes into XMP" in Lightroom. | free |
+| **Look extractor** | Open a finished photo in almost any format; get its tone curve, shadow/midtone/highlight tints and saturation as a `.cube` LUT or a Lightroom preset, with an explanation of what the look is made of. Add one of your unedited frames for a measured match and a before/after preview. | free |
 | **Hand off** | Writes star ratings and colour labels to XMP sidecars that Lightroom Classic reads. | free |
 | **Learn** | 26 short articles on culling, photo editing, colour, graphic design and video, each with further reading. | free |
 
@@ -103,8 +107,14 @@ including the Inspiration and Planning phases that are not built yet.
 - Small faces in large group shots can be missed by the face model.
 - The local moment score sees joy and closeness. It cannot see intensity, tension or
   tenderness in a quiet face; the editor's read and your own eye cover that.
-- The app does not learn from other photographers' actual selections (there is no such
-  data in it). It learns from yours, and Learn describes how well-known selections were made.
+- A gallery shows only what a photographer kept, never what they rejected, so a profile
+  learns the character of their selections (and Claude infers the taste behind them); it
+  cannot learn their actual cull.
+- Galleries are added as folders of saved images. Reading a gallery straight from a web
+  address is not built.
+- The look extractor matches overall tone and colour balance, not individual colours, and
+  it is only as good as the pairing: use an unedited frame from light similar to the
+  reference. The Lightroom preset has not been tested in Lightroom yet.
 - Not yet tested on real `.ARW` files or on Windows hardware; the RAW path was verified
   with a Fujifilm `.RAF` sample. Colour labels rely on Lightroom's default label names.
 

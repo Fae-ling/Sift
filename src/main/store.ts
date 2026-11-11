@@ -1,7 +1,7 @@
 import { app, safeStorage } from 'electron'
 import { promises as fs } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
-import { DEFAULT_MODEL, MODELS, type Project, type ProjectSummary, type Settings } from '@shared/types'
+import { DEFAULT_MODEL, MODELS, styleCacheId, type Learned, type Project, type ProjectSummary, type Settings } from '@shared/types'
 
 export const projectsRoot = (): string => join(app.getPath('userData'), 'projects')
 const projectDir = (id: string): string => join(projectsRoot(), safeId(id))
@@ -61,6 +61,26 @@ export async function saveProject(project: Project): Promise<void> {
 export async function removeProject(id: string): Promise<void> {
   await fs.rm(projectDir(id), { recursive: true, force: true })
 }
+
+// --- what the app has learned (shared by all projects) ---
+
+const learnedFile = (): string => join(app.getPath('userData'), 'learned.json')
+
+export async function getLearned(): Promise<Learned> {
+  try {
+    return JSON.parse(await fs.readFile(learnedFile(), 'utf8'))
+  } catch {
+    return { styles: [], balance: {} }
+  }
+}
+
+export async function saveLearned(learned: Learned): Promise<void> {
+  const tmp = learnedFile() + '.tmp'
+  await fs.writeFile(tmp, JSON.stringify(learned))
+  await fs.rename(tmp, learnedFile())
+}
+
+export const removeStyleSamples = (styleId: string): Promise<void> => removeProject(styleCacheId(styleId))
 
 // --- settings ---------------------------------------------------------------
 

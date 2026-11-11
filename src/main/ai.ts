@@ -5,6 +5,9 @@ import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
 import { z } from 'zod'
 import {
   MODELS,
+  styleCacheId,
+  type EssenceRequest,
+  type StyleEssence,
   type Brief,
   type Genre,
   type GradeAdvice,
@@ -170,7 +173,7 @@ export async function gradeAdvice(req: GradeRequest): Promise<GradeAdvice> {
     await image(req.projectId, `${safeId(req.shotId)}.jpg`),
     {
       type: 'text',
-      text: `This is the camera's unedited embedded preview of one selected frame. Measurements taken from it:\n${req.measurements}\n\nCoach me through grading it for this brief. The measurements are from the preview, so treat them as a guide to what the RAW holds, not as exact values.`
+      text: `This is the camera's unedited embedded preview of one selected frame. Measurements taken from it:\n${req.measurements}\n\n${req.develop ? `The photographer has already started editing it in Lightroom. Current settings:\n${req.develop}\nComment on these moves specifically: which help, which fight the brief, what to try next.\n\n` : ''}Coach me through grading it for this brief. The measurements are from the preview, so treat them as a guide to what the RAW holds, not as exact values.`
     }
   ])
   return { ...value, usage }
@@ -197,7 +200,7 @@ export async function narrativeRead(req: ReadRequest): Promise<ReadResult> {
   const content: Anthropic.ContentBlockParam[] = [
     {
       type: 'text',
-      text: `${briefText(req.genre, req.brief)}\n\nStory plan for this shoot:\n${plan}\n\nBelow are ${req.frames.length} frames in capture order, each labelled with a number, scene, time, shot type and any technical flaws already measured.`
+      text: `${briefText(req.genre, req.brief)}\n\nStory plan for this shoot:\n${plan}${req.styleNotes ? `\n\nThe photographer is culling for a particular feeling. Let it shape what you value, without overriding the brief:\n${req.styleNotes}` : ''}\n\nBelow are ${req.frames.length} frames in capture order, each labelled with a number, scene, time, shot type and any technical flaws already measured.`
     }
   ]
   for (const [i, f] of req.frames.entries()) {
@@ -217,4 +220,32 @@ export async function narrativeRead(req: ReadRequest): Promise<ReadResult> {
     reads[shot.shotId] = { beat: f.beat, moment: Math.min(10, Math.max(0, f.moment)), gem: f.gem && !!shot.flaws, note: f.note }
   }
   return { reads, usage }
+}
+
+const EssenceSchema = z.object({
+  summary: z.string().describe('Three or four sentences: what these photographs have in common and what the photographer seems to care about.'),
+  principles: z.array(z.string()).describe('Four to seven selection principles, each one sentence, phrased so they could guide a cull: what kind of frame this photographer keeps.'),
+  lookFor: z.array(z.string()).describe('Concrete things to look for in a contact sheet when choosing in this spirit: gestures, distances, light, timing.'),
+  forgive: z.array(z.string()).describe('Technical imperfections this photographer evidently accepts when the picture is right, as seen in the samples.')
+})
+
+/**
+ * Looks at a sample of a reference gallery and puts into words how its
+ * photographer appears to choose. A gallery shows only what was kept, so this
+ * is an inference about taste, not a record of anyone's actual cull.
+ */
+export async function styleEssence(req: EssenceRequest): Promise<StyleEssence> {
+  const content: Anthropic.ContentBlockParam[] = [
+    {
+      type: 'text',
+      text: `These are ${req.samples.length} photographs from a gallery the photographer admires and wants to learn from: "${req.name}". They are final, published selections. Measured facts about the whole gallery:\n${req.facts}`
+    }
+  ]
+  for (const sample of req.samples) content.push(await image(styleCacheId(safeId(req.styleId)), `${safeId(sample)}_t.jpg`))
+  content.push({
+    type: 'text',
+    text: 'Work out what makes these the chosen frames. Do not describe the photographs one by one and do not dwell on colour grading or gear. Infer the taste behind the selection: what moments, gestures, relationships, distances and kinds of light keep recurring, what is conspicuously absent, and which imperfections were clearly judged not to matter. Write it so it can be used as guidance when culling a different shoot.'
+  })
+  const { value, usage } = await ask(EssenceSchema, content)
+  return { ...value, usage }
 }

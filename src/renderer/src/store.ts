@@ -2,6 +2,10 @@ import { create } from 'zustand'
 import {
   emptyBrief,
   IMAGE_EXTENSIONS,
+  styleCacheId,
+  type Analysis,
+  type Learned,
+  type Style,
   type Decision,
   type Genre,
   type Project,
@@ -12,9 +16,11 @@ import {
 import { DEFAULT_BALANCE, STORY_PLANS } from '@shared/storyPlans'
 import { groupShots } from './analysis/grouping'
 import { ingestShot } from './analysis/pipeline'
-import { scoreAndSuggest } from './analysis/scoring'
+import { scoreAndSuggest, tasteOf, type ScoreOptions } from './analysis/scoring'
+import { buildProfile, feelOf, mergeProfiles, profileFacts, STARTER_PROFILES, styleNotes } from './analysis/style'
+import type { StyleProfile } from '@shared/types'
 
-export type View = 'projects' | 'brief' | 'import' | 'cull' | 'story' | 'coach' | 'export' | 'learn' | 'settings'
+export type View = 'projects' | 'profiles' | 'look' | 'brief' | 'import' | 'cull' | 'story' | 'coach' | 'export' | 'learn' | 'settings'
 export type Filter = 'all' | 'suggested' | 'undecided' | 'picks' | 'rejects' | 'warnings' | 'gems'
 
 interface IngestState {
@@ -68,6 +74,9 @@ interface State {
   settings: Settings
   ingest: IngestState
   reading: ReadState
+  learned: Learned
+  /** Progress of a reference gallery being analysed. */
+  learning: { running: boolean; done: number; total: number }
   toast: string | null
 
   setView(view: View): void
@@ -87,6 +96,15 @@ interface State {
   cancelIngest(): void
   regroup(sceneGapSec?: number): void
   setBalance(balance: number): void
+  setGenre(genre: Genre): void
+  loadLearned(): Promise<void>
+  createProfile(name: string, tags: string[], feeling: string): Promise<void>
+  editProfile(styleId: string, patch: Partial<Pick<Style, 'name' | 'tags' | 'feeling'>>): Promise<void>
+  addGallery(styleId: string, sourceName: string, folder: string): Promise<void>
+  rememberPicks(styleId: string): Promise<void>
+  distil(styleId: string): Promise<void>
+  removeStyle(styleId: string): Promise<void>
+  chooseStyle(styleId: string | null): void
   readShoot(): Promise<void>
   cancelRead(): void
   loadSettings(): Promise<void>
@@ -104,6 +122,50 @@ function scheduleSave(project: Project): void {
   saveTimer = setTimeout(() => void window.studio.projects.save(project), 600)
 }
 
+/** At most this many frames of a gallery are kept as samples and shown to Claude for the essence. */
+const MAX_SAMPLES = 36
+
+/** Everything the scoring needs to know about a project, including its culling profile. */
+function scoring(p: Pick<Project, 'genre' | 'balance' | 'styleIds'>, learned: Learned): ScoreOptions {
+  const active = learned.styles.filter((s) => p.styleIds.includes(s.id))
+  return {
+    genre: p.genre,
+    balance: p.balance,
+    style: mergeProfiles(active.flatMap((s) => (s.profile ? [s.profile] : []))),
+    feel: active.length ? feelOf(active.flatMap((s) => s.tags)) : undefined
+  }
+}
+
+export const activeStyles = (p: Project, learned: Learned): Style[] => learned.styles.filter((s) => p.styleIds.includes(s.id))
+
+type Get = () => State
+type Set = (partial: Partial<State>) => void
+
+async function saveStyles(get: Get, set: Set, styles: Style[]): Promise<void> {
+  const learned = { ...get().learned, styles }
+  set({ learned })
+  await window.studio.learned.save(learned)
+}
+
+/** Works out the open project's suggestions again, after its profile changed. */
+function rescore(get: Get): void {
+  if (get().project) get().update((p) => ({ ...p, shots: scoreAndSuggest(p.shots, scoring(p, get().learned)) }))
+}
+
+/** Adds a batch of photographs' measurements to a profile. */
+async function learn(get: Get, set: Set, styleId: string, source: Style['sources'][0], profile: StyleProfile, samples: string[]): Promise<void> {
+  await saveStyles(
+    get,
+    set,
+    get().learned.styles.map((s) =>
+      s.id === styleId
+        ? { ...s, sources: [...s.sources, source], profile: mergeProfiles([...(s.profile ? [s.profile] : []), profile])!, samples: [...s.samples, ...samples] }
+        : s
+    )
+  )
+  rescore(get)
+}
+
 export const useStore = create<State>((set, get) => ({
   view: 'projects',
   summaries: [],
@@ -113,6 +175,8 @@ export const useStore = create<State>((set, get) => ({
   settings: { hasApiKey: false, model: '' },
   ingest: { running: false, done: 0, total: 0, failed: 0, startedAt: 0 },
   reading: { running: false, done: 0, total: 0 },
+  learned: { styles: [], balance: {} },
+  learning: { running: false, done: 0, total: 0 },
   toast: null,
 
   setView: (view) => set({ view }),
@@ -137,9 +201,11 @@ export const useStore = create<State>((set, get) => ({
       folder: null,
       shots: [],
       sceneGapSec: genre === 'wedding' || genre === 'event' ? 300 : 120,
-      balance: DEFAULT_BALANCE[genre],
+      // Start from what earlier projects of this kind taught, if anything.
+      balance: get().learned.balance[genre]?.value ?? DEFAULT_BALANCE[genre],
       storyPlan: STORY_PLANS[genre],
       readCostUsd: 0,
+      styleIds: [],
       storyOrder: [],
       gradeAdvice: {}
     }
@@ -154,16 +220,31 @@ export const useStore = create<State>((set, get) => ({
       ...loaded,
       balance: loaded.balance ?? DEFAULT_BALANCE[loaded.genre],
       storyPlan: loaded.storyPlan ?? STORY_PLANS[loaded.genre],
-      readCostUsd: loaded.readCostUsd ?? 0
+      readCostUsd: loaded.readCostUsd ?? 0,
+      styleIds: (loaded.styleIds ?? []).filter((id) => get().learned.styles.some((s) => s.id === id))
     }
-    if (loaded.balance === undefined) project.shots = scoreAndSuggest(project.shots, project)
-    set({ project, view: project.shots.length ? 'cull' : 'brief', selectedId: project.shots[0]?.id ?? null, filter: 'all' })
+    if (loaded.balance === undefined) project.shots = scoreAndSuggest(project.shots, scoring(project, get().learned))
+    const has = project.shots.length > 0
+    // Open on the frames the cull would keep; everything else is one click away.
+    set({ project, view: has ? 'cull' : 'brief', selectedId: null, filter: has ? 'suggested' : 'all' })
   },
 
   closeProject: () => {
     const { project } = get()
     clearTimeout(saveTimer)
-    if (project) void window.studio.projects.save(project).then(get().refreshProjects)
+    if (project) {
+      void window.studio.projects.save(project).then(get().refreshProjects)
+      // Carry what this project's decisions showed into the next project of the same kind.
+      const fitted = tasteOf(project.shots).fittedBalance
+      if (fitted !== null) {
+        const learned = get().learned
+        const prev = learned.balance[project.genre]
+        const next = prev ? { value: (prev.value * prev.projects + fitted) / (prev.projects + 1), projects: prev.projects + 1 } : { value: fitted, projects: 1 }
+        const updated = { ...learned, balance: { ...learned.balance, [project.genre]: next } }
+        set({ learned: updated })
+        void window.studio.learned.save(updated)
+      }
+    }
     cancelRequested = true
     cancelRead = true
     set({ project: null, view: 'projects', selectedId: null, reading: { running: false, done: 0, total: 0 } })
@@ -260,10 +341,112 @@ export const useStore = create<State>((set, get) => ({
   regroup: (sceneGapSec) =>
     get().update((p) => {
       const gap = sceneGapSec ?? p.sceneGapSec
-      return { ...p, sceneGapSec: gap, shots: scoreAndSuggest(groupShots(p.shots, gap), p) }
+      return { ...p, sceneGapSec: gap, shots: scoreAndSuggest(groupShots(p.shots, gap), scoring(p, get().learned)) }
     }),
 
-  setBalance: (balance) => get().update((p) => ({ ...p, balance, shots: scoreAndSuggest(p.shots, { genre: p.genre, balance }) })),
+  setBalance: (balance) =>
+    get().update((p) => ({ ...p, balance, shots: scoreAndSuggest(p.shots, scoring({ ...p, balance }, get().learned)) })),
+
+  // Changing the kind of shoot changes what the cull looks for, so suggestions are worked out again.
+  setGenre: (genre) =>
+    get().update((p) => {
+      const balance = get().learned.balance[genre]?.value ?? DEFAULT_BALANCE[genre]
+      const next = { ...p, genre, balance, storyPlan: STORY_PLANS[genre] }
+      return { ...next, shots: scoreAndSuggest(p.shots, scoring(next, get().learned)) }
+    }),
+
+  loadLearned: async () => {
+    let learned = await window.studio.learned.get()
+    if (!learned.seeded) {
+      const starters: Style[] = STARTER_PROFILES.map((p) => ({ ...p, id: newId(), createdAt: Date.now(), sources: [], profile: null, samples: [] }))
+      learned = { ...learned, styles: [...learned.styles, ...starters], seeded: true }
+      await window.studio.learned.save(learned)
+    }
+    set({ learned })
+  },
+
+  createProfile: async (name, tags, feeling) => {
+    const style: Style = { id: newId(), name, tags, feeling, createdAt: Date.now(), sources: [], profile: null, samples: [] }
+    await saveStyles(get, set, [...get().learned.styles, style])
+  },
+
+  editProfile: async (styleId, patch) => {
+    await saveStyles(get, set, get().learned.styles.map((s) => (s.id === styleId ? { ...s, ...patch } : s)))
+    rescore(get)
+  },
+
+  // Analyses a folder of someone's published photographs and adds what they have in
+  // common to a profile. Only measurements and a few small thumbnails are kept; the
+  // gallery's files are read, never copied or changed.
+  addGallery: async (styleId, sourceName, folder) => {
+    const target = get().learned.styles.find((s) => s.id === styleId)
+    if (!target || get().learning.running) return
+    const files = await window.studio.scan(folder, true)
+    if (files.length === 0) throw new Error(`No images found in ${folder}.`)
+    const cache = styleCacheId(styleId)
+    set({ learning: { running: true, done: 0, total: files.length } })
+    const analyses: Analysis[] = []
+    const samples: string[] = []
+    // Spread the kept samples evenly through the gallery.
+    const room = Math.max(6, MAX_SAMPLES - target.samples.length)
+    const every = Math.max(1, Math.floor(files.length / room))
+    const batch = newId().slice(0, 6)
+    try {
+      for (const [i, file] of files.entries()) {
+        const shotId = `${batch}_${i}`
+        try {
+          const patch = await ingestShot(cache, { id: shotId, path: file.path, name: file.name, time: 0, width: 0, height: 0, decision: null, rating: 0 })
+          if (patch.analysis) {
+            analyses.push(patch.analysis)
+            if (i % every === 0 && samples.length < room) samples.push(shotId)
+          }
+        } catch {
+          // An unreadable image is skipped; the rest of the gallery still counts.
+        }
+        set((s) => ({ learning: { ...s.learning, done: i + 1 } }))
+      }
+      if (analyses.length === 0) throw new Error('None of the images in that folder could be read.')
+      await learn(get, set, styleId, { name: sourceName, kind: 'gallery', count: analyses.length, addedAt: Date.now() }, buildProfile(analyses), samples)
+    } finally {
+      set((s) => ({ learning: { ...s.learning, running: false } }))
+    }
+  },
+
+  // The user's own picks from this project are added to a profile, so it keeps learning from them.
+  rememberPicks: async (styleId) => {
+    const project = get().project
+    const picks = project?.shots.filter((s) => s.decision === 'pick' && s.analysis) ?? []
+    if (!project || picks.length < 10) throw new Error('Pick at least ten frames first, so there is something to learn from.')
+    await learn(get, set, styleId, { name: `My picks: ${project.name}`, kind: 'own-picks', count: picks.length, addedAt: Date.now() }, buildProfile(picks.map((s) => s.analysis!)), [])
+  },
+
+  distil: async (styleId) => {
+    const style = get().learned.styles.find((s) => s.id === styleId)
+    if (!style?.profile) return
+    try {
+      const essence = await window.studio.ai.essence({
+        styleId,
+        name: `${style.name} (${style.tags.join(', ')})`,
+        samples: style.samples.slice(-MAX_SAMPLES),
+        facts: profileFacts(style.profile).join('\n')
+      })
+      await saveStyles(get, set, get().learned.styles.map((s) => (s.id === styleId ? { ...s, essence, essenceCount: s.profile?.count } : s)))
+    } catch (err) {
+      get().notify(errorText(err))
+    }
+  },
+
+  removeStyle: async (styleId) => {
+    await saveStyles(get, set, get().learned.styles.filter((s) => s.id !== styleId))
+    await window.studio.learned.removeSamples(styleId)
+    if (get().project?.styleIds.includes(styleId)) get().chooseStyle(null)
+  },
+
+  chooseStyle: (styleId) =>
+    get().update((p) => {
+      const styleIds = styleId ? [styleId] : []
+      return { ...p, styleIds, shots: scoreAndSuggest(p.shots, scoring({ ...p, styleIds }, get().learned)) }
+    }),
 
   readShoot: async () => {
     const start = get().project
@@ -282,6 +465,7 @@ export const useStore = create<State>((set, get) => ({
           genre: project.genre,
           brief: project.brief,
           beats: project.storyPlan,
+          styleNotes: styleNotes(activeStyles(project, get().learned)),
           frames: chunk.map((s) => ({
             shotId: s.id,
             scene: s.sceneId ?? 0,
@@ -294,7 +478,7 @@ export const useStore = create<State>((set, get) => ({
         // Each chunk is saved as it arrives, so a pause or an error keeps what was paid for.
         get().update((p) => {
           const shots = p.shots.map((s) => (result.reads[s.id] ? { ...s, read: result.reads[s.id] } : s))
-          return { ...p, readCostUsd: p.readCostUsd + result.usage.costUsd, shots: scoreAndSuggest(shots, p) }
+          return { ...p, readCostUsd: p.readCostUsd + result.usage.costUsd, shots: scoreAndSuggest(shots, scoring(p, get().learned)) }
         })
         set((s) => ({ reading: { ...s.reading, done: Math.min(frames.length, i + chunk.length) } }))
       }

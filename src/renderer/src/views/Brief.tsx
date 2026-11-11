@@ -1,6 +1,5 @@
-import { DEFAULT_BALANCE, STORY_PLANS } from '@shared/storyPlans'
+import { STORY_PLANS } from '@shared/storyPlans'
 import type { Beat, Brief as BriefType, Genre } from '@shared/types'
-import { scoreAndSuggest } from '../analysis/scoring'
 import { useStore } from '../store'
 
 const FIELDS: { key: keyof BriefType; label: string; hint: string; long?: boolean; placeholder: string }[] = [
@@ -14,20 +13,10 @@ const FIELDS: { key: keyof BriefType; label: string; hint: string; long?: boolea
 ]
 
 export function Brief(): React.JSX.Element {
-  const { project, update, setView } = useStore()
+  const { project, update, setView, setGenre } = useStore()
   if (!project) return <></>
   const set = (patch: Partial<BriefType>): void => update((p) => ({ ...p, brief: { ...p.brief, ...patch } }))
   const setPlan = (storyPlan: Beat[]): void => update((p) => ({ ...p, storyPlan }))
-  // Changing the kind of shoot changes what the cull looks for, so suggestions are worked out again.
-  const setGenre = (genre: Genre): void =>
-    update((p) => ({
-      ...p,
-      genre,
-      balance: DEFAULT_BALANCE[genre],
-      storyPlan: STORY_PLANS[genre],
-      shots: scoreAndSuggest(p.shots, { genre, balance: DEFAULT_BALANCE[genre] })
-    }))
-
   return (
     <div className="page">
       <h1>Brief</h1>

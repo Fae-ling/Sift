@@ -163,3 +163,10 @@ kbd { font: 11px ui-monospace, Consolas, monospace; background: #171717; border:
 .article { overflow-y: auto; }
 .article ul, .article ol { line-height: 1.6; padding-left: 20px; margin: 0 0 12px; }
 .article li { margin-bottom: 4px; }
+
+/* Look extractor */
+.look-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 16px 0; }
+.look-grid figure { margin: 0; }
+.look-grid canvas { width: 100%; border-radius: 4px; display: block; }
+.look-grid figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.cull-bar select { width: auto; padding: 4px 8px; }

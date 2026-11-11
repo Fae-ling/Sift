@@ -14,14 +14,18 @@ const api: StudioApi = {
     remove: call('projects:remove')
   },
   pickFolder: call('pickFolder'),
+  pickImage: call('pickImage'),
+  saveText: call('saveText'),
+  readDevelop: call('readDevelop'),
   scan: call('scan'),
+  learned: { get: call('learned:get'), save: call('learned:save'), removeSamples: call('learned:removeSamples') },
   extract: call('extract'),
   savePreview: call('savePreview'),
   exportXmp: call('exportXmp'),
   copySelects: call('copySelects'),
   reveal: call('reveal'),
   settings: { get: call('settings:get'), set: call('settings:set') },
-  ai: { story: call('ai:story'), grade: call('ai:grade'), read: call('ai:read') }
+  ai: { story: call('ai:story'), grade: call('ai:grade'), read: call('ai:read'), essence: call('ai:essence') }
 }
 
 contextBridge.exposeInMainWorld('studio', api)

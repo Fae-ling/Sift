@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import { extname, join } from 'node:path'
 import { ExifTool, type Tags } from 'exiftool-vendored'
-import { IMAGE_EXTENSIONS, RAW_EXTENSIONS, type ExtractResult, type ScannedFile } from '@shared/types'
+import { IMAGE_EXTENSIONS, RAW_EXTENSIONS, WEB_EXTENSIONS, type ExtractResult, type ScannedFile } from '@shared/types'
 import { cacheDir, safeId, tmpDir } from './store'
 import { readJpegOrientation } from './jpegOrientation'
 
@@ -9,9 +9,12 @@ export const exiftool = new ExifTool({ maxProcs: 4, taskTimeoutMillis: 30_000 })
 
 const ext = (path: string): string => extname(path).slice(1).toLowerCase()
 export const isRaw = (path: string): boolean => RAW_EXTENSIONS.includes(ext(path))
+/** Formats the window can decode by itself. Everything else goes through its embedded preview. */
+const BROWSER_FORMATS = ['jpg', 'jpeg', 'png', 'webp', 'avif', 'gif', 'bmp']
 
 /** Lists supported photos in a folder and its subfolders, in name order. */
-export async function scanFolder(folder: string): Promise<ScannedFile[]> {
+export async function scanFolder(folder: string, anyImage = false): Promise<ScannedFile[]> {
+  const wanted = anyImage ? [...IMAGE_EXTENSIONS, ...WEB_EXTENSIONS] : IMAGE_EXTENSIONS
   const out: ScannedFile[] = []
   async function walk(dir: string, depth: number): Promise<void> {
     for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
@@ -19,7 +22,7 @@ export async function scanFolder(folder: string): Promise<ScannedFile[]> {
       const full = join(dir, entry.name)
       if (entry.isDirectory()) {
         if (depth < 4) await walk(full, depth + 1)
-      } else if (IMAGE_EXTENSIONS.includes(ext(entry.name))) {
+      } else if (wanted.includes(ext(entry.name))) {
         out.push({ path: full, name: entry.name, size: (await fs.stat(full)).size })
       }
     }
@@ -54,14 +57,15 @@ export async function extractPreview(projectId: string, shotId: string, path: st
   await fs.rm(dest, { force: true })
 
   const tags = await exiftool.read(path)
-  if (isRaw(path)) {
+  if (BROWSER_FORMATS.includes(ext(path))) {
+    await fs.copyFile(path, dest)
+  } else {
+    // RAW, TIFF, HEIC, PSD...: use the largest JPEG stored inside the file.
     const best = PREVIEW_TAGS.map((tag) => ({ tag, size: binarySize((tags as Record<string, unknown>)[tag]) }))
       .filter((t) => t.size > 0)
       .sort((a, b) => b.size - a.size)[0]
-    if (!best) throw new Error('No embedded preview in this RAW file')
+    if (!best) throw new Error('This file has no embedded preview that can be read.')
     await exiftool.extractBinaryTag(best.tag, path, dest)
-  } else {
-    await fs.copyFile(path, dest)
   }
 
   const handle = await fs.open(dest, 'r')
