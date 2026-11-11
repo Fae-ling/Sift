@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import {
   emptyBrief,
+  IMAGE_EXTENSIONS,
   type Decision,
   type Genre,
   type Project,
@@ -205,6 +206,11 @@ export const useStore = create<State>((set, get) => ({
     const start = get().project
     if (!start || get().ingest.running) return
     const files = await window.studio.scan(folder)
+    if (files.length === 0) {
+      throw new Error(
+        `No photos found in ${folder} or its subfolders. Atelier reads ${IMAGE_EXTENSIONS.map((e) => '.' + e.toUpperCase()).join(', ')}.`
+      )
+    }
     const known = new Set(start.shots.map((s) => s.path))
     const added: Shot[] = files
       .filter((f) => !known.has(f.path))

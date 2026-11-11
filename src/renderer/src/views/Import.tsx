@@ -25,7 +25,7 @@ export function Import(): React.JSX.Element {
     try {
       await importFolder(folder)
     } catch (err) {
-      notify(`Import failed: ${(err as Error).message}`)
+      notify((err as Error).message)
     }
   }
 
@@ -47,6 +47,13 @@ export function Import(): React.JSX.Element {
         )}
         {project.folder && <span className="muted small">{project.folder}</span>}
       </div>
+
+      {project.shots.length === 0 && !ingest.running && (
+        <p className="muted small" style={{ marginTop: 10, maxWidth: 680 }}>
+          The window that opens lists folders only, so the folder with your RAW files will look empty. That is normal:
+          open the folder that holds the photos and choose it. Subfolders are included.
+        </p>
+      )}
 
       {faces === false && (
         <div className="note warn">

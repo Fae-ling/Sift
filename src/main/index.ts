@@ -52,7 +52,12 @@ function registerIpc(): void {
   handle('projects:save', (project: Project) => saveProject(project))
   handle('projects:remove', (id: string) => removeProject(id))
   handle('pickFolder', async () => {
-    const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
+    // A folder picker lists folders only, so a folder full of photos looks empty in it.
+    const result = await dialog.showOpenDialog({
+      title: 'Choose the folder that holds the photos (files are not listed here, only folders)',
+      buttonLabel: 'Use this folder',
+      properties: ['openDirectory', 'createDirectory']
+    })
     return result.canceled ? null : result.filePaths[0]
   })
   handle('scan', (folder: string) => scanFolder(folder))
