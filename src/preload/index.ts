@@ -24,6 +24,7 @@ const api: StudioApi = {
   exportXmp: call('exportXmp'),
   copySelects: call('copySelects'),
   reveal: call('reveal'),
+  learning: { get: call('learning:get'), save: call('learning:save') },
   spend: call('spend'),
   settings: { get: call('settings:get'), set: call('settings:set') },
   ai: { story: call('ai:story'), grade: call('ai:grade'), read: call('ai:read'), essence: call('ai:essence') }

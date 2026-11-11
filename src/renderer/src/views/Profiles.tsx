@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { styleCacheId, type Style } from '@shared/types'
 import { thumbUrl } from '../analysis/pipeline'
+import { MIN_TESTED_PAIRS, tendencies } from '../analysis/learner'
 import { impliedBalance, profileFacts } from '../analysis/style'
 import { estimateCost, formatCost } from '../components/AiCost'
 import { useStore } from '../store'
@@ -12,7 +13,9 @@ const splitTags = (text: string): string[] =>
     .filter(Boolean)
 
 export function Profiles(): React.JSX.Element {
-  const { learned, learning, project, createProfile } = useStore()
+  const { learned, learning, project, createProfile, taste, tasteData, setBlindBursts, forgetLearning, relearn } = useStore()
+  const [confirmForget, setConfirmForget] = useState(false)
+  const pct = (v: number): string => `${Math.round(v * 100)}%`
   const [name, setName] = useState('')
   const [tags, setTags] = useState('')
 
@@ -24,6 +27,80 @@ export function Profiles(): React.JSX.Element {
         the galleries and picks you add to it. Choose one per project and the suggestions lean that way.
       </p>
 
+      <h2 style={{ marginTop: 8 }}>Your eye</h2>
+      <div className="card">
+        {taste ? (
+          <>
+            <div className="stats" style={{ marginTop: 0 }}>
+              <div>
+                <div className="stat">{taste.report.decisions}</div>
+                <div className="muted small">decisions learned from, across {taste.report.projects} project{taste.report.projects === 1 ? '' : 's'}</div>
+              </div>
+              <div>
+                <div className="stat">{taste.report.testedPairs >= MIN_TESTED_PAIRS ? pct(taste.report.rulesAgree) : '–'}</div>
+                <div className="muted small">built-in rules agree with you</div>
+              </div>
+              <div>
+                <div className="stat" style={{ color: taste.trust > 0 ? 'var(--pick)' : undefined }}>
+                  {taste.report.testedPairs >= MIN_TESTED_PAIRS ? pct(taste.report.blendedAgree) : '–'}
+                </div>
+                <div className="muted small">with what it has learned from you</div>
+              </div>
+              <div>
+                <div className="stat">{pct(taste.trust)}</div>
+                <div className="muted small">say your learned taste has in each suggestion</div>
+              </div>
+            </div>
+            <p className="small muted">
+              {taste.report.testedPairs < MIN_TESTED_PAIRS
+                ? `Still gathering evidence. Agreement is measured on bursts set aside and never learned from: ${taste.report.testedPairs} comparisons so far, ${MIN_TESTED_PAIRS} needed before what it has learned may influence suggestions. Until then the built-in rules decide.`
+                : taste.trust > 0
+                  ? `Measured on ${taste.report.testedPairs} choices from bursts that were set aside and never learned from: how often the frame you kept was ranked above the one you passed over. The learned share is whatever gives the best agreement there, so it only grows when it earns it.`
+                  : `Measured on ${taste.report.testedPairs} choices from bursts that were set aside. What it has learned does not yet beat the built-in rules there, so it is not used. It keeps learning with every decision.`}{' '}
+              {taste.report.blindDecisions} of your decisions were made with no suggestion shown.
+            </p>
+            {tendencies(taste.model).length > 0 && (
+              <>
+                <h3>What it has noticed about your choices</h3>
+                <ul className="small" style={{ lineHeight: 1.6, paddingLeft: 18, margin: 0 }}>
+                  {tendencies(taste.model).map((t) => (
+                    <li key={t}>{t.startsWith('you') ? t[0].toUpperCase() + t.slice(1) : `You favour ${t}`}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </>
+        ) : (
+          <p className="muted small" style={{ margin: 0 }}>
+            Nothing learned yet. Every pick and reject you make teaches Atelier your taste; choices you make by hand
+            teach more than suggestions you accept. It retrains as you cull and whenever you close a project.
+          </p>
+        )}
+        <div className="row" style={{ marginTop: 12 }}>
+          <label style={{ fontWeight: 400, margin: 0 }} className="row">
+            <input type="checkbox" style={{ width: 'auto' }} checked={tasteData.blindBursts} onChange={(e) => setBlindBursts(e.target.checked)} />
+            Show about one moment in ten without a suggestion, so my unprompted choice can be learned from
+          </label>
+          <div className="spacer" />
+          <button onClick={relearn}>Learn now</button>
+          {confirmForget ? (
+            <>
+              <button className="danger" onClick={() => void forgetLearning().then(() => setConfirmForget(false))}>
+                Forget everything learned
+              </button>
+              <button onClick={() => setConfirmForget(false)}>Keep</button>
+            </>
+          ) : (
+            taste && (
+              <button className="link small" onClick={() => setConfirmForget(true)}>
+                Forget
+              </button>
+            )
+          )}
+        </div>
+      </div>
+
+      <h2>Profiles</h2>
       <form
         className="card row"
         onSubmit={(e) => {

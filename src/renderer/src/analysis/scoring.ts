@@ -1,4 +1,5 @@
 import type { Analysis, FaceInfo, Genre, MomentTag, NarrativeRead, Score, Shot, ShotType, StyleProfile, Suggestion, Warning } from '@shared/types'
+import { featuresOf, predict, reasonsFor, type Model } from './learner'
 import { styleBonus, type Feel } from './style'
 
 const clamp = (v: number, lo = 0, hi = 1): number => Math.min(hi, Math.max(lo, v))
@@ -144,6 +145,8 @@ export interface ScoreOptions {
   style?: StyleProfile
   /** What the profile's atmosphere words ask for. */
   feel?: Feel
+  /** The model of the photographer's own taste, and how much say it has earned (0..0.8). */
+  learned?: { model: Model; trust: number }
 }
 
 const FATAL: Warning[] = ['blink', 'soft', 'soft-face']
@@ -313,6 +316,24 @@ export function scoreAndSuggest(shots: Shot[], options: ScoreOptions): Shot[] {
           peak.moment = Math.min(100, peak.moment + 8)
           const balance = effectiveBalance(options)
           peak.overall = (1 - balance) * peak.craft + balance * peak.moment
+        }
+      }
+    }
+    // What the photographer's own past choices say about each frame of this moment.
+    if (options.learned) {
+      const { model, trust } = options.learned
+      const scored = stack.map((s) => ({ ...s, score: scores.get(s.id)! }))
+      for (const s of scored) {
+        const x = featuresOf(s, scored)
+        const likely = 100 * predict(model, x)
+        s.score.learned = likely
+        s.score.rules = s.score.overall
+        s.score.learnedWhy = reasonsFor(model, x)
+        s.score.overall = (1 - trust) * s.score.overall + trust * likely
+        // Someone who keeps frames like this despite the flaw should be shown it, not have it hidden.
+        if (trust > 0 && isFlawed(s.score) && !s.score.gem && likely >= 65) {
+          s.score.gem = true
+          s.score.momentNotes.unshift('You often keep frames like this one despite the flaw, so it is not being suggested as a reject.')
         }
       }
     }

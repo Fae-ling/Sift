@@ -190,3 +190,11 @@ Lightroom preset using the point curve, colour grading and saturation.
 
 The edit coach polls the XMP sidecar of the selected RAW and runs `developTips` over
 the Camera Raw settings in it. Read-only: the app never writes develop settings.
+
+## Taste model (built)
+
+`analysis/learner.ts`. Examples of the photographer's decisions live in
+`<userData>/learning.json`, keyed by project. `learn()` trains a linear ranking model
+on four fifths of the bursts, measures it against the built-in rules on the rest, and
+returns the model with the share of each suggestion it has earned. `scoreAndSuggest`
+blends it in per burst. See "How the cull learns" in `DEVELOPMENT_PLAN.md`.

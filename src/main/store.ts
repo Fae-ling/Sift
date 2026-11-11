@@ -102,6 +102,24 @@ export async function saveLearned(learned: Learned): Promise<void> {
 
 export const removeStyleSamples = (styleId: string): Promise<void> => removeProject(styleCacheId(styleId))
 
+// --- examples the taste model learns from ---
+
+const learningFile = (): string => join(app.getPath('userData'), 'learning.json')
+
+export async function getLearning(): Promise<unknown> {
+  try {
+    return JSON.parse(await fs.readFile(learningFile(), 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+export async function saveLearning(data: unknown): Promise<void> {
+  const tmp = learningFile() + '.tmp'
+  await fs.writeFile(tmp, JSON.stringify(data))
+  await fs.rename(tmp, learningFile())
+}
+
 // --- what the optional AI advice has cost ---
 
 const spendFile = (): string => join(app.getPath('userData'), 'spend.json')

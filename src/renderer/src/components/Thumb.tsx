@@ -10,10 +10,12 @@ export const Thumb = memo(function Thumb(props: {
   shot: Shot
   selected?: boolean
   onSelect?: (id: string) => void
+  /** Hide what the app thinks of this frame (its burst is being judged unprompted). */
+  hide?: boolean
 }): React.JSX.Element {
-  const { shot, selected, onSelect, projectId } = props
-  const flag = shot.decision ?? (shot.suggestion && shot.suggestion !== 'reject' ? `s-${shot.suggestion}` : null)
-  const warning = shot.score?.warnings[0]
+  const { shot, selected, onSelect, projectId, hide } = props
+  const flag = shot.decision ?? (!hide && shot.suggestion && shot.suggestion !== 'reject' ? `s-${shot.suggestion}` : null)
+  const warning = hide ? undefined : shot.score?.warnings[0]
   return (
     <div
       data-shot={shot.id}
@@ -23,7 +25,7 @@ export const Thumb = memo(function Thumb(props: {
     >
       {shot.analysis ? <img src={thumbUrl(projectId, shot.id)} loading="lazy" draggable={false} alt={shot.name} /> : null}
       {flag && <span className={`flag ${flag}`} />}
-      {shot.score?.gem ? <span className="w gem">gem</span> : warning && <span className="w">{WARNING_MARK[warning]}</span>}
+      {shot.score?.gem && !hide ? <span className="w gem">gem</span> : warning && <span className="w">{WARNING_MARK[warning]}</span>}
       {shot.rating > 0 && <span className="stars">{'★'.repeat(shot.rating)}</span>}
     </div>
   )

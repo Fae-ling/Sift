@@ -15,6 +15,7 @@ import {
 } from '@shared/types'
 import { DEFAULT_BALANCE, STORY_PLANS } from '@shared/storyPlans'
 import { groupShots } from './analysis/grouping'
+import { emptyLearning, examplesOf, FEATURE_VERSION, isBlindBurst, learn as learnTaste, trimmed, type Learned as Taste, type LearningData } from './analysis/learner'
 import { ingestShot } from './analysis/pipeline'
 import { scoreAndSuggest, tasteOf, type ScoreOptions } from './analysis/scoring'
 import { buildProfile, feelOf, mergeProfiles, profileFacts, STARTER_PROFILES, styleNotes } from './analysis/style'
@@ -85,6 +86,10 @@ interface State {
   /** Progress of a reference gallery being analysed. */
   learning: { running: boolean; done: number; total: number }
   toast: string | null
+  /** Stored examples of the photographer's decisions, across projects. */
+  tasteData: LearningData
+  /** The taste model trained from them, with its self-check. null until there is something to learn from. */
+  taste: Taste | null
   /** Only frames of this chapter are shown in Cull; null shows every chapter. */
   chapter: string | null
   /** Decisions that can be undone and redone: each entry is what the changed frames were before. */
@@ -112,6 +117,11 @@ interface State {
   setRating(id: string, rating: number): void
   undo(): void
   redo(): void
+  loadLearning(): Promise<void>
+  /** Retrains the taste model from every stored decision plus the open project's. */
+  relearn(): void
+  setBlindBursts(on: boolean): void
+  forgetLearning(): Promise<void>
   setBalance(balance: number): void
   setGenre(genre: Genre): void
   loadLearned(): Promise<void>
@@ -149,11 +159,34 @@ function scoring(p: Pick<Project, 'genre' | 'balance' | 'styleIds'>, learned: Le
     genre: p.genre,
     balance: p.balance,
     style: mergeProfiles(active.flatMap((s) => (s.profile ? [s.profile] : []))),
-    feel: active.length ? feelOf(active.flatMap((s) => s.tags)) : undefined
+    feel: active.length ? feelOf(active.flatMap((s) => s.tags)) : undefined,
+    learned: currentTaste ? { model: currentTaste.model, trust: currentTaste.trust } : undefined
   }
 }
 
+/** The taste model in use. Kept beside the store so the scoring helper can reach it. */
+let currentTaste: Taste | null = null
+/** Decisions made since the model was last retrained. */
+let sinceRelearn = 0
+const RELEARN_EVERY = 25
+
 export const activeStyles = (p: Project, learned: Learned): Style[] => learned.styles.filter((s) => p.styleIds.includes(s.id))
+
+/**
+ * True while a frame's burst is being shown without a suggestion: one burst in
+ * ten, until something in it has been decided. Single frames are never hidden.
+ */
+export function isHidden(projectId: string, shot: Shot, shots: Shot[]): boolean {
+  if (!isBlindBurst(projectId, shot.stackId ?? 0)) return false
+  const stack = shots.filter((s) => s.stackId === shot.stackId)
+  return stack.length > 1 && stack.every((s) => s.decision === null)
+}
+
+/** Counts decisions, and retrains the taste model every so often while culling. */
+function noteDecisions(get: () => State, count: number): void {
+  sinceRelearn += count
+  if (sinceRelearn >= RELEARN_EVERY) get().relearn()
+}
 
 /** Records the current decision and rating of the frames about to change. */
 function remember(get: () => State, set: (p: Partial<State>) => void, changes: (s: Shot) => boolean): void {
@@ -212,6 +245,8 @@ export const useStore = create<State>((set, get) => ({
   learned: { styles: [], balance: {} },
   learning: { running: false, done: 0, total: 0 },
   toast: null,
+  tasteData: emptyLearning(),
+  taste: null,
   chapter: null,
   undoStack: [],
   redoStack: [],
@@ -266,13 +301,17 @@ export const useStore = create<State>((set, get) => ({
     const has = project.shots.length > 0
     // Open on the frames the cull would keep; everything else is one click away.
     set({ project, view: has ? 'cull' : 'brief', selectedId: null, filter: has ? 'suggested' : 'all', chapter: null, undoStack: [], redoStack: [] })
+    // Score the project with the taste model as it stands, tuned to this kind of shoot.
+    get().relearn()
   },
 
   closeProject: () => {
     const { project } = get()
     clearTimeout(saveTimer)
     if (project) {
-      void window.studio.projects.save(project).then(get().refreshProjects)
+      // Everything decided in this project is learned from before it closes.
+      get().relearn()
+      void window.studio.projects.save(get().project!).then(get().refreshProjects)
       // Carry what this project's decisions showed into the next project of the same kind.
       const fitted = tasteOf(project.shots).fittedBalance
       if (fitted !== null) {
@@ -308,7 +347,24 @@ export const useStore = create<State>((set, get) => ({
   decide: (ids, decision) => {
     const wanted = new Set(ids)
     remember(get, set, (s) => wanted.has(s.id) && s.decision !== decision)
-    get().update((p) => ({ ...p, shots: p.shots.map((s) => (wanted.has(s.id) ? { ...s, decision } : s)) }))
+    const projectId = get().project?.id ?? ''
+    const blindOn = get().tasteData.blindBursts
+    get().update((p) => ({
+      ...p,
+      shots: p.shots.map((s) =>
+        wanted.has(s.id)
+          ? {
+              ...s,
+              decision,
+              // How the choice was made decides how much it teaches.
+              decidedBy: decision ? ('manual' as const) : undefined,
+              suggestedThen: decision ? s.suggestion : undefined,
+              blind: decision ? blindOn && isHidden(projectId, s, p.shots) : undefined
+            }
+          : s
+      )
+    }))
+    noteDecisions(get, ids.length)
   },
 
   setRating: (id, rating) => {
@@ -319,12 +375,26 @@ export const useStore = create<State>((set, get) => ({
   // Turns proposals into decisions, but never overrides a choice already made.
   acceptSuggestions: (ids) => {
     const only = ids ? new Set(ids) : null
-    const applies = (s: Shot): boolean => (!only || only.has(s.id)) && s.decision === null && (s.suggestion === 'pick' || s.suggestion === 'reject')
+    const project = get().project
+    if (!project) return
+    const blindOn = get().tasteData.blindBursts
+    // Bursts shown without a suggestion are left for the photographer to decide unprompted.
+    const applies = (s: Shot): boolean =>
+      (!only || only.has(s.id)) &&
+      s.decision === null &&
+      (s.suggestion === 'pick' || s.suggestion === 'reject') &&
+      !(blindOn && isHidden(project.id, s, project.shots))
     remember(get, set, applies)
+    let count = 0
     get().update((p) => ({
       ...p,
-      shots: p.shots.map((s) => (applies(s) ? { ...s, decision: s.suggestion === 'pick' ? 'pick' : 'reject' } : s))
+      shots: p.shots.map((s) => {
+        if (!applies(s)) return s
+        count++
+        return { ...s, decision: s.suggestion === 'pick' ? 'pick' : 'reject', decidedBy: 'accepted' as const, suggestedThen: s.suggestion, blind: undefined }
+      })
     }))
+    noteDecisions(get, count)
   },
 
   undo: () => swap(get, set, 'undoStack', 'redoStack'),
@@ -545,6 +615,47 @@ export const useStore = create<State>((set, get) => ({
 
   cancelRead: () => {
     cancelRead = true
+  },
+
+  loadLearning: async () => {
+    const stored = (await window.studio.learning.get()) as LearningData | null
+    // Examples measured by an older version of the app no longer line up with the model.
+    set({ tasteData: stored && stored.version === FEATURE_VERSION ? stored : emptyLearning() })
+    get().relearn()
+  },
+
+  relearn: () => {
+    sinceRelearn = 0
+    const project = get().project
+    let learning = get().tasteData
+    if (project) {
+      const examples = examplesOf(project.shots)
+      const projects = { ...learning.projects }
+      // The open project's examples replace its earlier ones, so a change of mind is learned too.
+      if (examples.length) projects[project.id] = { genre: project.genre, updatedAt: Date.now(), examples }
+      else delete projects[project.id]
+      learning = trimmed({ ...learning, projects })
+    }
+    const total = Object.values(learning.projects).reduce((n, p) => n + p.examples.length, 0)
+    const taste = total ? learnTaste(learning, project?.genre ?? 'other') : null
+    currentTaste = taste
+    set({ tasteData: learning, taste })
+    void window.studio.learning.save(learning)
+    if (project) get().update((p) => ({ ...p, shots: scoreAndSuggest(p.shots, scoring(p, get().learned)) }))
+  },
+
+  setBlindBursts: (on) => {
+    const learning = { ...get().tasteData, blindBursts: on }
+    set({ tasteData: learning })
+    void window.studio.learning.save(learning)
+  },
+
+  forgetLearning: async () => {
+    const learning = { ...emptyLearning(), blindBursts: get().tasteData.blindBursts }
+    currentTaste = null
+    set({ tasteData: learning, taste: null })
+    await window.studio.learning.save(learning)
+    if (get().project) get().update((p) => ({ ...p, shots: scoreAndSuggest(p.shots, scoring(p, get().learned)) }))
   },
 
   loadSettings: async () => set({ settings: await window.studio.settings.get() }),

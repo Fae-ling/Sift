@@ -22,13 +22,14 @@ const PROJECT_NAV: { view: View; label: string; hint: string }[] = [
 ]
 
 export function App(): React.JSX.Element {
-  const { view, project, setView, closeProject, refreshProjects, loadSettings, loadLearned, toast } = useStore()
+  const { view, project, setView, closeProject, refreshProjects, loadSettings, loadLearned, loadLearning, toast } = useStore()
 
   useEffect(() => {
     void refreshProjects()
     void loadSettings()
     void loadLearned()
-  }, [refreshProjects, loadSettings, loadLearned])
+    void loadLearning()
+  }, [refreshProjects, loadSettings, loadLearned, loadLearning])
 
   const picks = project?.shots.filter((s) => s.decision === 'pick').length ?? 0
 

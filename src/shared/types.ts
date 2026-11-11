@@ -94,6 +94,12 @@ export interface Score {
   warnings: Warning[]
   /** Technically imperfect, but the moment may be worth more than the flaw. */
   gem: boolean
+  /** The overall score from the built-in rules alone, before the learned taste is mixed in. */
+  rules?: number
+  /** How likely the photographer is to keep it, 0..100, learned from their own decisions. */
+  learned?: number
+  /** The measurements that most moved the learned figure. */
+  learnedWhy?: string[]
 }
 
 /** One chapter of the story a shoot of this kind is expected to tell. */
@@ -217,6 +223,12 @@ export interface Shot {
   suggestion?: Suggestion
   read?: NarrativeRead
   decision: Decision
+  /** How the decision was made: by hand, or by accepting a suggestion. */
+  decidedBy?: 'manual' | 'accepted'
+  /** What was being suggested when the decision was made. */
+  suggestedThen?: Suggestion
+  /** Decided while no suggestion was shown for its burst. */
+  blind?: boolean
   rating: number
   /** Set when the file could not be read or analysed. */
   error?: string
@@ -341,6 +353,11 @@ export interface StudioApi {
   exportXmp(items: XmpItem[]): Promise<ExportResult>
   copySelects(paths: string[], dest: string): Promise<ExportResult>
   reveal(path: string): Promise<void>
+  /** The stored examples the taste model is trained on (opaque to the main process). */
+  learning: {
+    get(): Promise<unknown>
+    save(data: unknown): Promise<void>
+  }
   /** What the optional Claude advice has cost, by month (YYYY-MM) in US dollars. */
   spend(): Promise<Record<string, number>>
   settings: {

@@ -4,7 +4,7 @@ import { previewUrl } from '../analysis/pipeline'
 import { BLINK_LIMIT } from '../analysis/scoring'
 import { Thumb } from '../components/Thumb'
 import { estimateCost, formatCost } from '../components/AiCost'
-import { READ_TOKENS, readCandidates, useStore, visibleShots, type Filter } from '../store'
+import { isHidden, READ_TOKENS, readCandidates, useStore, visibleShots, type Filter } from '../store'
 
 const FILTERS: { id: Filter; label: string; hint: string }[] = [
   { id: 'suggested', label: 'Keepers', hint: 'The frames the cull would keep, plus your own picks' },
@@ -20,7 +20,7 @@ const FILTERS: { id: Filter; label: string; hint: string }[] = [
 const time = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 export function Cull(): React.JSX.Element {
-  const { project, selectedId, select, filter, setFilter, decide, acceptSuggestions, setView, setBalance, learned, chooseStyle, chapter, setChapter, setRating, undo, redo } = useStore()
+  const { project, selectedId, select, filter, setFilter, decide, acceptSuggestions, setView, setBalance, learned, chooseStyle, chapter, setChapter, setRating, undo, redo, tasteData } = useStore()
   const [compare, setCompare] = useState(false)
   const [zoom, setZoom] = useState(false)
   const [showRead, setShowRead] = useState(false)
@@ -28,10 +28,20 @@ export function Cull(): React.JSX.Element {
 
   const shots = useMemo(() => project?.shots.filter((s) => s.analysis) ?? [], [project?.shots])
   const chapters = useMemo(() => [...new Set(shots.flatMap((s) => (s.read ? [s.read.beat] : [])))], [shots])
-  const list = useMemo(
-    () => visibleShots(shots, filter).filter((s) => !chapter || s.read?.beat === chapter),
-    [shots, filter, chapter]
-  )
+  // Bursts shown without a suggestion, so the choice made in them is the photographer's alone.
+  const hidden = useMemo(() => {
+    const ids = new Set<string>()
+    if (project && tasteData.blindBursts) for (const s of shots) if (isHidden(project.id, s, shots)) ids.add(s.id)
+    return ids
+  }, [project?.id, shots, tasteData.blindBursts])
+  const list = useMemo(() => {
+    const shown = new Set(visibleShots(shots, filter).map((s) => s.id))
+    // A hidden burst must not give its suggestion away through the filters:
+    // Keepers shows all of its frames, and the flaw filters show none.
+    if (filter === 'suggested' || filter === 'unkept') for (const id of hidden) shown.add(id)
+    if (filter === 'gems' || filter === 'warnings') for (const id of hidden) shown.delete(id)
+    return shots.filter((s) => shown.has(s.id) && (!chapter || s.read?.beat === chapter))
+  }, [shots, filter, chapter, hidden])
   const current = list.find((s) => s.id === selectedId) ?? list[0]
   const stack = useMemo(() => (current ? shots.filter((s) => s.stackId === current.stackId) : []), [shots, current])
   // What to compare against: the suggested frame of this moment, or the runner-up if this is it.
@@ -115,7 +125,8 @@ export function Cull(): React.JSX.Element {
       else if (key === 'p') (decide([current.id], 'pick'), move(1))
       else if (key === 'x') (decide([current.id], 'reject'), move(1))
       else if (key === 'u') decide([current.id], null)
-      else if (key === 'enter') (acceptSuggestions(stack.map((s) => s.id)), moveStack(1))
+      // In a burst shown without a suggestion there is nothing to accept: the choice is the photographer's.
+      else if (key === 'enter') hidden.has(current.id) || (acceptSuggestions(stack.map((s) => s.id)), moveStack(1))
       else if (key === 'z' || key === ' ') setZoom((z) => !z)
       else if (key === 'c') setCompare((c) => !c)
       else if (/^[0-5]$/.test(key)) setRating(current.id, Number(key))
@@ -124,7 +135,7 @@ export function Cull(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [current, stack, move, moveStack, decide, acceptSuggestions, setRating, undo, redo])
+  }, [current, stack, hidden, move, moveStack, decide, acceptSuggestions, setRating, undo, redo])
 
   if (!project) return <></>
   if (shots.length === 0) {
@@ -219,7 +230,7 @@ export function Cull(): React.JSX.Element {
             {scene.stacks.map((st) => (
               <div className={`stack ${st.length > 1 ? 'multi' : ''}`} key={st[0].id}>
                 {st.map((s) => (
-                  <Thumb key={s.id} projectId={project.id} shot={s} selected={s.id === current?.id} onSelect={select} />
+                  <Thumb key={s.id} projectId={project.id} shot={s} selected={s.id === current?.id} onSelect={select} hide={hidden.has(s.id)} />
                 ))}
               </div>
             ))}
@@ -236,8 +247,9 @@ export function Cull(): React.JSX.Element {
                   <figure key={s.id} className={s.id === current.id ? 'here' : ''} onClick={() => select(s.id)}>
                     <img src={previewUrl(project.id, s.id)} alt={s.name} draggable={false} />
                     <figcaption>
-                      {s.name} · moment {s.score?.moment === null || !s.score ? '–' : Math.round(s.score.moment)} · craft {Math.round(s.score?.craft ?? 0)}
-                      {s.suggestion === 'pick' ? ' · suggested' : ''}
+                      {s.name}
+                      {!hidden.has(s.id) && <> · moment {s.score?.moment === null || !s.score ? '–' : Math.round(s.score.moment)} · craft {Math.round(s.score?.craft ?? 0)}</>}
+                      {s.suggestion === 'pick' && !hidden.has(s.id) ? ' · suggested' : ''}
                       {s.decision ? ` · ${s.decision}` : ''}
                     </figcaption>
                     <FaceCrops src={previewUrl(project.id, s.id)} faces={s.analysis!.faces.slice(0, 6)} />
@@ -262,21 +274,27 @@ export function Cull(): React.JSX.Element {
             <div className="compare">
               {stack.map((s) => (
                 <div key={s.id}>
-                  <Thumb projectId={project.id} shot={s} selected={s.id === current.id} onSelect={select} />
+                  <Thumb projectId={project.id} shot={s} selected={s.id === current.id} onSelect={select} hide={hidden.has(s.id)} />
                   <div className="cap">
-                    {Math.round(s.score?.overall ?? 0)}
-                    {s.suggestion === 'pick' ? ' · best' : s.suggestion === 'alternate' ? ' · close' : ''}
+                    {hidden.has(s.id) ? '·' : Math.round(s.score?.overall ?? 0)}
+                    {hidden.has(s.id) ? '' : s.suggestion === 'pick' ? ' · best' : s.suggestion === 'alternate' ? ' · close' : ''}
                   </div>
                 </div>
               ))}
               {stack.length > 1 && (
                 <div className="muted small" style={{ alignSelf: 'center', marginLeft: 8, maxWidth: 220 }}>
-                  {stack.length} takes of one moment. <kbd>Enter</kbd> keeps the best and moves on.
+                  {hidden.has(current.id) ? (
+                    <>Your call: no suggestion is shown for this moment. Pick the take you would keep.</>
+                  ) : (
+                    <>
+                      {stack.length} takes of one moment. <kbd>Enter</kbd> keeps the best and moves on.
+                    </>
+                  )}
                 </div>
               )}
             </div>
           </div>
-          <Inspector shot={current} projectId={project.id} />
+          <Inspector shot={current} projectId={project.id} hide={hidden.has(current.id)} />
         </>
       ) : (
         <div className="empty" style={{ gridColumn: '2 / -1' }}>Nothing matches this filter.</div>
@@ -315,8 +333,8 @@ const SUGGESTION_TEXT = {
   reject: 'Suggested reject: a stronger frame of the same moment exists, or it has a flaw.'
 }
 
-function Inspector({ shot, projectId }: { shot: Shot; projectId: string }): React.JSX.Element {
-  const { decide, setRating } = useStore()
+function Inspector({ shot, projectId, hide }: { shot: Shot; projectId: string; hide: boolean }): React.JSX.Element {
+  const { decide, setRating, taste } = useStore()
   const score = shot.score
   const a = shot.analysis!
   return (
@@ -342,12 +360,32 @@ function Inspector({ shot, projectId }: { shot: Shot; projectId: string }): Reac
         ))}
       </div>
 
-      {score && (
+      {score && hide && (
+        <div className="note teach">
+          <p className="small">
+            <b>Your call.</b> For about one moment in ten, Atelier keeps its opinion to itself. A choice you make
+            without being shown a suggestion is the cleanest evidence of your taste, and it is how the app checks
+            whether its suggestions are any good. Its view appears once you decide.
+          </p>
+        </div>
+      )}
+      {score && !hide && (
         <>
           <h3>Why</h3>
           {shot.suggestion && <p className="small">{SUGGESTION_TEXT[shot.suggestion]}</p>}
           <Meter label="Moment" value={score.moment} />
           <Meter label="Craft" value={score.craft} />
+          {score.learned !== undefined && taste && (
+            <>
+              <Meter label="Your taste" value={score.learned} />
+              <p className="muted small" style={{ margin: '2px 0 6px' }}>
+                {taste.trust > 0
+                  ? `Learned from your past choices; counts for ${Math.round(taste.trust * 100)}% of this suggestion.`
+                  : 'Learned from your past choices. Shown for interest: it has not yet proved better than the built-in rules, so it does not affect suggestions.'}
+                {score.learnedWhy?.length ? ` ${score.learnedWhy.join('; ')}.` : ''}
+              </p>
+            </>
+          )}
           <div style={{ margin: '8px 0' }}>
             {score.gem && <span className="chip gem">hidden gem</span>}
             {score.tags.map((t) => (

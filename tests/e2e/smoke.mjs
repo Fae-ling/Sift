@@ -18,6 +18,8 @@ const samples = process.env.ATELIER_SAMPLES
 if (!samples) throw new Error('Set ATELIER_SAMPLES to a folder of photos')
 const shotsDir = process.env.ATELIER_SCREENSHOTS
 const userData = mkdtempSync(join(tmpdir(), 'atelier-e2e-'))
+// Unprompted bursts are chosen pseudo-randomly per project; they are off unless ATELIER_BLIND=1, so the run is repeatable.
+writeFileSync(join(userData, 'learning.json'), JSON.stringify({ version: 1, blindBursts: process.env.ATELIER_BLIND === '1', projects: {} }))
 
 // Set ATELIER_APP to a packaged executable to test the installed form of the app.
 const packaged = process.env.ATELIER_APP
@@ -120,6 +122,10 @@ try {
   // A culling profile learns from a folder of photographs, then has its essence distilled.
   await page.getByRole('button', { name: 'Culling profiles' }).click()
   const card = page.locator('.card', { has: page.locator('input[value="Joyful and candid"]') })
+  // The decisions made above have been learned from.
+  await page.getByRole('button', { name: 'Learn now' }).click()
+  await page.getByText(/decisions learned from/).waitFor()
+  assert.match(readFileSync(join(userData, 'learning.json'), 'utf8'), /"examples":\[\{/, 'decisions are stored as examples')
   await card.getByRole('button', { name: /Learn from a gallery folder/ }).click()
   await card.getByText(/photographs; \d+% show people/).waitFor({ timeout: 60_000 })
   await card.getByRole('button', { name: /Distil the essence/ }).click()
