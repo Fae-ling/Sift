@@ -143,7 +143,7 @@ try {
   await page.getByRole('button', { name: 'Read the shoot' }).click()
   await page.getByText('Every moment has been read.').waitFor()
   await page.getByText(/Claude, 9\/10/).first().waitFor()
-  assert.notEqual(await page.locator('.scene-chapter').first().inputValue(), '', 'scenes are labelled with their chapter')
+  assert.doesNotMatch(await page.locator('.scene-head .menu-button').first().innerText(), /chapter…/, 'scenes are labelled with their chapter')
   await snap('3-cull-read')
   await page.getByRole('button', { name: 'Cull with Claude' }).click()
 
@@ -168,9 +168,31 @@ try {
   }
 
   // The second look lists the best frame of every moment nothing was kept from.
-  await page.getByLabel('More filters').selectOption('unkept')
+  // The filter menu opens above the photo, and an option can be chosen from it.
+  await page.getByRole('button', { name: /^More filters/ }).click()
+  await page.getByRole('listbox', { name: 'More filters' }).waitFor()
+  await snap('3-cull-menu')
+  await page.getByRole('option', { name: /Second look/ }).click()
+  assert.match(await page.getByRole('button', { name: /^More filters/ }).innerText(), /Second look/)
   await snap('3-cull-second-look')
   await page.getByRole('button', { name: /^All \d/ }).click()
+
+  // Zoom: a click on the photo shows it at 100% from the full-size image; a second click fits it again.
+  await page.locator('.strip .thumb').first().click()
+  const photo = page.locator('.loupe-img')
+  const fitted = await photo.locator('img').evaluate((img) => img.getBoundingClientRect().width)
+  await photo.click({ position: { x: 300, y: 200 } })
+  await until(() => photo.locator('img').evaluate((img) => img.getBoundingClientRect().width), (w) => w > fitted * 1.5, 'clicking the photo zooms in')
+  await until(() => photo.locator('img').getAttribute('src'), (src) => src.startsWith('blob:'), 'the full-size image is loaded for zooming')
+  await snap('3-cull-zoom')
+  await photo.click({ position: { x: 300, y: 200 } })
+  await until(() => photo.locator('img').evaluate((img) => img.getBoundingClientRect().width), (w) => Math.abs(w - fitted) < 2, 'a second click fits it again')
+
+  // The cull settings open over the photo, with the style chosen from Sift's own menu.
+  await page.locator('.popover-wrap > button').click()
+  await page.getByRole('dialog', { name: 'Cull settings' }).waitFor()
+  await snap('3-cull-settings')
+  await page.keyboard.press('Escape')
 
   // Several frames chosen with Ctrl-click are rejected in one go, and the reason is asked for.
   await page.locator('.strip .thumb').nth(0).click()

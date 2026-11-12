@@ -6,6 +6,8 @@ import { BLINK_LIMIT } from '../analysis/scoring'
 import { Thumb, type ClickMods } from '../components/Thumb'
 import { estimateCost, formatCost } from '../components/AiCost'
 import { Icon } from '../components/Icon'
+import { Loupe } from '../components/Loupe'
+import { Menu } from '../components/Menu'
 import { isHidden, READ_TOKENS, readCandidates, triage, useStore, visibleShots, type Filter, type TriageKind } from '../store'
 
 /** The filters used all the time, shown as a segmented control. */
@@ -19,7 +21,7 @@ const MAIN_FILTERS: { id: Filter; label: string; hint: string }[] = [
 const MORE_FILTERS: { id: Filter; label: string; hint: string }[] = [
   { id: 'gems', label: 'Hidden gems', hint: 'Flawed frames that may hold a moment' },
   { id: 'key', label: 'Key people', hint: 'Frames with someone you marked as a key person' },
-  { id: 'relook', label: 'Another look', hint: 'What a re-estimate of this project turned up: moments you kept nothing from that the app would now put forward, and picks it would now question' },
+  { id: 'relook', label: 'Another look', hint: 'After a re-estimate: missed moments, and picks it now questions' },
   { id: 'must', label: 'Must-have chapters', hint: 'Frames from chapters your style says must not be missed' },
   { id: 'unkept', label: 'Second look', hint: 'The strongest frame of every moment you kept nothing from' },
   { id: 'rejects', label: 'Rejects', hint: 'Frames you rejected' },
@@ -34,7 +36,6 @@ export function Cull(): React.JSX.Element {
   const { project, selectedId, select, filter, setFilter, decide, acceptSuggestions, setView, chapter, setChapter, setRating, undo, redo, tasteData, setSceneChapter, deep, cancelDeepRead, relook, marked, setMarked, asking, setAsking, setWhy, settings, chrome, setChrome } = useStore()
   const [showTriage, setShowTriage] = useState(false)
   const [compare, setCompare] = useState(false)
-  const [zoom, setZoom] = useState(false)
   const [showRead, setShowRead] = useState(false)
   const stripRef = useRef<HTMLDivElement>(null)
 
@@ -216,7 +217,6 @@ export function Cull(): React.JSX.Element {
       else if (key === 'u') decide(targets(), null)
       // In a burst shown without a suggestion there is nothing to accept: the choice is the photographer's.
       else if (key === 'enter') hidden.has(current.id) || (acceptSuggestions(stack.map((s) => s.id)), moveStack(1))
-      else if (key === 'z' || key === ' ') setZoom((z) => !z)
       else if (key === 'c') setCompare((c) => !c)
       else if (/^[0-5]$/.test(key)) for (const id of targets()) setRating(id, Number(key))
       else return
@@ -255,29 +255,26 @@ export function Cull(): React.JSX.Element {
             </button>
           ))}
         </div>
-        <select
-          className={`compact ${MORE_FILTERS.some((f) => f.id === filter) ? 'active' : ''}`}
-          value={MORE_FILTERS.some((f) => f.id === filter) ? filter : ''}
-          onChange={(e) => setFilter((e.target.value || 'suggested') as Filter)}
-          aria-label="More filters"
+        <Menu
+          label="More filters"
           title="Filters for a particular check"
-        >
-          <option value="">More filters…</option>
-          {MORE_FILTERS.map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.label} ({visibleShots(shots, f.id).length})
-            </option>
-          ))}
-        </select>
+          placeholder="More filters"
+          active={MORE_FILTERS.some((f) => f.id === filter)}
+          value={MORE_FILTERS.some((f) => f.id === filter) ? filter : ''}
+          onChange={(id) => setFilter(id as Filter)}
+          width={300}
+          options={MORE_FILTERS.map((f) => ({ id: f.id, label: f.label, hint: f.hint, count: visibleShots(shots, f.id, relook).length }))}
+        />
         {chapters.length > 0 && (
-          <select className={`compact ${chapter ? 'active' : ''}`} value={chapter ?? ''} onChange={(e) => setChapter(e.target.value || null)} aria-label="Chapter" title="Show only frames from one chapter of the story">
-            <option value="">All chapters</option>
-            {chapters.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+          <Menu
+            label="Chapter"
+            title="Show only frames from one chapter of the story"
+            placeholder="All chapters"
+            active={!!chapter}
+            value={chapter ?? ''}
+            onChange={(id) => setChapter(id || null)}
+            options={[{ id: '', label: 'All chapters' }, ...chapters.map((c) => ({ id: c, label: c, count: shots.filter((x) => (x.chapter ?? x.read?.beat) === c).length }))]}
+          />
         )}
 
         <div className="progress" title={`${picks} picked, ${rejects} rejected, ${undecided} to decide`}>
@@ -340,19 +337,7 @@ export function Cull(): React.JSX.Element {
                 ))}
               </div>
             ) : (
-              <div className={`loupe-img ${zoom ? 'zoom' : ''}`} onClick={() => setZoom((z) => !z)} title="Click or press Z to zoom">
-              <div className="frame">
-                <img src={previewUrl(project.id, current.id)} alt={current.name} draggable={false} />
-                {!zoom &&
-                  current.analysis!.faces.map((f, i) => (
-                    <div
-                      key={i}
-                      className={`facebox ${f.blink > BLINK_LIMIT ? 'bad' : ''}`}
-                      style={{ left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%` }}
-                    />
-                  ))}
-              </div>
-            </div>
+              <Loupe projectId={project.id} shot={current} />
             )}
             {stack.length > 1 && !compare && (
               <div className="take-hint">
@@ -623,7 +608,9 @@ function Inspector({ shot, projectId, hide }: { shot: Shot; projectId: string; h
           <dt><kbd>Ctrl</kbd>+<kbd>A</kbd></dt><dd>choose all shown; <kbd>Esc</kbd> clears</dd>
           <dt><kbd>Enter</kbd></dt><dd>accept this moment's suggestion</dd>
           <dt><kbd>1</kbd>–<kbd>5</kbd></dt><dd>stars</dd>
-          <dt><kbd>Z</kbd> <kbd>C</kbd></dt><dd>zoom, compare</dd>
+          <dt><kbd>Z</kbd></dt><dd>100% on the eyes, again to fit</dd>
+          <dt>Click, wheel</dt><dd>zoom there; drag to move</dd>
+          <dt><kbd>C</kbd></dt><dd>compare with the best take</dd>
           <dt><kbd>Tab</kbd></dt><dd>hide or show this panel</dd>
           <dt><kbd>Shift</kbd>+<kbd>Tab</kbd></dt><dd>only the photo (Esc to come back)</dd>
           <dt><kbd>Ctrl</kbd>+<kbd>Z</kbd></dt><dd>undo (with Shift: redo)</dd>
@@ -641,7 +628,8 @@ function CullSettings(): React.JSX.Element {
   useEffect(() => {
     if (!open) return
     const close = (e: MouseEvent | KeyboardEvent): void => {
-      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !ref.current?.contains(e.target as Node)) setOpen(false)
+      // A menu inside the panel draws its list outside it; choosing from that list must not close the panel.
+      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !ref.current?.contains(e.target as Node) && !(e.target as Element).closest?.('.menu-panel')) setOpen(false)
     }
     window.addEventListener('mousedown', close)
     window.addEventListener('keydown', close)
@@ -658,29 +646,37 @@ function CullSettings(): React.JSX.Element {
         <Icon name="sliders" /> <span className="label ellipsis" style={{ maxWidth: 140 }}>{style?.name ?? 'No style'}</span>
       </button>
       {open && (
-        <div className="popover" role="dialog" aria-label="Cull settings">
-          <label htmlFor="cull-style">Shoot style</label>
-          <select id="cull-style" value={project.styleIds[0] ?? ''} onChange={(e) => chooseStyle(e.target.value || null)} aria-label="Shoot style">
-            <option value="">No style</option>
-            {learned.styles.map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.name}
-              </option>
-            ))}
-          </select>
-          <p className="field-help">Sets the chapters, the emotions looked for, and the balance below.</p>
-          <label htmlFor="cull-balance">Craft or moment</label>
-          <div className="row" style={{ flexWrap: 'nowrap' }}>
-            <span className="faint small">Craft</span>
-            <input id="cull-balance" type="range" min={0} max={1} step={0.05} value={project.balance} onChange={(e) => setBalance(Number(e.target.value))} aria-label="Balance between craft and moment" />
-            <span className="faint small">Moment</span>
+        <div className="popover settings-pop" role="dialog" aria-label="Cull settings">
+          <div className="pop-section">
+            <div className="pop-label">Shoot style</div>
+            <Menu
+              label="Shoot style"
+              placeholder="No style"
+              value={project.styleIds[0] ?? ''}
+              onChange={(id) => chooseStyle(id || null)}
+              width={260}
+              options={[{ id: '', label: 'No style', hint: 'Judge craft and moment only' }, ...learned.styles.map((x) => ({ id: x.id, label: x.name, hint: x.tags.slice(0, 4).join(', ') || undefined }))]}
+            />
+            <p className="field-help">Sets the chapters, the emotions looked for, and the balance.</p>
           </div>
-          <p className="field-help">How much the emotion and the moment count against sharpness and exposure.</p>
-          <label className="check" style={{ marginTop: 12 }}>
-            <input type="checkbox" checked={settings.askWhy} onChange={(e) => void setAskWhy(e.target.checked)} />
+          <div className="pop-section">
+            <div className="pop-label">
+              Craft or moment <span className="pop-value">{Math.round(project.balance * 100)}% moment</span>
+            </div>
+            <input id="cull-balance" className="slider" type="range" min={0} max={1} step={0.05} value={project.balance} onChange={(e) => setBalance(Number(e.target.value))} aria-label="Balance between craft and moment" style={{ ['--v' as string]: `${project.balance * 100}%` }} />
+            <div className="slider-ends">
+              <span>Sharp and clean</span>
+              <span>The moment</span>
+            </div>
+          </div>
+          <div className="pop-section row" style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}>
             <span>Ask why when I reject</span>
-          </label>
-          <div className="row" style={{ marginTop: 8 }}>
+            <label className="switch">
+              <input type="checkbox" checked={settings.askWhy} onChange={(e) => void setAskWhy(e.target.checked)} aria-label="Ask why when I reject" />
+              <span />
+            </label>
+          </div>
+          <div className="pop-foot">
             <button
               className="sm"
               title="Scores this shoot again with everything known today, minus what was learned from it, and counts how many of your calls it would make"
@@ -693,10 +689,10 @@ function CullSettings(): React.JSX.Element {
             >
               Re-estimate this shoot
             </button>
+            <button className="link small" onClick={() => void window.studio.openWorkshop('profiles')}>
+              Edit shoot styles
+            </button>
           </div>
-          <button className="link small" onClick={() => void window.studio.openWorkshop('profiles')}>
-            Edit shoot styles
-          </button>
         </div>
       )}
     </div>
@@ -828,20 +824,15 @@ const SceneBlock = memo(function SceneBlock(props: {
         <span>
           Scene {scene.id} · {time(scene.stacks[0][0].time)}
         </span>
-        <select
-          className="scene-chapter"
-          value={plan.includes(chapter) ? chapter : ''}
-          onChange={(e) => props.onChapter(scene.id, e.target.value || null)}
-          aria-label={`Chapter of scene ${scene.id}`}
+        <Menu
+          size="sm"
+          label={`Chapter of scene ${scene.id}`}
           title="Which chapter of the story this scene belongs to. Saying so lets the cull protect must-have chapters."
-        >
-          <option value="">{chapter && !plan.includes(chapter) ? chapter : 'chapter…'}</option>
-          {plan.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
+          placeholder={chapter && !plan.includes(chapter) ? chapter : 'chapter…'}
+          value={plan.includes(chapter) ? chapter : ''}
+          onChange={(id) => props.onChapter(scene.id, id || null)}
+          options={[{ id: '', label: 'No chapter' }, ...plan.map((n) => ({ id: n, label: n }))]}
+        />
       </div>
       <div className="scene-row">
         {scene.stacks.map((st) => (
