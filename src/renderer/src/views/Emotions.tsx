@@ -33,7 +33,7 @@ export function Emotions(): React.JSX.Element {
 
   return (
     <div className="page wide">
-      <PageHeader title="Emotions" lead="What Atelier can read on a face. Every emotion becomes more exact with each example you or Claude give it, and you can teach it any emotion your work needs." />
+      <PageHeader title="Emotions" lead="What Sift can read on a face. Every emotion becomes more exact with each example you or Claude give it, and you can teach it any emotion your work needs." />
 
       <h2>What is this?</h2>
       {waiting.length === 0 ? (

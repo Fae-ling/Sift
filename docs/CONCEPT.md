@@ -1,6 +1,6 @@
-# Atelier: the concept
+# Sift: the concept
 
-Atelier is a culling tool for professional photographers. It takes the RAW files
+Sift is a culling tool for professional photographers. It takes the RAW files
 of a shoot, small or very large, and helps choose the frames worth keeping: not
 only the technically sound ones, but the ones that hold the emotion, the special
 moment, and the pictures a shoot of that kind must not come back without.

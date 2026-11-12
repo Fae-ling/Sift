@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { Icon } from './components/Icon'
+import { Mark } from './components/Mark'
 import { useStore, type View } from './store'
 import { Brief } from './views/Brief'
 import { Cull } from './views/Cull'
@@ -115,7 +116,10 @@ function StudioApp(): React.JSX.Element {
   return (
     <div className="app">
       <nav className="sidebar" aria-label="Main">
-        <div className="brand">Atelier</div>
+        <div className="brand">
+          <Mark />
+          Sift
+        </div>
 
         {project ? (
           <>
@@ -182,7 +186,10 @@ function WorkshopApp(): React.JSX.Element {
   return (
     <div className="app workshop">
       <nav className="sidebar" aria-label="Workshop">
-        <div className="brand">Workshop</div>
+        <div className="brand">
+          <Mark />
+          Workshop
+        </div>
         {WORKSHOP.map((g) => (
           <div key={g.group || 'top'}>
             {g.group && <div className="nav-group">{g.group}</div>}

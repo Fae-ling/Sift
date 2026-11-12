@@ -116,7 +116,7 @@ function Updates(): React.JSX.Element {
       <div className="card update-card">
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <div>
-            <div className="stat" style={{ fontSize: 18 }}>Atelier {status?.current ?? ''}</div>
+            <div className="stat" style={{ fontSize: 18 }}>Sift {status?.current ?? ''}</div>
             <div className="muted small">
               {status?.latest
                 ? `Version ${status.latest.version} is available (${new Date(status.latest.published).toLocaleDateString()}).`
@@ -136,7 +136,7 @@ function Updates(): React.JSX.Element {
                 {progress !== null ? `Downloading ${Math.round(progress * 100)}%…` : `Update to ${status.latest.version}`}
               </button>
             )}
-            <button onClick={() => void window.studio.update.installFile().catch(fail)} title="Choose an Atelier installer you downloaded from GitHub">
+            <button onClick={() => void window.studio.update.installFile().catch(fail)} title="Choose a Sift installer you downloaded from GitHub">
               Install from a file…
             </button>
           </div>

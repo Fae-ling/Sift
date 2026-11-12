@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'electron'
 import { join } from 'node:path'
+import { existsSync, renameSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import type { AtmosphereRequest, DevelopStyleRequest, DiagnoseRequest, NameFacesRequest, EssenceRequest, Learned, Project, ReadRequest, StoryRequest, XmpItem } from '@shared/types'
 import { atmosphere, developStyle, diagnose, nameFaces, narrativeRead, storyAdvice, styleEssence } from './ai'
@@ -29,6 +30,32 @@ import {
 
 // A separate profile lets automated tests run without touching real projects.
 if (process.env.ATELIER_USER_DATA) app.setPath('userData', process.env.ATELIER_USER_DATA)
+else keepData()
+
+/**
+ * The app was called Atelier, and its data folder was named after it
+ * (%APPDATA%\Atelier). Renamed to Sift, it would look in %APPDATA%\Sift and
+ * find nothing. On first start the old folder is moved to the new name; if
+ * that is not possible, the old folder simply goes on being used.
+ */
+function keepData(): void {
+  const appData = app.getPath('appData')
+  const old = join(appData, 'Atelier')
+  const now = join(appData, 'Sift')
+  if (!existsSync(old)) return
+  if (!existsSync(now)) {
+    try {
+      renameSync(old, now)
+      app.setPath('userData', now)
+      return
+    } catch {
+      // Something holds the old folder open; keep using it where it is.
+    }
+  }
+  // Both exist only if Sift has run before without moving; prefer whichever holds projects.
+  if (!existsSync(join(now, 'projects')) && existsSync(join(old, 'projects'))) app.setPath('userData', old)
+  else app.setPath('userData', now)
+}
 
 // media:// serves cached previews to the renderer. It can only read inside the
 // app's own projects folder, never arbitrary files.
@@ -36,11 +63,13 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }
 ])
 
-const BACKGROUND = '#04121c'
+const BACKGROUND = '#2e2e2e'
+const ICON = join(__dirname, '../renderer/icon.png')
 
 function newWindow(options: Electron.BrowserWindowConstructorOptions, hash = ''): BrowserWindow {
   const win = new BrowserWindow({
     backgroundColor: BACKGROUND,
+    icon: ICON,
     autoHideMenuBar: true,
     ...options,
     webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, sandbox: false }
@@ -58,7 +87,7 @@ let mainWindow: BrowserWindow | null = null
 let workshop: BrowserWindow | null = null
 
 function createWindow(): void {
-  mainWindow = newWindow({ width: 1480, height: 940, minWidth: 1100, minHeight: 700, title: 'Atelier' })
+  mainWindow = newWindow({ width: 1480, height: 940, minWidth: 1100, minHeight: 700, title: 'Sift' })
   mainWindow.on('closed', () => {
     mainWindow = null
     // The workshop has no use without the studio.
@@ -73,7 +102,7 @@ function openWorkshop(section?: string): void {
     workshop.focus()
     return
   }
-  workshop = newWindow({ width: 1240, height: 880, minWidth: 960, minHeight: 640, title: 'Atelier · Workshop' }, `#workshop${section ? '/' + section : ''}`)
+  workshop = newWindow({ width: 1240, height: 880, minWidth: 960, minHeight: 640, title: 'Sift · Workshop' }, `#workshop${section ? '/' + section : ''}`)
   workshop.on('closed', () => (workshop = null))
 }
 
@@ -149,7 +178,7 @@ function registerIpc(): void {
   handle('update:setToken', (token: string) => setUpdateToken(token))
   ipcMain.handle('update:download', (event, assetId: number) => downloadAndInstall(assetId, event.sender))
   handle('update:installFile', async () => {
-    const result = await dialog.showOpenDialog({ title: 'Choose the new Atelier installer', filters: [{ name: 'Installer', extensions: ['exe'] }], properties: ['openFile'] })
+    const result = await dialog.showOpenDialog({ title: 'Choose the new Sift installer', filters: [{ name: 'Installer', extensions: ['exe'] }], properties: ['openFile'] })
     if (result.canceled) return false
     await installFromFile(result.filePaths[0])
     return true
@@ -157,12 +186,12 @@ function registerIpc(): void {
   handle('data:backup', async () => {
     const result = await dialog.showOpenDialog({ title: 'Choose where to put the backup', buttonLabel: 'Back up here', properties: ['openDirectory', 'createDirectory'] })
     if (result.canceled) return null
-    const folder = join(result.filePaths[0], `Atelier backup ${new Date().toISOString().slice(0, 10)}`)
+    const folder = join(result.filePaths[0], `Sift backup ${new Date().toISOString().slice(0, 10)}`)
     await backupTo(folder)
     return folder
   })
   handle('data:restore', async () => {
-    const result = await dialog.showOpenDialog({ title: 'Choose an Atelier backup folder', properties: ['openDirectory'] })
+    const result = await dialog.showOpenDialog({ title: 'Choose a Sift backup folder', properties: ['openDirectory'] })
     if (result.canceled) return null
     return restoreFrom(result.filePaths[0])
   })

@@ -1,6 +1,6 @@
 // Updating the app in place, and keeping what it has learned safe.
 //
-// Everything Atelier learns lives in its data folder (%APPDATA%\Atelier on
+// Everything Sift learns lives in its data folder (%APPDATA%\Sift on
 // Windows), never in the folder the app is installed to. Installing a newer
 // version over the old one replaces the program and leaves the data alone.
 // This module finds a newer installer (on GitHub, with a read-only token the
@@ -58,7 +58,7 @@ export interface UpdateStatus {
 
 const api = async (path: string, token: string, accept = 'application/vnd.github+json'): Promise<Response> =>
   fetch(`https://api.github.com/repos/${UPDATE_REPO}${path}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: accept, 'User-Agent': 'Atelier-updater', 'X-GitHub-Api-Version': '2022-11-28' }
+    headers: { Authorization: `Bearer ${token}`, Accept: accept, 'User-Agent': 'Sift-updater', 'X-GitHub-Api-Version': '2022-11-28' }
   })
 
 export async function checkForUpdate(): Promise<UpdateStatus> {
@@ -107,13 +107,14 @@ export async function backupTo(folder: string): Promise<number> {
     await fs.mkdir(join(folder, rel, '..'), { recursive: true })
     await fs.copyFile(join(root, rel), join(folder, rel))
   }
-  await fs.writeFile(join(folder, 'atelier-backup.txt'), `Atelier ${appVersion()} backup, ${new Date().toISOString()}\n`)
+  await fs.writeFile(join(folder, 'sift-backup.txt'), `Sift ${appVersion()} backup, ${new Date().toISOString()}\n`)
   return files.length
 }
 
 /** Puts a backup back. The app then reloads, since everything it holds in memory is out of date. */
 export async function restoreFrom(folder: string): Promise<number> {
-  if (!(await fs.stat(join(folder, 'atelier-backup.txt')).then(() => true, () => false))) throw new Error('That folder is not an Atelier backup.')
+  const marked = async (name: string): Promise<boolean> => fs.stat(join(folder, name)).then(() => true, () => false)
+  if (!(await marked('sift-backup.txt')) && !(await marked('atelier-backup.txt'))) throw new Error('That folder is not a Sift backup.')
   const root = app.getPath('userData')
   // The present state is kept too, in case the restore was a mistake.
   await backupTo(join(root, 'backups', `before-restore-${Date.now()}`))
@@ -152,7 +153,7 @@ function runInstaller(file: string): void {
 }
 
 export async function installFromFile(file: string): Promise<void> {
-  if (!/\.exe$/i.test(file)) throw new Error('Choose the Atelier installer (a .exe file).')
+  if (!/\.exe$/i.test(file)) throw new Error('Choose the Sift installer (a .exe file).')
   await autoBackup()
   runInstaller(file)
 }
@@ -164,7 +165,7 @@ export async function downloadAndInstall(assetId: number, sender: Electron.WebCo
   const res = await api(`/releases/assets/${assetId}`, token, 'application/octet-stream')
   if (!res.ok || !res.body) throw new Error(`The download failed (${res.status}).`)
   const total = Number(res.headers.get('content-length') ?? 0)
-  const file = join(app.getPath('temp'), `Atelier-update-${Date.now()}.exe`)
+  const file = join(app.getPath('temp'), `Sift-update-${Date.now()}.exe`)
   let done = 0
   let last = 0
   const body = Readable.fromWeb(res.body as never)

@@ -39,7 +39,7 @@ export function Guide(): React.JSX.Element {
   }
 
   return (
-    <div className="guide-backdrop" role="dialog" aria-modal="true" aria-label="Setting up Atelier">
+    <div className="guide-backdrop" role="dialog" aria-modal="true" aria-label="Setting up Sift">
       <div className="guide">
         <ol className="guide-steps" aria-label="Steps">
           {STEPS.map((s, i) => (
@@ -55,9 +55,9 @@ export function Guide(): React.JSX.Element {
         <div className="guide-body">
           {step === 0 && (
             <>
-              <h1>Welcome to Atelier</h1>
+              <h1>Welcome to Sift</h1>
               <p className="lead">
-                Atelier culls with you: it suggests keepers and learns from every choice you make. It gets good faster if
+                Sift culls with you: it suggests keepers and learns from every choice you make. It gets good faster if
                 it first studies work you have already done. This guide takes about ten minutes of your time, plus reading
                 time for the photos, and every step can be skipped.
               </p>
@@ -212,7 +212,7 @@ export function Guide(): React.JSX.Element {
           {step === 6 && (
             <>
               <h1>Ready</h1>
-              <p className="lead">{decisions || finished ? 'This is what Atelier starts with:' : 'Atelier will learn from your first cull. Every choice you make teaches it.'}</p>
+              <p className="lead">{decisions || finished ? 'This is what Sift starts with:' : 'Sift will learn from your first cull. Every choice you make teaches it.'}</p>
               <div className="stats">
                 <div className="card">
                   <div className="stat">{decisions}</div>

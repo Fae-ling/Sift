@@ -1,4 +1,4 @@
-# Atelier
+# Sift
 
 A culling tool for professional photographers. It takes the RAW files of a shoot,
 small or very large, and helps choose the frames worth keeping: technically sound,
@@ -52,21 +52,22 @@ Settings. With no key, everything else still works.
 
 ## Updating without losing anything
 
-Everything Atelier learns and every project live in `%APPDATA%\Atelier`, never in the
-folder the program is installed in. Installing a newer version over the old one
+Everything Sift learns and every project live in `%APPDATA%\Sift`, never in the
+folder the program is installed in. (Sift was called Atelier until version 0.2.12;
+on first start it moves `%APPDATA%\Atelier` to the new name, so nothing is lost.) Installing a newer version over the old one
 (or uninstalling) leaves that folder alone.
 
-Every build is published as a GitHub release (`Atelier-Setup-0.2.N.exe`). In the app,
+Every build is published as a GitHub release (`Sift-Setup-0.2.N.exe`). In the app,
 Settings → Updates either finds it for you (add a fine-grained GitHub token with
 *Contents: read-only* on this repository once) or installs one you downloaded
 (*Install from a file*). Before installing, it copies your data into
-`%APPDATA%\Atelier\backups`. Settings → Your data also backs everything up to a
+`%APPDATA%\Sift\backups`. Settings → Your data also backs everything up to a
 folder of your choice and restores it.
 
 ## Install (Windows)
 
 Every push builds an installer. In GitHub: **Actions → Build → latest run →
-Artifacts → Atelier-Windows-Installer**. The installer is unsigned, so Windows
+Artifacts → Sift-Windows-Installer**. The installer is unsigned, so Windows
 SmartScreen will ask you to confirm the first time.
 
 ## Run from source

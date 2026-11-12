@@ -4,7 +4,7 @@ import { useStore } from '../store'
 const baseName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path
 
 /**
- * Teaches the cull from a shoot culled before Atelier: imports its folder as a
+ * Teaches the cull from a shoot culled before Sift: imports its folder as a
  * project, takes the decisions from Lightroom ratings or from the files that
  * were delivered, and learns from them as unprompted choices.
  */

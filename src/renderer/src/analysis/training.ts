@@ -1,4 +1,4 @@
-// What Atelier learns from photographs the photographer provides, beyond the
+// What Sift learns from photographs the photographer provides, beyond the
 // culling taste (which has its own module, learner.ts):
 //
 //  - norms:     how their finished photographs measure, so the diagnosis judges a

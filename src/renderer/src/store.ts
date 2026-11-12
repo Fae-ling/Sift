@@ -453,7 +453,7 @@ function saveTraining(set: (p: Partial<State>) => void, get: () => State, patch:
 }
 
 /**
- * Records decisions the photographer made before Atelier (in Lightroom, or by
+ * Records decisions the photographer made before Sift (in Lightroom, or by
  * delivering some files and not others) on the open project, and learns from
  * them. They were made with no suggestion from this app, so they count as
  * unprompted choices. Decisions already made here are left alone.
@@ -713,7 +713,7 @@ export const useStore = create<State>((set, get) => ({
     const files = await window.studio.scan(folder)
     if (files.length === 0) {
       throw new Error(
-        `No photos found in ${folder} or its subfolders. Atelier reads ${IMAGE_EXTENSIONS.map((e) => '.' + e.toUpperCase()).join(', ')}.`
+        `No photos found in ${folder} or its subfolders. Sift reads ${IMAGE_EXTENSIONS.map((e) => '.' + e.toUpperCase()).join(', ')}.`
       )
     }
     const known = new Set(start.shots.map((s) => s.path))

@@ -40,7 +40,7 @@ jobs:
       - run: npm run dist:win
       - uses: actions/upload-artifact@v4
         with:
-          name: Atelier-Windows-Installer
+          name: Sift-Windows-Installer
           path: release/*.exe
           if-no-files-found: error
       - name: Publish release
@@ -51,5 +51,5 @@ jobs:
           gh release create "v0.2.${{ github.run_number }}" release/*.exe \
             --repo "${{ github.repository }}" \
             --target "${{ github.sha }}" \
-            --title "Atelier 0.2.${{ github.run_number }}" \
+            --title "Sift 0.2.${{ github.run_number }}" \
             --notes "$(git log -1 --pretty=%B)"

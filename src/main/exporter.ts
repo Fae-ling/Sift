@@ -17,7 +17,7 @@ const escapeXml = (s: string): string =>
 export function newSidecar(rating: number, label: string | null): string {
   const attrs = [`xmp:Rating="${rating}"`, ...(label ? [`xmp:Label="${escapeXml(label)}"`] : [])].join(' ')
   return `<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
-<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Atelier">
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Sift">
  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
   <rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" ${attrs}/>
  </rdf:RDF>
@@ -37,7 +37,7 @@ export async function exportXmp(items: XmpItem[]): Promise<ExportResult> {
   for (const item of items) {
     try {
       if (!isRaw(item.path)) {
-        throw new Error('JPEG originals keep ratings inside the file; Atelier never modifies originals.')
+        throw new Error('JPEG originals keep ratings inside the file; Sift never modifies originals.')
       }
       const sidecar = sidecarPath(item.path)
       if (await exists(sidecar)) {
@@ -97,7 +97,7 @@ export async function saveFiles(folder: string, files: { name: string; data: Arr
 /**
  * Reads the star rating and colour label a photo already carries: from the XMP
  * sidecar for a RAW, from the file itself otherwise. Used to learn from shoots
- * that were culled in Lightroom before Atelier existed.
+ * that were culled in Lightroom before Sift existed.
  */
 export async function readRatings(paths: string[]): Promise<{ path: string; rating: number | null; label: string | null }[]> {
   const out: { path: string; rating: number | null; label: string | null }[] = []

@@ -439,7 +439,7 @@ function StyleEditor({ style }: { style: Style }): React.JSX.Element {
               </button>
             )}
           </div>
-          <p className="field-help">Atelier measures the photographs and keeps a few small thumbnails; the files are never changed or shared.</p>
+          <p className="field-help">Sift measures the photographs and keeps a few small thumbnails; the files are never changed or shared.</p>
         </div>
       )}
     </>

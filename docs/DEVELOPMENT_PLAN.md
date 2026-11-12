@@ -1,4 +1,4 @@
-# Atelier development plan
+# Sift development plan
 
 Where the program should go next, why, and how each part is to be built.
 `ARCHITECTURE.md` describes how the app is put together today; this document is the
@@ -8,10 +8,10 @@ plan from here.
 
 Findings from reading reviews, comparisons and workflow guides for culling tools
 (Narrative Select, Aftershoot, FilterPixel, Imagen, Lightroom's assisted culling),
-and what each means for Atelier. Most published material is written by vendors, so
+and what each means for Sift. Most published material is written by vendors, so
 these are leads, weighted by how often independent photographers repeat them.
 
-| Finding | Consequence for Atelier | Status |
+| Finding | Consequence for Sift | Status |
 | --- | --- | --- |
 | AI cullers lose **shot-list moments**: in one photographer's audit the tool dropped 65 frames they would keep, three of them unrepeatable (a second angle of the rings, a grandmother's portrait, a laugh during a speech). "A culling tool you never double-check is a gamble." | Never finish a cull without a safety pass. **Second look** lists the best frame of every moment nothing was kept from. | built |
 | Photographers do not trust a verdict without a reason, and vendors themselves concede human review is needed for emotional moments. | Every suggestion carries its reasons; craft and moment are scored separately; flawed-but-alive frames are surfaced, not rejected. | built |
@@ -20,7 +20,7 @@ these are leads, weighted by how often independent photographers repeat them.
 | Reviewers found frames with closed eyes that tools kept, and good frames they rejected. | Blink is a flag with context (laugh, embrace), never a hard reject; thresholds must be tuned on real shoots. | built, needs calibration |
 | Tools differ on **genre awareness**; most are genre-agnostic. | Kind of shoot, story plan and culling profiles drive the weights. | built |
 | "Key people" (best frames of the couple, parents) is asked for and poorly served. | Face clustering and a people panel. | planned, section 3.1 |
-| Couples increasingly ask whether AI touched their wedding photos. | Atelier never edits or generates pixels; say so plainly, and keep it true. A one-page statement the photographer can share. | planned, section 3.8 |
+| Couples increasingly ask whether AI touched their wedding photos. | Sift never edits or generates pixels; say so plainly, and keep it true. A one-page statement the photographer can share. | planned, section 3.8 |
 | Planning tools are split across apps: moodboards (Milanote), sun position (PhotoPills), CRM (Studio Ninja, Tave). | The Inspiration and Planning phases keep everything in the one project the cull already reads. | planned, section 4 |
 
 Sources are listed at the end.

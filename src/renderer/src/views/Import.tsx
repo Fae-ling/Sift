@@ -36,7 +36,7 @@ export function Import(): React.JSX.Element {
 
   return (
     <div className="page">
-      <PageHeader title="Import" lead="Point Atelier at the folder from your card. It reads the preview inside each RAW and measures every frame on this computer. Nothing is uploaded or changed.">
+      <PageHeader title="Import" lead="Point Sift at the folder from your card. It reads the preview inside each RAW and measures every frame on this computer. Nothing is uploaded or changed.">
         {analysed.length > 0 && (
           <button className="primary" onClick={() => setView('cull')}>
             Start culling

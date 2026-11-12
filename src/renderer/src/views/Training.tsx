@@ -37,7 +37,7 @@ export function TrainingView(): React.JSX.Element {
         <section className="card">
           <h2 className="card-title">Culling: what you keep</h2>
           <p className="small muted">
-            A shoot you already culled elsewhere. Decisions made before Atelier count as unprompted choices, the strongest
+            A shoot you already culled elsewhere. Decisions made before Sift count as unprompted choices, the strongest
             evidence there is. Two or three past shoots of each kind of work give it a real start.
           </p>
           <PastShootForm compact />

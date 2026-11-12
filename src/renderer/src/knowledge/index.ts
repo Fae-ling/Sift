@@ -30,7 +30,7 @@ export const ARTICLES: Article[] = [
 The slowest way to cull is to make a final decision about every frame the first time you see it. You have no context yet: you do not know that a better version of this moment is four frames later.
 
 ## The three passes
-1. **Reject pass (fast).** Remove only what can never be used: closed eyes, missed focus, misfires, test shots. No comparing. One or two seconds a frame. Atelier's flags do most of this pass for you; your job is to overrule it where a "flaw" is actually the picture.
+1. **Reject pass (fast).** Remove only what can never be used: closed eyes, missed focus, misfires, test shots. No comparing. One or two seconds a frame. Sift's flags do most of this pass for you; your job is to overrule it where a "flaw" is actually the picture.
 2. **Moment pass.** Go stack by stack. For each moment keep the single strongest frame. Compare within the stack only. This is where most of the volume disappears: a thousand frames are usually two or three hundred moments.
 3. **Story pass.** Now look at the survivors as a set. Cut for sequence, variety and the brief, not for quality: every frame left is already good.
 
@@ -725,7 +725,7 @@ A working palette is small: one or two **neutrals** (a near-black, an off-white)
 Use the 60-30-10 guideline: mostly neutral, a clear secondary, and an accent used sparingly for the things that must be noticed (a button, a price, a date).
 
 ## Take colours from the photographs
-For a gallery cover, album or client PDF, sample colours from the images themselves (Atelier's palette on each frame is a start). Type and graphics that echo the photographs' colours make the whole piece feel designed as one.
+For a gallery cover, album or client PDF, sample colours from the images themselves (Sift's palette on each frame is a start). Type and graphics that echo the photographs' colours make the whole piece feel designed as one.
 
 ## Legibility
 Text must contrast with its background in **brightness**, not just hue: red on green of equal brightness vibrates and is unreadable. The accessibility standard (WCAG) asks for a contrast ratio of at least 4.5:1 for body text and 3:1 for large text. About one in twelve men has some form of colour-vision deficiency, so never rely on colour alone to carry meaning.

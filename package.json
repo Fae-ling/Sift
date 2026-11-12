@@ -1,8 +1,8 @@
 {
   "name": "atelier-studio",
-  "productName": "Atelier",
+  "productName": "Sift",
   "version": "0.2.0",
-  "description": "A local-first project studio for photographers, filmmakers and designers: cull faster, learn to grade, tell better stories.",
+  "description": "Sift: culling that learns your eye.",
   "main": "out/main/index.js",
   "author": "Atelier",
   "license": "MIT",

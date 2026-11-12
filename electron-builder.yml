@@ -1,5 +1,5 @@
 appId: studio.atelier.app
-productName: Atelier
+productName: Sift
 directories:
   output: release
 files:
@@ -11,11 +11,13 @@ asarUnpack:
   - node_modules/exiftool-vendored.pl/**
 win:
   target: nsis
-  artifactName: Atelier-Setup-${version}.${ext}
+  artifactName: Sift-Setup-${version}.${ext}
+  icon: build/icon.png
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
-  # What the app has learned lives in %APPDATA%\Atelier and survives updates and uninstalls alike.
+  # What the app has learned lives in %APPDATA%\Sift and survives updates and uninstalls alike.
+  # The installer replaces the version called Atelier (same appId), keeping its data.
   deleteAppDataOnUninstall: false
 linux:
   target: dir

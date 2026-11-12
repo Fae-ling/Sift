@@ -206,7 +206,7 @@ export function applyLookToImage(look: Look, data: Uint8ClampedArray): void {
  * and most other tools. Meant for display-referred (Rec.709 / sRGB) images.
  */
 export function toCube(look: Look, title: string, size = 33): string {
-  const lines = [`TITLE "${title.replace(/"/g, "'")}"`, '# Made by Atelier. Apply to a Rec.709 / sRGB image, after any log conversion.', `LUT_3D_SIZE ${size}`, '']
+  const lines = [`TITLE "${title.replace(/"/g, "'")}"`, '# Made by Sift. Apply to a Rec.709 / sRGB image, after any log conversion.', `LUT_3D_SIZE ${size}`, '']
   // .cube order: red changes fastest, then green, then blue.
   for (let b = 0; b < size; b++) {
     for (let g = 0; g < size; g++) {
@@ -251,7 +251,7 @@ export function toLightroomPreset(look: Look, name: string): string {
   const uuid = crypto.randomUUID().replace(/-/g, '').toUpperCase()
   const alt = (tag: string, value: string): string =>
     `   <crs:${tag}><rdf:Alt><rdf:li xml:lang="x-default">${xml(value)}</rdf:li></rdf:Alt></crs:${tag}>`
-  return `<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Atelier">
+  return `<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Sift">
  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
   <rdf:Description rdf:about=""
     xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
@@ -290,7 +290,7 @@ export function toLightroomPreset(look: Look, name: string): string {
 ${alt('Name', name)}
 ${alt('ShortName', '')}
 ${alt('SortName', '')}
-${alt('Group', 'Atelier')}
+${alt('Group', 'Sift')}
 ${alt('Description', look.estimated ? 'Look estimated from a reference photo' : 'Look matched from a reference photo')}
    <crs:ToneCurvePV2012>
     <rdf:Seq>

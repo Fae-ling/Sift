@@ -79,7 +79,7 @@ try {
   await page.reload()
 
   // The first-run guide: add a kind of work, learn from a past shoot, then put the guide away.
-  await page.getByRole('dialog', { name: 'Setting up Atelier' }).waitFor()
+  await page.getByRole('dialog', { name: 'Setting up Sift' }).waitFor()
   await snap('0-guide')
   await page.getByRole('button', { name: 'Start' }).click()
   await page.getByLabel('Style name').fill('LARP night')
@@ -91,7 +91,7 @@ try {
   await page.getByText(/Learned from \d+ decisions|nothing to learn from/).waitFor({ timeout: 300_000 })
   await snap('0-guide-past-shoot')
   await page.getByRole('button', { name: 'Skip the guide' }).click()
-  await page.getByRole('dialog', { name: 'Setting up Atelier' }).waitFor({ state: 'detached' })
+  await page.getByRole('dialog', { name: 'Setting up Sift' }).waitFor({ state: 'detached' })
   assert.match(readFileSync(join(userData, 'settings.json'), 'utf8'), /"done":true/, 'the guide stays put away')
 
   await page.getByLabel('Project name').fill('Smoke test')

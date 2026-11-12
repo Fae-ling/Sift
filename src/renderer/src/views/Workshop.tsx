@@ -59,7 +59,7 @@ export function Overview(): React.JSX.Element {
   ]
   return (
     <div className="page wide">
-      <PageHeader title="Workshop" lead="Everything Atelier has learned about your work, and the tools to teach it more. Look through any part, and remove what you do not want it to use." />
+      <PageHeader title="Workshop" lead="Everything Sift has learned about your work, and the tools to teach it more. Look through any part, and remove what you do not want it to use." />
       <div className="tiles">
         {tiles.map((t) => (
           <button key={t.view} className="tile" onClick={() => setView(t.view)}>

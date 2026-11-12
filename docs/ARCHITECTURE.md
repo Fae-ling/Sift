@@ -1,4 +1,4 @@
-# Atelier: map of the app
+# Sift: map of the app
 
 What exists today, where it lives, and how the parts talk to each other. For what
 the app is and how its learning parts fit together, see `CONCEPT.md`; for what
@@ -169,7 +169,7 @@ touching it. Each has a measurable part.
 | Masks to work with | yes, soft | Subject, background, skin as PNG at preview size, from a 256 px model. |
 | Depth (what is near, what is far) | **no** | Needs a depth model (Depth Anything V2 small, about 25 MB, run with `onnxruntime-web`). Its download host is not reachable from the build environment used so far, so it could not be integrated and tested. Would add: a depth panel, "atmospheric perspective" advice by distance, and a foreground/background split where there is no person. |
 | Scene concepts (sky, vegetation, water, building, ground) | rough | Sky and vegetation are guessed from colour and position. A proper answer needs a scene-segmentation model (SegFormer-B0 on ADE20K, about 15 MB, same runtime as depth). |
-| Doing the retouch (cleaning skin, removing objects, applying the masks) | **no, by design** | Atelier does not change photographs. The sketch shows direction and amount; the work is done in Lightroom and Photoshop, where it stays editable. |
+| Doing the retouch (cleaning skin, removing objects, applying the masks) | **no, by design** | Sift does not change photographs. The sketch shows direction and amount; the work is done in Lightroom and Photoshop, where it stays editable. |
 
 **To add depth and scene concepts:** add `onnxruntime-web` and its WASM files to the
 renderer's public folder; a `depth.ts` and `scene.ts` beside `segment.ts`, each

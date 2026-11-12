@@ -1,6 +1,6 @@
-# Training Atelier on your own photographs
+# Training Sift on your own photographs
 
-Atelier improves by studying your work. This guide says what to give each part,
+Sift improves by studying your work. This guide says what to give each part,
 how much it needs, and how to tell that it has learned. All training happens on
 your computer and nothing is uploaded.
 
@@ -53,7 +53,7 @@ nothing about the frame itself and is not learned from. Switch the question off 
 Cull's settings popover if you prefer to answer only now and then (the inspector of a
 rejected frame always lets you give or change reasons).
 
-Decisions made before Atelier count double: you made them with no suggestion from
+Decisions made before Sift count double: you made them with no suggestion from
 this app in front of you. Decisions you have already made in the project are never
 overwritten by an import.
 
@@ -152,4 +152,4 @@ A style holds what the cull looks for in one kind of work. It learns in four way
 
 In the app's data folder: `learning.json` (culling decisions), `training.json`
 (norms, house look, feedback, log), `learned.json` (styles), `emotions.json`
-(emotions and their examples). Copy these four files to move what Atelier has learned to another computer.
+(emotions and their examples). Copy these four files to move what Sift has learned to another computer.
