@@ -18,7 +18,10 @@ const models = {
     'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
   // Finds people, so that small faces in group and wide shots can be read up close.
   'efficientdet_lite0.tflite':
-    'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite'
+    'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite',
+  // Separates a person into hair, skin, clothes and background, for the photo diagnosis.
+  'selfie_multiclass.tflite':
+    'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite'
 }
 
 for (const [name, url] of Object.entries(models)) {

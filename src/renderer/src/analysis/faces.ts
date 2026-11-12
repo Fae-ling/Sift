@@ -233,3 +233,35 @@ export async function analyseFaces(preview: HTMLCanvasElement, pixels: ImageData
   // Largest (most important) face first.
   return faces.sort((a, b) => b.w * b.h - a.w * a.h)
 }
+
+/** Outlines of the eyes and lips of one face, as points in 0..1 image coordinates. */
+export interface FaceParts {
+  eyes: Mark[][]
+  lips: Mark[]
+}
+
+const LEFT_EYE = [33, 160, 158, 133, 153, 144]
+const RIGHT_EYE = [362, 385, 387, 263, 373, 380]
+const LIPS = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40, 185]
+
+/** Finds the eyes and lips of faces already located, by looking at each face up close. */
+export async function faceParts(preview: HTMLCanvasElement, faces: { x: number; y: number; w: number; h: number }[]): Promise<FaceParts[]> {
+  const out: FaceParts[] = []
+  const crop = document.createElement('canvas')
+  const ctx = crop.getContext('2d')!
+  for (const f of faces.slice(0, 8)) {
+    const size = Math.max(f.w * preview.width, f.h * preview.height) * 2
+    const cx = Math.max(0, Math.min(preview.width - size, (f.x + f.w / 2) * preview.width - size / 2))
+    const cy = Math.max(0, Math.min(preview.height - size, (f.y + f.h / 2) * preview.height - size / 2))
+    const cw = Math.min(size, preview.width)
+    const ch = Math.min(size, preview.height)
+    crop.width = Math.round(cw)
+    crop.height = Math.round(ch)
+    ctx.drawImage(preview, cx, cy, cw, ch, 0, 0, crop.width, crop.height)
+    const marks = (await detect(crop))?.faceLandmarks[0]
+    if (!marks) continue
+    const at = (k: number): Mark => ({ x: (cx + marks[k].x * cw) / preview.width, y: (cy + marks[k].y * ch) / preview.height })
+    out.push({ eyes: [LEFT_EYE.map(at), RIGHT_EYE.map(at)], lips: LIPS.map(at) })
+  }
+  return out
+}

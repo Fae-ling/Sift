@@ -17,6 +17,7 @@ const api: StudioApi = {
   pickImage: call('pickImage'),
   saveText: call('saveText'),
   readDevelop: call('readDevelop'),
+  saveFiles: call('saveFiles'),
   scan: call('scan'),
   learned: { get: call('learned:get'), save: call('learned:save'), removeSamples: call('learned:removeSamples') },
   extract: call('extract'),
@@ -27,7 +28,7 @@ const api: StudioApi = {
   learning: { get: call('learning:get'), save: call('learning:save') },
   spend: call('spend'),
   settings: { get: call('settings:get'), set: call('settings:set') },
-  ai: { story: call('ai:story'), grade: call('ai:grade'), read: call('ai:read'), essence: call('ai:essence') }
+  ai: { story: call('ai:story'), grade: call('ai:grade'), read: call('ai:read'), essence: call('ai:essence'), diagnose: call('ai:diagnose') }
 }
 
 contextBridge.exposeInMainWorld('studio', api)

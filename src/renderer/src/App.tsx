@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useStore, type View } from './store'
 import { Brief } from './views/Brief'
 import { Coach } from './views/Coach'
+import { Diagnose } from './views/Diagnose'
 import { Cull } from './views/Cull'
 import { Export } from './views/Export'
 import { Import } from './views/Import'
@@ -58,6 +59,9 @@ export function App(): React.JSX.Element {
         <button className={`nav ${view === 'profiles' ? 'active' : ''}`} onClick={() => setView('profiles')} title="The feelings you cull for, and what each has learned">
           Culling profiles
         </button>
+        <button className={`nav ${view === 'diagnose' ? 'active' : ''}`} onClick={() => setView('diagnose')} title="What is wrong with this picture, before you retouch it">
+          Diagnose a photo
+        </button>
         <button className={`nav ${view === 'look' ? 'active' : ''}`} onClick={() => setView('look')} title="Turn a photo's look into a preset or LUT">
           Look extractor
         </button>
@@ -71,6 +75,7 @@ export function App(): React.JSX.Element {
       <main className="main">
         {view === 'projects' && <Projects />}
         {view === 'profiles' && <Profiles />}
+        {view === 'diagnose' && <Diagnose />}
         {view === 'look' && <Look />}
         {view === 'learn' && <Learn />}
         {view === 'settings' && <SettingsView />}

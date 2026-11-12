@@ -338,6 +338,8 @@ export interface StudioApi {
   pickImage(): Promise<string | null>
   /** Asks where to save, then writes the text. Returns the path, or null if cancelled. */
   saveText(defaultName: string, content: string): Promise<string | null>
+  /** Writes several files (masks) into a folder. Files that already exist are left alone. */
+  saveFiles(folder: string, files: { name: string; data: ArrayBuffer }[]): Promise<ExportResult>
   /** Reads the develop settings Lightroom wrote next to a RAW, or null if there are none. */
   readDevelop(path: string): Promise<DevelopSettings | null>
   /** `anyImage` also lists PNG and WebP, for reference galleries saved from the web. */
@@ -369,6 +371,7 @@ export interface StudioApi {
     grade(req: GradeRequest): Promise<GradeAdvice>
     read(req: ReadRequest): Promise<ReadResult>
     essence(req: EssenceRequest): Promise<StyleEssence>
+    diagnose(req: DiagnoseRequest): Promise<DiagnosisAdvice>
   }
 }
 
@@ -377,6 +380,26 @@ export interface StoryRequest {
   genre: Genre
   brief: Brief
   frames: { shotId: string; scene: number; time: string; shotType: ShotType; faces: number; picked: boolean }[]
+}
+
+export interface DiagnoseRequest {
+  /** Cache folder the preview lives in: a project id, or 'diagnose' for a photo opened by itself. */
+  cacheId: string
+  shotId: string
+  /** The brief, when the photo belongs to a project. */
+  brief: string
+  /** What the on-device analysis measured, in plain sentences. */
+  measured: string
+}
+
+/** Claude's reading of one photograph: what it is, what holds it back, what to do. */
+export interface DiagnosisAdvice {
+  description: string
+  diagnosis: string
+  adjustments: { what: string; where: string; strength: string; why: string }[]
+  /** The part that is a matter of taste and stays with the photographer. */
+  yours: string
+  usage?: Usage
 }
 
 export interface EssenceRequest {

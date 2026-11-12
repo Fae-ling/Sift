@@ -215,6 +215,55 @@ There is no chronology, so build an arc of intensity: open inviting, move closer
 
   // ------------------------------------------------------------ Photo editing
   {
+    id: 'edit-read-first',
+    category: 'Photo editing',
+    title: 'Read the picture before you retouch it',
+    summary: 'What is known about how people look at photographs, and what it means for your first five minutes.',
+    body: `
+Most of "what is wrong with this picture" is not a matter of taste. It has been measured, by eye-tracking researchers and long before them by painters and cinematographers who wrote it down. The craft and the science agree.
+
+## The eye does not go to the brightest place
+It goes to **contrast with structure**: edges, detail, things that differ from their surroundings. A large, even, bright area is skipped; the eye barely registers it. Light attracts attention only where it has an outline. So a blown sky costs you little attention; a small bright, contrasty object in a corner costs you a lot.
+
+## A face outranks everything
+If there is a face in the frame, viewers go there first, whatever else you photographed. And its **gaze is the strongest arrow in the picture**: people look where the person in the picture looks. Check what lies in that direction, and how much room the gaze has.
+
+## Skin is the one colour everyone knows
+Viewers carry a memory of skin, so they notice when it is wrong even if they cannot say why. What they notice most is not the exact hue but **evenness**: blotchy, uneven skin reads as older and more tired. Unify first, then worry about the precise colour. Even it out with dodge and burn and gentle colour correction; do not blur it.
+
+## To make something stand out, do not touch it
+The instinct is to push the subject: more contrast, more colour, more sharpness. The opposite works better. **Leave the subject alone and quieten everything around it**: less colour in the background, less contrast, softer edges. The eye arrives by itself and stays longer, and nobody can see that the picture was worked on.
+
+## Separate the figure from the ground
+A subject whose outline merges with the background reads as flat however well it is lit. Check the silhouette alone: can you tell what the figure is doing? Where an edge is lost, change the background beside it, lighter against a dark subject, darker against a light one. Painters call the check **notan**: squint until the picture is three masses of dark, middle and light. If it still reads, the structure is sound.
+
+## A calm background flatters the subject
+Lines that cross an outline camouflage it. Many different colours behind a subject make the subject look less saturated. Fewer colours and one accent hold together better.
+
+## What has no good evidence behind it
+The rule of thirds, the golden ratio, and complementary colours as a guarantee of harmony are repeated in every handbook. Studies that went looking for a real preference found little or none. They are habits of teaching, not laws of seeing. What does have evidence: light, separation of subject from background, contrast and the sense of volume.
+
+## A five-minute routine
+1. Where does my eye land first? Is that where I want it?
+2. Squint: three masses. Does the subject sit in a different mass from what is behind it?
+3. Follow the outline. Where is it lost? Does it matter there?
+4. What is the loudest thing that is not the subject? Edges of the frame first.
+5. Skin: even? Face and hands the same colour?
+6. Only now decide the mood. That part cannot be measured, and it is yours.
+
+Diagnose a photo does steps 1 to 5 for you, with pictures.
+`,
+    sources: [
+      { label: 'Stanislav Petera, Light Garden Academy: article on building a retouching assistant (the starting point for this page and for Diagnose a photo)' },
+      { label: 'Alfred Yarbus, "Eye Movements and Vision" (1967)' },
+      { label: 'Laurent Itti & Christof Koch, "Computational modelling of visual attention", Nature Reviews Neuroscience (2001)' },
+      { label: 'Moran Cerf et al., "Predicting human gaze using low-level saliency combined with face detection", NIPS (2007)' },
+      { label: 'Bernhard Fink, Karl Grammer & Paul Matts, "Visible skin color distribution plays a role in the perception of age, attractiveness, and health in female faces", Evolution and Human Behavior (2006)' },
+      { label: 'Arthur Wesley Dow, "Composition" (1899), on notan' },
+      { label: 'Seyed Ali Amirshahi et al., "Evaluating the rule of thirds in photographs and paintings", Art & Perception (2014)' }
+    ]
+  },
+  {
     id: 'edit-order',
     category: 'Photo editing',
     title: 'Order of operations in Lightroom',

@@ -6,6 +6,8 @@ import { z } from 'zod'
 import {
   MODELS,
   styleCacheId,
+  type DiagnoseRequest,
+  type DiagnosisAdvice,
   type EssenceRequest,
   type StyleEssence,
   type Brief,
@@ -249,5 +251,37 @@ export async function styleEssence(req: EssenceRequest): Promise<StyleEssence> {
     text: 'Work out what makes these the chosen frames. Do not describe the photographs one by one and do not dwell on colour grading or gear. Infer the taste behind the selection: what moments, gestures, relationships, distances and kinds of light keep recurring, what is conspicuously absent, and which imperfections were clearly judged not to matter. Write it so it can be used as guidance when culling a different shoot.'
   })
   const { value, usage } = await ask(EssenceSchema, content)
+  return { ...value, usage }
+}
+
+const DiagnosisSchema = z.object({
+  description: z.string().describe('Two or three sentences: what is in the picture, where the light comes from, what the mood is. No judgement yet.'),
+  diagnosis: z.string().describe('Three or four sentences: what carries the picture, and what holds it back. Refer to the measurements where they support the point, and say so if you disagree with one.'),
+  adjustments: z
+    .array(
+      z.object({
+        what: z.string().describe('The adjustment, as an instruction a retoucher would follow.'),
+        where: z.string().describe('The area or mask it applies to: subject, skin, face, background, a named object, the frame.'),
+        strength: z.string().describe('How strong: subtle, moderate or strong, with a rough magnitude where it helps.'),
+        why: z.string().describe('The principle of perception or craft behind it.')
+      })
+    )
+    .describe('Four to seven adjustments, in the order to do them: geometry, then skin, then background, then subject.'),
+  yours: z.string().describe('One or two sentences on the decisions that are a matter of taste and remain the photographer\'s: mood, colour, who the hero is.')
+})
+
+/**
+ * Describe, diagnose, propose: a retoucher's first look at a photograph,
+ * informed by what was measured on the device.
+ */
+export async function diagnose(req: DiagnoseRequest): Promise<DiagnosisAdvice> {
+  const { value, usage } = await ask(DiagnosisSchema, [
+    ...(req.brief ? [{ type: 'text' as const, text: req.brief }] : []),
+    await image(safeId(req.cacheId), `${safeId(req.shotId)}.jpg`),
+    {
+      type: 'text',
+      text: `Before retouching this photograph, read it the way an experienced retoucher does. Measurements taken from it on the photographer's computer:\n${req.measured}\n\nWork from what is known about how people look at pictures: the eye follows contrast and structure, not brightness alone; a face, and the direction of its gaze, outranks everything; skin is judged by its evenness more than its hue; and the way to make a subject stand out is to quieten what surrounds it, not to push the subject. Do not appeal to the rule of thirds, the golden ratio, or complementary colours as guarantees. Propose technical clean-up only: separating the subject, evening skin, calming the background, removing distractions. Leave mood and colour to the photographer.`
+    }
+  ])
   return { ...value, usage }
 }

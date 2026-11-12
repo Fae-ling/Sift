@@ -113,3 +113,20 @@ export async function readDevelop(path: string): Promise<DevelopSettings | null>
   }
   return { modified, values }
 }
+
+/** Writes several files into a folder the user chose. Names are reduced to a safe base name; existing files are kept. */
+export async function saveFiles(folder: string, files: { name: string; data: ArrayBuffer }[]): Promise<ExportResult> {
+  const result: ExportResult = { written: 0, failed: [] }
+  await fs.mkdir(folder, { recursive: true })
+  for (const file of files) {
+    const name = basename(file.name).replace(/[^\w.\- ]+/g, '_')
+    try {
+      await fs.writeFile(join(folder, name), Buffer.from(file.data), { flag: 'wx' })
+      result.written++
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException
+      result.failed.push({ path: name, error: e.code === 'EEXIST' ? 'A file with this name is already there.' : e.message })
+    }
+  }
+  return result
+}

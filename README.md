@@ -23,9 +23,10 @@ and shadow times, gear, pricing) come next; see [Roadmap](#roadmap).
 | **Story** | Your picks as a sequence: coverage by chapter and shot type, gaps, reordering. **Your eye** compares your decisions with the suggestions and can tune the balance to your taste. Optionally asks Claude for a picture editor's sequence. | optional, cents |
 | **Edit coach** | Histogram, vectorscope with skin line, palette, and plain-language notes on tone, white balance, skin, harmony and consistency. Optionally asks Claude for a grading plan aimed at your brief, in Lightroom terms with a Resolve note. | notes free; plan optional, ~2¢ |
 | **Edit coach, live** | Reads the develop settings Lightroom writes into the XMP sidecar and comments on the edit in progress (flattened light, orange skin, unmasked sharpening, moves that fight the brief). Refreshes every few seconds. Needs "Automatically write changes into XMP" in Lightroom. | free |
+| **Diagnose a photo** | Open any photo, or a pick. Eight panels show what a retoucher looks for: subject and faces; skin, eyes and lips; where the eye goes and what distracts it; the picture as three masses; where the outline merges with the background; skin evenness; sky and vegetation; the silhouette. Findings are written out with the adjustment and its reason. A try-it preview sketches the fix on a small copy, and the masks can be saved as PNG. Optionally Claude writes a description, diagnosis and ordered adjustments. | free; Claude read optional |
 | **Look extractor** | Open a finished photo in almost any format; get its tone curve, shadow/midtone/highlight tints and saturation as a `.cube` LUT or a Lightroom preset, with an explanation of what the look is made of. Add one of your unedited frames for a measured match and a before/after preview. | free |
 | **Hand off** | Writes star ratings and colour labels to XMP sidecars that Lightroom Classic reads. | free |
-| **Learn** | 26 short articles on culling, photo editing, colour, graphic design and video, each with further reading. | free |
+| **Learn** | 27 short articles on culling, photo editing, colour, graphic design and video, each with further reading. | free |
 
 Your originals are never modified, moved or uploaded. An existing `.xmp` sidecar is
 updated in place, never replaced.
@@ -113,6 +114,11 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the suite is put togeth
   can still be missed.
 - The local moment score sees joy and closeness. It cannot see intensity, tension or
   tenderness in a quiet face; the editor's read and your own eye cover that.
+- Diagnose a photo: masks come from a 256-pixel model and have soft edges. The skin
+  evenness scale was set on a single test portrait and needs real photos to calibrate.
+  There is no depth map and no real scene segmentation (sky and vegetation are guessed
+  from colour); see docs/ARCHITECTURE.md for why and how they would be added. It does
+  not retouch: the try-it preview is a sketch on a small copy.
 - A gallery shows only what a photographer kept, never what they rejected, so a profile
   learns the character of their selections (and Claude infers the taste behind them); it
   cannot learn their actual cull.

@@ -1,200 +1,134 @@
-# Atelier architecture
+# Atelier: map of the app
 
-How the suite fits together, and the design of the parts not built yet.
+What exists today, where it lives, and how the parts talk to each other. For what
+comes next and why, see `DEVELOPMENT_PLAN.md`.
 
 ## Principles
 
-1. **Local first, free by default.** Anything that can be measured or computed runs
-   on the user's machine. Paid AI is opt-in, per action, with an estimate before and
-   the cost after.
-2. **Teach, don't do.** Every suggestion carries its reason. The app never edits a
-   photo, never applies a look, never makes a final choice.
-3. **One project, three phases.** Inspiration → Planning → Postproduction all read
-   and write the same project, so the moodboard informs the brief, the brief informs
-   the cull, and the cull informs the grade.
+1. **Local first, free by default.** Anything that can be measured runs on the user's
+   machine. Paid AI is opt-in, per action, with an estimate before and the cost after.
+2. **Teach, don't decide.** Every suggestion carries its reason. The app never changes
+   a photograph and never makes a final choice.
+3. **One project, several phases**, all reading and writing the same project.
 4. **Originals are untouchable.** The app reads source files and writes only its own
-   project folder and XMP sidecars.
+   data folder, XMP sidecars, and files the user explicitly saves.
+
+## Screens
+
+| Screen | File | What the user does there |
+| --- | --- | --- |
+| Projects | `views/Projects.tsx` | Create, open, delete projects |
+| 1 Brief | `views/Brief.tsx` | Kind of shoot, client ask, intention, mood, story plan |
+| 2 Import | `views/Import.tsx` | Point at a folder; analysis; scene gap; camera clocks |
+| 3 Cull | `views/Cull.tsx` | Decide per moment: filters, compare, undo, profile, balance, Cull with Claude |
+| 4 Story | `views/Story.tsx` | Sequence picks, chapter coverage, "Your eye", picture editor's opinion |
+| 5 Edit coach | `views/Coach.tsx` | Scopes, notes, live tips from Lightroom's sidecar, grading plan |
+| 6 Hand off | `views/Export.tsx` | Ratings and labels to XMP; copy picks |
+| Culling profiles | `views/Profiles.tsx` | Feelings to cull for; galleries; the learned taste and its self-check |
+| Diagnose a photo | `views/Diagnose.tsx` | What is wrong with one picture before retouching; try-it preview; masks |
+| Look extractor | `views/Look.tsx` | A reference photo's look as LUT or Lightroom preset |
+| Learn | `views/Learn.tsx` | Articles (`knowledge/index.ts`) |
+| Settings | `views/Settings.tsx` | API key, model, spend |
 
 ## Processes
 
 ```
-┌──────────────── renderer (React) ────────────────┐      ┌────── main (Node) ──────┐
-│ views/        one screen per step                │ IPC  │ store      project JSON │
-│ analysis/     pixels, faces, grouping, scoring   │◄────►│ ingest     ExifTool     │
-│ knowledge/    Learn library                      │      │ exporter   XMP, copies  │
-│ store.ts      project state, autosave            │      │ ai         Claude API   │
-└──────────────────────────────────────────────────┘      └─────────────────────────┘
+┌──────────────────── renderer (React) ────────────────────┐      ┌──────── main (Node) ────────┐
+│ views/        the screens above                          │ IPC  │ store     projects, learned, │
+│ store.ts      project state, autosave, undo, learning    │◄────►│           learning, spend,   │
+│ analysis/     everything measured (table below)          │      │           settings           │
+│ knowledge/    Learn library                              │      │ ingest    ExifTool, previews │
+│ components/   Thumb, Scopes, cost helpers                │      │ exporter  XMP, copies, masks │
+└───────────────────────────────────────────────────────────┘      │ ai        Claude API         │
+                                                                   └──────────────────────────────┘
 ```
 
-- The renderer never touches the file system or the network directly. It calls the
-  narrow API in `src/preload`, typed in `src/shared/types.ts`.
-- Cached previews are served by the `media://` scheme, which can only read inside the
-  app's projects folder.
-- The API key lives in the main process, encrypted by the OS.
+- The renderer never touches the file system or the network. It calls the narrow API
+  in `src/preload`, typed in `src/shared/types.ts` (`StudioApi`).
+- `media://` serves cached previews and can only read inside the app's data folder.
+- The API key lives in the main process, encrypted by the operating system.
 
-## Data model
+## What is measured, and by what
 
-A project is one JSON file plus a cache folder:
-
-```
-<userData>/projects/<id>/project.json
-<userData>/projects/<id>/cache/<shotId>.jpg, <shotId>_t.jpg     previews
-<userData>/projects/<id>/assets/<assetId>.<ext>                  moodboard files (planned)
-```
-
-`Project` today holds `brief`, `storyPlan`, `shots`, `storyOrder` and advice. The
-planned phases add sibling fields; nothing existing changes shape:
-
-```ts
-interface Project {
-  // existing
-  brief; storyPlan; shots; storyOrder; ...
-  // planned
-  inspiration?: Inspiration
-  plan?: Plan
-  clips?: Clip[]
-}
-```
-
-## Phase 1: Inspiration (planned)
-
-Goal: get the feel of a project right before anything is shot.
-
-```ts
-interface Inspiration {
-  boards: Board[]
-  palette: PaletteColor[]        // the project palette, max ~6
-  type: { heading: string; body: string; note: string }
-  story: { logline: string; beats: StoryBeat[] }   // feeds project.storyPlan
-  references: Reference[]        // music, films, photographers: title + link + why
-}
-interface Board { id; name; items: BoardItem[] }
-type BoardItem =
-  | { kind: 'image'; assetId; x; y; w; h; rotation; note? }
-  | { kind: 'color'; hex; x; y }
-  | { kind: 'text'; text; font; x; y; size }
-  | { kind: 'pose'; assetId; x; y; w; h; note }       // a reference tagged as a pose
-  | { kind: 'link'; url; title; x; y }                // music, video
-```
-
-| Feature | How | Cost |
+| Module (`src/renderer/src/analysis/`) | Does | Model |
 | --- | --- | --- |
-| Moodboard canvas | Free-form pan/zoom canvas; drag in images or paste from clipboard; files copied to `assets/`. Plain DOM + CSS transforms, no canvas library needed at this scale. | free |
-| Palette from the board | Reuses `analysis/color.ts` (`colorStats`, `describeHarmony`) on the board's images; shows the harmony and what it will feel like. | free |
-| Palette play | Wheel with harmony guides (complementary, analogous, triadic), contrast checker for type on colour. | free |
-| Fonts | Lists fonts installed on the system (`queryLocalFonts`) plus a bundled shortlist of open-licence pairings; live preview with the project's own words. | free |
-| Layout sketches | Grid templates (album spread, carousel, poster) the user fills with board images; teaches hierarchy and white space from Learn. | free |
-| Music and references | Stored as links with a note; opened in the browser. No streaming or downloading. | free |
-| Poses | Board items tagged as poses become a printable shot-reference sheet in Planning. | free |
-| Mood critique | Optional: sends the board thumbnails and mood words to Claude; returns what the board says, where it contradicts itself, and what to look for on the day. | cents |
+| `image.ts` | Decode, orient, resize; focus (Laplacian variance); difference hash | none |
+| `color.ts` | Tone and colour statistics, palette, harmony | none |
+| `faces.ts` | Faces: eyes, smile, laugh, head turn, eye sharpness, cheek colour; eye and lip outlines; people boxes for small faces | MediaPipe Face Landmarker, EfficientDet-Lite0 |
+| `segment.ts` | Person, skin (face / body), hair, clothes masks | MediaPipe selfie multiclass |
+| `grouping.ts` | Scenes, stacks, camera clock correction | none |
+| `scoring.ts` | Craft and moment scores, suggestions, hidden gems | none |
+| `style.ts` | Culling profiles: measured profile, atmosphere words | none |
+| `learner.ts` | The photographer's taste: examples, training, held-back self-check | linear model, trained locally |
+| `coach.ts` | Editing notes from measurements and from Lightroom settings | none |
+| `look.ts` | Look extraction: curve, zone tints, saturation; LUT and preset writers | none |
+| `diagnose.ts` | Attention, distractions, three masses, outline separation, skin evenness and colour, background clutter and colour families, findings | none |
+| `pipeline.ts` | Import of one photo: preview, thumbnail, measurements | uses the above |
 
-Hand-offs: the palette and mood words flow into the **Brief**; story beats flow into
-the **story plan** that the narrative cull uses; pose references flow into the
-**shot list**.
+Models are downloaded by `scripts/fetch-models.mjs` on `npm install` and shipped with
+the app in `out/renderer/mediapipe`.
 
-## Phase 2: Planning (planned)
+## Data on disk (`<userData>/`)
 
-Goal: everything needed to walk onto the shoot prepared.
+| Path | Holds |
+| --- | --- |
+| `projects/<id>/project.json` (+ `.bak.json`) | Brief, story plan, shots with measurements and decisions, advice |
+| `projects/<id>/cache/` | Preview (1600 px) and thumbnail per shot |
+| `projects/style-<id>/cache/` | Sample thumbnails of a culling profile |
+| `projects/look/`, `projects/diagnose/` | Scratch previews for the two single-photo tools |
+| `learned.json` | Culling profiles; learned balance per kind of shoot |
+| `learning.json` | Examples of the photographer's decisions, per project |
+| `spend.json` | What Claude has cost, by month |
+| `settings.json` | Model choice; encrypted API key |
 
-```ts
-interface Plan {
-  schedule: Milestone[]          // deadlines: shoot day, first selects, delivery
-  shootDay: { date: string; timeline: TimelineItem[] }
-  locations: Location[]
-  shotList: PlannedShot[]        // beat, description, pose reference, lens, done
-  gear: GearItem[]               // from a personal gear library, with packed state
-  quote: Quote
-}
-interface Location { id; name; lat; lng; notes; photos: string[]; facing?: number }
-interface Quote { lines: { label; qty; unit; rate }[]; currency; taxRate; expenses; notes }
-```
+## Calls to Claude (`src/main/ai.ts`)
 
-| Feature | How | Cost |
+| Call | Sends | Returns |
 | --- | --- | --- |
-| Deadlines | Milestones with dates, worked back from delivery; overdue and upcoming shown on the Projects screen. Optional `.ics` export. | free |
-| Location scouting | Locations with coordinates (typed or picked on a map), notes and scouting photos. Map tiles from OpenStreetMap; needs an allowed tile host and attribution. | free |
-| Light conditions | Sun azimuth and elevation computed locally from date, time and coordinates (standard solar position maths, no service). Shows sunrise, golden hour, blue hour, and a compass diagram of **where shadows fall and how long they are** for any time of day; a timeline scrubber animates it. | free |
-| Weather | Optional forecast for the shoot date from a free forecast API (cloud cover matters more than temperature for light). | free |
-| Shot list | Generated from the story plan's beats; each line can carry a pose reference from Inspiration and a lens. On the day it is a checklist; after import, the cull shows which planned shots have picks. | free |
-| Gear | Personal gear library; per-project packing list; suggestions by genre and location light (a rule table, not AI). | free |
-| Pricing | Line items, hours, expenses, tax, licence terms; exports a PDF quote. A cost-of-doing-business calculator explains the day rate. | free |
-| Brief check | Optional: Claude reads the brief, shot list and timeline and points out gaps and risks. | cents |
+| `read` (Cull with Claude) | Thumbnails of 1 to 3 frames per moment, brief, story plan, profile | Chapter, moment score, gem flag, note per frame |
+| `story` | Thumbnails of picks, brief | Sequence, cuts, gaps, a lesson |
+| `grade` | One preview, measurements, current Lightroom settings, brief | Read, direction, steps, risks |
+| `essence` | Up to 36 thumbnails of a gallery, measured facts | How that photographer chooses |
+| `diagnose` | One preview, the diagnosis findings, brief | Description, diagnosis, ordered adjustments, what stays the photographer's |
 
-## Phase 3: Postproduction
+All use structured output, report their cost, and add it to the spend ledger.
 
-Built: import, narrative cull, story, edit coach, hand-off (see README).
+## Diagnose a photo: how it is built, and how it grows
 
-Planned for **video**:
+The feature answers, for one photograph, the questions a retoucher asks before
+touching it. Each has a measurable part.
 
-```ts
-interface Clip { id; path; duration; fps; codec; frames: KeyFrame[]; take?: string; decision; note }
-```
+| Question | Built | How |
+| --- | --- | --- |
+| Where does the eye go? | yes | Centre-surround contrast in brightness and colour plus edge density (`attentionMap`), then faces added (`withFaces`). A flat bright area scores nothing. |
+| What pulls the eye that should not? | yes | Compact high-attention regions outside the subject and a margin around it (`distractions`), judged without the face prior. |
+| Does the subject separate from the background? | yes | Along the mask's outline, brightness and colour just inside against just outside (`separation`); merging stretches are located and named. |
+| Does the picture read as masses? | yes | Three tonal masses (`notan`); which one the subject and its surroundings fall in. |
+| Is the skin even? Is its colour right? | yes | Blotch-scale variation in brightness and redness (`skinEvenness`); CIELAB hue against the usual band, spread, face against body, lips against skin (`skinColour`). Eyes and lips are excluded. |
+| Is the background fighting the subject? | yes | Edge density around the outline against the picture's average; colour families and hue spread (`readBackground`); saturation and local contrast of background against subject. |
+| Where does the gaze lead? | partly | Head turn and the room in that direction. Iris-level gaze is not read yet. |
+| What would the fix look like? | yes, as a sketch | Six sliders applied to a small copy through the masks; each names the Lightroom or Photoshop tool that does it for real. |
+| Masks to work with | yes, soft | Subject, background, skin as PNG at preview size, from a 256 px model. |
+| Depth (what is near, what is far) | **no** | Needs a depth model (Depth Anything V2 small, about 25 MB, run with `onnxruntime-web`). Its download host is not reachable from the build environment used so far, so it could not be integrated and tested. Would add: a depth panel, "atmospheric perspective" advice by distance, and a foreground/background split where there is no person. |
+| Scene concepts (sky, vegetation, water, building, ground) | rough | Sky and vegetation are guessed from colour and position. A proper answer needs a scene-segmentation model (SegFormer-B0 on ADE20K, about 15 MB, same runtime as depth). |
+| Doing the retouch (cleaning skin, removing objects, applying the masks) | **no, by design** | Atelier does not change photographs. The sketch shows direction and amount; the work is done in Lightroom and Photoshop, where it stays editable. |
 
-- Keyframes extracted with FFmpeg (bundled) and analysed by the same on-device
-  pipeline as stills: focus, faces, exposure, colour.
-- Take selection per shot-list line; an EDL or Resolve-importable timeline of selects.
-- Shot-matching notes: which clips drift from the scene's reference in exposure and
-  white balance, in Resolve's terms.
+**To add depth and scene concepts:** add `onnxruntime-web` and its WASM files to the
+renderer's public folder; a `depth.ts` and `scene.ts` beside `segment.ts`, each
+returning a map at the working size; two more entries in `PANELS`; and in `findings`:
+subject-to-background distance for the separation advice, and named regions
+("the sky", "the foliage") in place of positions for distractions. The `Analysis`
+object in `Diagnose.tsx` is where new maps are attached.
 
-## The narrative cull (built)
+**To sharpen the masks:** run the segmenter per person on a crop (the people boxes
+from `faces.ts` already exist), or replace it with a matting model; the export path
+does not change.
 
-Two scores per frame, kept separate on purpose:
+## Tests
 
-- **Craft**: focus relative to the scene, eyes, exposure. Local.
-- **Moment**: expression intensity, genuine smiles, laughter, faces turned toward or
-  touching each other, the peak frame of a burst. Local, from face landmarks.
-
-The project's **balance** (craft ↔ moment) and its **story plan** (the beats a shoot
-of this kind should contain, each with its own tolerance for technical flaws) decide
-how the two combine into a suggestion. Closed eyes inside a laugh or an embrace are
-read as the moment, not as a blink.
-
-The optional **editor's read** sends one or two small thumbnails per moment to Claude
-with the brief and the story plan. For each frame it returns the beat it belongs to,
-how much the frame carries emotionally, a one-line reason, and whether it is a
-*hidden gem*: a technically imperfect frame worth keeping. Requests are chunked by
-scene so a large shoot can be read incrementally, paused and resumed.
-
-**Your eye** compares what the user actually kept against the suggestions and can
-move the balance to match, so the suggestions drift toward the photographer's own
-taste rather than toward an average.
-
-## Build order
-
-1. Postproduction for stills — done.
-2. Planning: light and shadow tool, shot list, deadlines (highest daily value).
-3. Inspiration: moodboard, palette, type.
-4. Planning: gear, pricing, quote PDF.
-5. Video selects.
-
-## Culling profiles and learning (built)
-
-`<userData>/learned.json` holds what the app has learned, shared by every project:
-
-- **Profiles** (`Style` in code): a name, atmosphere words, a description, and a
-  measured `StyleProfile` merged from every gallery folder and set of picks added to
-  it. Atmosphere words are mapped to scoring adjustments (`feelOf`); the measured
-  profile tilts close calls (`styleBonus`); both are passed to Claude in the read.
-  A few thumbnails per profile live in `projects/style-<id>/cache`.
-- **Balance per kind of shoot**: when a project closes, the craft/moment balance that
-  best matched the user's own decisions is averaged in, and new projects start there.
-
-## Look extractor (built)
-
-`analysis/look.ts` measures a look as a tone curve, a colour shift for shadows,
-midtones and highlights, and a saturation factor, either between two images or
-estimated from one. The same `Look` is written as a 33-point `.cube` LUT or as a
-Lightroom preset using the point curve, colour grading and saturation.
-
-## Live edit tips (built)
-
-The edit coach polls the XMP sidecar of the selected RAW and runs `developTips` over
-the Camera Raw settings in it. Read-only: the app never writes develop settings.
-
-## Taste model (built)
-
-`analysis/learner.ts`. Examples of the photographer's decisions live in
-`<userData>/learning.json`, keyed by project. `learn()` trains a linear ranking model
-on four fifths of the bursts, measures it against the built-in rules on the rest, and
-returns the model with the share of each suggestion it has earned. `scoreAndSuggest`
-blends it in per burst. See "How the cull learns" in `DEVELOPMENT_PLAN.md`.
+- `tests/*.test.ts`: unit tests of the pure logic (grouping, scoring, profiles, look,
+  learner, diagnosis, EXIF orientation).
+- `tests/e2e/smoke.mjs`: drives the real app through every screen, with Claude
+  replaced by a stand-in.
+- CI (`.github/workflows/build.yml`): type-check, unit tests on Linux and Windows,
+  build, Windows installer.

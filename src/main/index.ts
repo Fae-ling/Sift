@@ -1,10 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type { EssenceRequest, GradeRequest, Learned, Project, ReadRequest, StoryRequest, XmpItem } from '@shared/types'
-import { gradeAdvice, narrativeRead, storyAdvice, styleEssence } from './ai'
+import type { DiagnoseRequest, EssenceRequest, GradeRequest, Learned, Project, ReadRequest, StoryRequest, XmpItem } from '@shared/types'
+import { diagnose, gradeAdvice, narrativeRead, storyAdvice, styleEssence } from './ai'
 import { promises as fs } from 'node:fs'
-import { copySelects, exportXmp, readDevelop } from './exporter'
+import { copySelects, exportXmp, readDevelop, saveFiles } from './exporter'
 import { exiftool, extractPreview, savePreview, scanFolder } from './ingest'
 import {
   getLearned,
@@ -77,6 +77,7 @@ function registerIpc(): void {
     await fs.writeFile(result.filePath, content)
     return result.filePath
   })
+  handle('saveFiles', (folder: string, files: { name: string; data: ArrayBuffer }[]) => saveFiles(folder, files))
   handle('readDevelop', (path: string) => readDevelop(path))
   handle('scan', (folder: string, anyImage?: boolean) => scanFolder(folder, anyImage))
   handle('learned:get', getLearned)
@@ -97,6 +98,7 @@ function registerIpc(): void {
   handle('ai:story', (req: StoryRequest) => storyAdvice(req))
   handle('ai:grade', (req: GradeRequest) => gradeAdvice(req))
   handle('ai:read', (req: ReadRequest) => narrativeRead(req))
+  handle('ai:diagnose', (req: DiagnoseRequest) => diagnose(req))
   handle('ai:essence', (req: EssenceRequest) => styleEssence(req))
 }
 

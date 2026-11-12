@@ -155,6 +155,28 @@ try {
     }, samples)
   }
 
+  // Diagnose: the panels are drawn and the findings listed for the first pick.
+  await page.getByRole('button', { name: 'Diagnose a photo' }).click()
+  await page.getByRole('heading', { name: 'Diagnosis' }).waitFor({ timeout: 60_000 })
+  assert.equal(await page.locator('.diag-grid canvas').count(), 9, 'the original and eight analysis panels are shown')
+  // Look at a frame with a person in it, if there is one beyond the first pick.
+  const others = page.locator('.page .compare .thumb')
+  if ((await others.count()) > 1) {
+    await others.nth(1).click()
+    await page.getByText('Reading the photo…').waitFor({ state: 'detached', timeout: 60_000 })
+    await page.getByRole('heading', { name: 'Diagnosis' }).waitFor({ timeout: 60_000 })
+  }
+  if (shotsDir) {
+    await page.locator('.diag-grid').screenshot({ path: join(shotsDir, '4-diagnose-panels.png') })
+    await page.getByRole('heading', { name: 'Diagnosis' }).scrollIntoViewIfNeeded()
+  }
+  await snap('4-diagnose')
+  if (await page.getByRole('heading', { name: 'Try it' }).count()) {
+    await page.getByLabel('Background saturation').fill('-0.6')
+    await page.getByLabel('Separate from background').fill('0.8')
+    if (shotsDir) await page.locator('.trial').screenshot({ path: join(shotsDir, '4-diagnose-try.png') })
+  }
+
   for (const view of ['Story', 'Edit coach', 'Hand off', 'Learn', 'Settings']) {
     await page.getByRole('button', { name: view, exact: false }).first().click()
     await page.waitForTimeout(400)

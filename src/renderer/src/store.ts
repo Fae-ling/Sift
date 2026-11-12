@@ -21,7 +21,7 @@ import { scoreAndSuggest, tasteOf, type ScoreOptions } from './analysis/scoring'
 import { buildProfile, feelOf, mergeProfiles, profileFacts, STARTER_PROFILES, styleNotes } from './analysis/style'
 import type { StyleProfile } from '@shared/types'
 
-export type View = 'projects' | 'profiles' | 'look' | 'brief' | 'import' | 'cull' | 'story' | 'coach' | 'export' | 'learn' | 'settings'
+export type View = 'projects' | 'profiles' | 'look' | 'diagnose' | 'brief' | 'import' | 'cull' | 'story' | 'coach' | 'export' | 'learn' | 'settings'
 export type Filter = 'all' | 'suggested' | 'undecided' | 'picks' | 'rejects' | 'warnings' | 'gems' | 'unkept'
 
 interface IngestState {
