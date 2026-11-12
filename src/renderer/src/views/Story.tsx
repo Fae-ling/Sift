@@ -5,6 +5,7 @@ import { tasteOf } from '../analysis/scoring'
 import { estimateCost, formatCost } from '../components/AiCost'
 import { Thumb } from '../components/Thumb'
 import { useStore } from '../store'
+import { PageHeader } from '../components/PageHeader'
 
 const MAX_FRAMES = 120
 const TYPES: ShotType[] = ['wide', 'medium', 'close-up', 'group', 'detail']
@@ -61,8 +62,8 @@ export function Story(): React.JSX.Element {
   const hasReads = shots.some((s) => s.read)
   const coverage = project.storyPlan.map((beat) => ({
     beat,
-    frames: shots.filter((s) => s.read?.beat === beat.name).length,
-    picks: picks.filter((s) => s.read?.beat === beat.name).length
+    frames: shots.filter((s) => (s.chapter ?? s.read?.beat) === beat.name).length,
+    picks: picks.filter((s) => (s.chapter ?? s.read?.beat) === beat.name).length
   }))
   const taste = tasteOf(shots)
 
@@ -114,11 +115,7 @@ export function Story(): React.JSX.Element {
 
   return (
     <div className="page wide">
-      <h1>Story</h1>
-      <p className="lead">
-        A cull chooses good frames; an edit chooses frames that work together. Look at your picks as one sequence: does
-        it have a beginning, variety of distance, moments of rest, and an ending?
-      </p>
+      <PageHeader title="Story" lead="Your picks as one sequence: which chapters are covered, and in what order they will be seen." />
 
       <div className="row">
         {counts.map(([t, n]) => (
@@ -138,25 +135,29 @@ export function Story(): React.JSX.Element {
       ))}
 
       <h2>Chapters</h2>
-      {hasReads ? (
-        <>
-          <p className="muted small">Your story plan against what was shot and what you kept.</p>
+      {hasReads || shots.some((x) => x.chapter) ? (
+        <div className="chapter-table" role="table" aria-label="Chapters">
           {coverage.map(({ beat, frames, picks: kept }) => (
-            <div className="row small" key={beat.name} style={{ padding: '5px 0', borderBottom: '1px solid var(--line)' }}>
-              <b style={{ width: 230 }}>{beat.name}</b>
-              <span className={kept ? 'chip pick' : frames ? 'chip warn' : 'chip'}>
-                {kept} kept of {frames} read
+            <div className="chapter-row" role="row" key={beat.name}>
+              <span className={`dot ${kept ? 'ok' : frames ? 'warn' : beat.must ? 'bad' : ''}`} aria-hidden="true" />
+              <b role="cell">
+                {beat.name}
+                {beat.must && <span className="faint small"> · must-have</span>}
+              </b>
+              <span role="cell" className="small">
+                {kept} kept <span className="faint">of {frames}</span>
               </span>
-              <span className="muted" style={{ flex: 1, minWidth: 200 }}>
-                {kept ? '' : frames ? 'Shot but nothing kept. Is this chapter meant to be missing?' : 'Nothing found for this chapter.'}
+              <span role="cell" className="faint small">
+                {kept ? '' : frames ? 'Shot, nothing kept' : beat.must ? 'Missing' : 'Not found'}
               </span>
             </div>
           ))}
-        </>
+        </div>
       ) : (
-        <p className="muted small">
-          Run the editor's read in Cull to sort frames into the chapters of your story plan and see which ones are thin.
-        </p>
+        <div className="empty-state">
+          <p>Chapters appear here once frames are sorted into them.</p>
+          <p className="small">Choose a chapter for each scene in Cull (the menu beside the scene's time), or use Cull with Claude.</p>
+        </div>
       )}
 
       {taste.decided >= 20 && (

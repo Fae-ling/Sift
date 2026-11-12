@@ -4,24 +4,29 @@ import { previewUrl } from '../analysis/pipeline'
 import { BLINK_LIMIT } from '../analysis/scoring'
 import { Thumb } from '../components/Thumb'
 import { estimateCost, formatCost } from '../components/AiCost'
+import { Icon } from '../components/Icon'
 import { isHidden, READ_TOKENS, readCandidates, triage, useStore, visibleShots, type Filter, type TriageKind } from '../store'
 
-const FILTERS: { id: Filter; label: string; hint: string }[] = [
+/** The filters used all the time, shown as a segmented control. */
+const MAIN_FILTERS: { id: Filter; label: string; hint: string }[] = [
   { id: 'suggested', label: 'Keepers', hint: 'The frames the cull would keep, plus your own picks' },
-  { id: 'gems', label: 'Hidden gems', hint: 'Flawed frames that may hold a moment' },
-  { id: 'must', label: 'Must-haves', hint: 'Frames from chapters your style says must not be missed' },
-  { id: 'unkept', label: 'Second look', hint: 'The strongest frame of every moment you kept nothing from: check here for a missed shot-list moment before you finish' },
-  { id: 'undecided', label: 'Undecided', hint: 'Frames you have not picked or rejected' },
+  { id: 'undecided', label: 'To decide', hint: 'Frames you have not picked or rejected' },
   { id: 'picks', label: 'Picks', hint: 'Frames you picked' },
-  { id: 'rejects', label: 'Rejects', hint: 'Frames you rejected' },
-  { id: 'warnings', label: 'Flagged', hint: 'Closed eyes, soft, or badly exposed' },
   { id: 'all', label: 'All', hint: 'Every frame of the shoot' }
+]
+/** The filters for a particular check, kept in a menu. */
+const MORE_FILTERS: { id: Filter; label: string; hint: string }[] = [
+  { id: 'gems', label: 'Hidden gems', hint: 'Flawed frames that may hold a moment' },
+  { id: 'must', label: 'Must-have chapters', hint: 'Frames from chapters your style says must not be missed' },
+  { id: 'unkept', label: 'Second look', hint: 'The strongest frame of every moment you kept nothing from' },
+  { id: 'rejects', label: 'Rejects', hint: 'Frames you rejected' },
+  { id: 'warnings', label: 'Flagged', hint: 'Closed eyes, soft, or badly exposed' }
 ]
 
 const time = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 export function Cull(): React.JSX.Element {
-  const { project, selectedId, select, filter, setFilter, decide, acceptSuggestions, setView, setBalance, learned, chooseStyle, chapter, setChapter, setRating, undo, redo, tasteData, setSceneChapter, deep, cancelDeepRead } = useStore()
+  const { project, selectedId, select, filter, setFilter, decide, acceptSuggestions, setView, chapter, setChapter, setRating, undo, redo, tasteData, setSceneChapter, deep, cancelDeepRead } = useStore()
   const [showTriage, setShowTriage] = useState(false)
   const [compare, setCompare] = useState(false)
   const [zoom, setZoom] = useState(false)
@@ -168,16 +173,29 @@ export function Cull(): React.JSX.Element {
   return (
     <div className={`cull ${showRead || showTriage ? 'with-read' : ''}`}>
       <div className="cull-bar">
-        <div className="tabs" role="tablist">
-          {FILTERS.map((f) => (
-            <button key={f.id} className={filter === f.id ? 'on' : ''} onClick={() => setFilter(f.id)} title={f.hint}>
-              {f.label}
-              <span className="muted"> {visibleShots(shots, f.id).length}</span>
+        <div className="segmented" role="group" aria-label="Show">
+          {MAIN_FILTERS.map((f) => (
+            <button key={f.id} className={filter === f.id ? 'on' : ''} onClick={() => setFilter(f.id)} title={f.hint} aria-pressed={filter === f.id}>
+              {f.label} <span className="n">{visibleShots(shots, f.id).length}</span>
             </button>
           ))}
         </div>
+        <select
+          className={`compact ${MORE_FILTERS.some((f) => f.id === filter) ? 'active' : ''}`}
+          value={MORE_FILTERS.some((f) => f.id === filter) ? filter : ''}
+          onChange={(e) => setFilter((e.target.value || 'suggested') as Filter)}
+          aria-label="More filters"
+          title="Filters for a particular check"
+        >
+          <option value="">More filters…</option>
+          {MORE_FILTERS.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.label} ({visibleShots(shots, f.id).length})
+            </option>
+          ))}
+        </select>
         {chapters.length > 0 && (
-          <select value={chapter ?? ''} onChange={(e) => setChapter(e.target.value || null)} aria-label="Chapter" title="Show only frames from one chapter of the story">
+          <select className={`compact ${chapter ? 'active' : ''}`} value={chapter ?? ''} onChange={(e) => setChapter(e.target.value || null)} aria-label="Chapter" title="Show only frames from one chapter of the story">
             <option value="">All chapters</option>
             {chapters.map((c) => (
               <option key={c} value={c}>
@@ -186,49 +204,35 @@ export function Cull(): React.JSX.Element {
             ))}
           </select>
         )}
-        <span className="small">
-          <span style={{ color: 'var(--pick)' }}>{picks} picks</span>
-          {target > 0 && <span className="muted"> / {target} target</span>} · <span style={{ color: 'var(--reject)' }}>{rejects} rejected</span> ·{' '}
-          <span className="muted">{undecided} to decide</span>
-        </span>
+
+        <div className="progress" title={`${picks} picked, ${rejects} rejected, ${undecided} to decide`}>
+          <span>
+            <b style={{ color: 'var(--pick)' }}>{picks}</b>
+            {target > 0 ? <span className="faint"> / {target}</span> : ''} picks
+          </span>
+          <div className="bar" aria-hidden="true">
+            <div style={{ width: `${(100 * (picks + rejects)) / Math.max(1, shots.length)}%` }} />
+          </div>
+        </div>
         {deep.running && (
-          <span className="muted small" title="Reading how the strongest frames of each moment are composed: separation from the background, what holds the eye">
+          <span className="faint small" title="Reading how the strongest frames of each moment are composed: separation from the background, what holds the eye">
             Reading composition {deep.done}/{deep.total}{' '}
             <button className="link small" onClick={cancelDeepRead}>
               stop
             </button>
           </span>
         )}
+
         <div className="spacer" />
-        <select
-          value={project.styleIds[0] ?? ''}
-          onChange={(e) => chooseStyle(e.target.value || null)}
-          aria-label="Shoot style"
-          title="The style this shoot is culled in: its chapters, the emotions it looks for, its balance. Manage styles under Shoot styles."
-        >
-          <option value="">No style</option>
-          {learned.styles.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        <label className="balance" title="How much the moment counts against technical quality when suggesting keepers">
-          <span className="muted small">Craft</span>
-          <input type="range" min={0} max={1} step={0.05} value={project.balance} onChange={(e) => setBalance(Number(e.target.value))} aria-label="Balance between craft and moment" />
-          <span className="muted small">Moment</span>
-        </label>
-        <button className={showTriage ? 'on' : ''} onClick={() => (setShowTriage((v) => !v), setShowRead(false))} title="Reject misfires and unusable frames in one step">
-          Ultrafast cull
+        <CullSettings />
+        <button className={`ghost ${showTriage ? 'on' : ''}`} onClick={() => (setShowTriage((v) => !v), setShowRead(false))} title="Reject misfires and unusable frames in one step" aria-label="Ultrafast cull" aria-expanded={showTriage}>
+          <Icon name="bolt" /> <span className="label">Ultrafast cull</span>
         </button>
-        <button className={showRead ? 'on' : ''} onClick={() => (setShowRead((v) => !v), setShowTriage(false))}>
-          Cull with Claude
+        <button className={`ghost ${showRead ? 'on' : ''}`} onClick={() => (setShowRead((v) => !v), setShowTriage(false))} title="Claude reads each moment: chapter, emotion, hidden gems" aria-label="Cull with Claude" aria-expanded={showRead}>
+          <Icon name="sparkle" /> <span className="label">Cull with Claude</span>
         </button>
-        <button onClick={() => acceptSuggestions()} disabled={undecided === 0} title="Applies every suggestion to frames you have not decided yourself">
-          Accept all remaining suggestions
-        </button>
-        <button className="primary" onClick={() => setView('story')} disabled={picks === 0}>
-          Build the story
+        <button className="primary" onClick={() => acceptSuggestions()} disabled={undecided === 0} title="Applies every suggestion to frames you have not decided yourself">
+          Accept suggestions
         </button>
       </div>
 
@@ -340,135 +344,202 @@ function Meter({ label, value }: { label: string; value: number | null }): React
   )
 }
 
-const TAG_TEXT = { laugh: 'laughter', joy: 'joy', connection: 'connection', embrace: 'embrace', peak: 'peak of the burst', rare: 'rare in this shoot' }
-
 const SUGGESTION_TEXT = {
   pick: 'Suggested keeper: the strongest frame of this moment.',
-  alternate: 'Worth a look: nearly as strong as the suggested keeper, or flawed but holding a moment. Compare expression and gesture.',
-  reject: 'Suggested reject: a stronger frame of the same moment exists, or it has a flaw.'
+  alternate: 'Worth a look: close to the best, or flawed but holding a moment.',
+  reject: 'Suggested reject: a stronger frame of this moment exists, or it has a flaw.'
 }
+
+const TAG_TEXT = { laugh: 'laughter', joy: 'joy', connection: 'connection', embrace: 'embrace', peak: 'peak of the burst', rare: 'rare in this shoot' }
+
 
 function Inspector({ shot, projectId, hide }: { shot: Shot; projectId: string; hide: boolean }): React.JSX.Element {
   const { decide, setRating, taste } = useStore()
   const score = shot.score
   const a = shot.analysis!
+  const chapterName = shot.chapter ?? shot.read?.beat
   return (
     <div className="inspector">
-      <div style={{ fontWeight: 600 }}>{shot.name}</div>
-      <div className="muted small">
-        {new Date(shot.time).toLocaleString()} · {a.shotType}
-      </div>
-
-      <div className="decide">
-        <button className={shot.decision === 'pick' ? 'on pick' : ''} onClick={() => decide([shot.id], shot.decision === 'pick' ? null : 'pick')}>
-          Pick <kbd>P</kbd>
-        </button>
-        <button className={shot.decision === 'reject' ? 'on reject' : ''} onClick={() => decide([shot.id], shot.decision === 'reject' ? null : 'reject')}>
-          Reject <kbd>X</kbd>
-        </button>
-      </div>
-      <div className="row" style={{ gap: 2 }}>
-        {[1, 2, 3, 4, 5].map((n) => (
-          <button key={n} className="link" style={{ fontSize: 18, textDecoration: 'none', color: n <= shot.rating ? '#fff' : '#555' }} onClick={() => setRating(shot.id, shot.rating === n ? 0 : n)} aria-label={`${n} stars`}>
-            ★
+      <div className="inspector-head">
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <b className="ellipsis" title={shot.name}>{shot.name}</b>
+          <span className="faint small">{new Date(shot.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+        </div>
+        <div className="decide">
+          <button className={shot.decision === 'pick' ? 'on pick' : ''} onClick={() => decide([shot.id], shot.decision === 'pick' ? null : 'pick')} aria-pressed={shot.decision === 'pick'}>
+            Pick <kbd>P</kbd>
           </button>
-        ))}
+          <button className={shot.decision === 'reject' ? 'on reject' : ''} onClick={() => decide([shot.id], shot.decision === 'reject' ? null : 'reject')} aria-pressed={shot.decision === 'reject'}>
+            Reject <kbd>X</kbd>
+          </button>
+        </div>
+        <div className="stars" role="group" aria-label="Rating">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <button key={n} className={n <= shot.rating ? 'on' : ''} onClick={() => setRating(shot.id, shot.rating === n ? 0 : n)} aria-label={`${n} stars`} aria-pressed={n <= shot.rating}>
+              ★
+            </button>
+          ))}
+        </div>
       </div>
 
       {score && hide && (
         <div className="note teach">
           <p className="small">
-            <b>Your call.</b> For about one moment in ten, Atelier keeps its opinion to itself. A choice you make
-            without being shown a suggestion is the cleanest evidence of your taste, and it is how the app checks
-            whether its suggestions are any good. Its view appears once you decide.
+            <b>Your call.</b> No suggestion is shown for about one moment in ten, so your unprompted choice can be
+            learned from. The app's view appears once you decide.
           </p>
         </div>
       )}
       {score && !hide && (
-        <>
-          <h3>Why</h3>
-          {shot.suggestion && <p className="small">{SUGGESTION_TEXT[shot.suggestion]}</p>}
+        <section className="insp-section">
+          {shot.suggestion && <p className={`verdict ${shot.suggestion}`}>{SUGGESTION_TEXT[shot.suggestion]}</p>}
           <Meter label="Moment" value={score.moment} />
           <Meter label="Craft" value={score.craft} />
-          {score.learned !== undefined && taste && (
-            <>
-              <Meter label="Your taste" value={score.learned} />
-              <p className="muted small" style={{ margin: '2px 0 6px' }}>
-                {taste.trust > 0
-                  ? `Learned from your past choices; counts for ${Math.round(taste.trust * 100)}% of this suggestion.`
-                  : 'Learned from your past choices. Shown for interest: it has not yet proved better than the built-in rules, so it does not affect suggestions.'}
-                {score.learnedWhy?.length ? ` ${score.learnedWhy.join('; ')}.` : ''}
-              </p>
-            </>
-          )}
-          <div style={{ margin: '8px 0' }}>
-            {score.gem && <span className="chip gem">hidden gem</span>}
-            {score.must && <span className="chip pick">must-have chapter</span>}
-            {score.emotion && <span className="chip">{score.emotion.name} {Math.round(score.emotion.intensity * 100)}%</span>}
-            {score.tags.map((t) => (
-              <span className="chip" key={t}>
-                {TAG_TEXT[t]}
-              </span>
-            ))}
-            {(shot.chapter ?? shot.read?.beat) && <span className="chip">{shot.chapter ?? shot.read?.beat}</span>}
-          </div>
-          {shot.read && (
-            <div className="note teach">
-              <p className="small">
-                <b>Editor's read ({shot.read.moment}/10).</b> {shot.read.note}
-              </p>
+          {score.learned !== undefined && taste && <Meter label="Your taste" value={score.learned} />}
+          {(score.gem || score.must || score.emotion || score.tags.length > 0 || chapterName) && (
+            <div className="chips">
+              {score.gem && <span className="chip gem">hidden gem</span>}
+              {score.must && <span className="chip pick">must-have chapter</span>}
+              {score.emotion && (
+                <span className="chip">
+                  {score.emotion.name} {Math.round(score.emotion.intensity * 100)}%
+                </span>
+              )}
+              {score.tags.map((t) => (
+                <span className="chip" key={t}>
+                  {TAG_TEXT[t]}
+                </span>
+              ))}
+              {chapterName && <span className="chip">{chapterName}</span>}
             </div>
           )}
-          <ul className="small" style={{ paddingLeft: 18, lineHeight: 1.5 }}>
-            {score.momentNotes.map((n, i) => (
+          {shot.read && (
+            <p className="small read-note">
+              <b>Claude, {shot.read.moment}/10:</b> {shot.read.note}
+            </p>
+          )}
+          <ul className="notes">
+            {score.momentNotes.slice(0, 3).map((n, i) => (
               <li key={i}>{n}</li>
             ))}
           </ul>
-          <h3>Craft in detail</h3>
-          <Meter label="Focus" value={score.focus} />
-          {score.faces !== null && <Meter label="Eyes" value={score.faces} />}
-          <Meter label="Exposure" value={score.exposure} />
-          <ul className="small" style={{ paddingLeft: 18, lineHeight: 1.5 }}>
-            {score.notes.map((n, i) => (
-              <li key={i}>{n}</li>
-            ))}
-          </ul>
-          <p className="muted small">
-            Craft is measured; the moment is only partly measurable. A frame can score low on both and still be the one.
-            The numbers are there to save you time on the obvious, not to make the choice.
-          </p>
-        </>
+        </section>
       )}
 
       {a.faces.length > 0 && (
-        <>
-          <h3>Faces</h3>
+        <section className="insp-section">
+          <h3>Faces{!hide && score?.faceEmotions ? <span className="faint" style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}> · click an emotion to teach it</span> : ''}</h3>
           <FaceCrops src={previewUrl(projectId, shot.id)} faces={a.faces} emotions={hide ? undefined : score?.faceEmotions} teachable />
-        </>
+        </section>
       )}
 
-      <h3>Capture</h3>
-      <div className="small muted" style={{ lineHeight: 1.6 }}>
-        {[shot.camera, shot.lens].filter(Boolean).join(' · ')}
-        <br />
-        {[shot.focal && `${Math.round(shot.focal)} mm`, shot.aperture && `f/${shot.aperture}`, shot.shutter && `${shot.shutter} s`, shot.iso && `ISO ${shot.iso}`].filter(Boolean).join(' · ')}
-      </div>
-      <button className="link small" style={{ marginTop: 6 }} onClick={() => void window.studio.reveal(shot.path)}>
-        Show file in folder
-      </button>
+      {score && !hide && (
+        <details className="insp-section">
+          <summary>
+            <h3 style={{ margin: 0 }}>Craft in detail</h3>
+          </summary>
+          <Meter label="Focus" value={score.focus} />
+          {score.faces !== null && <Meter label="Eyes" value={score.faces} />}
+          <Meter label="Exposure" value={score.exposure} />
+          <ul className="notes">
+            {score.notes.map((n, i) => (
+              <li key={i}>{n}</li>
+            ))}
+            {score.momentNotes.slice(3).map((n, i) => (
+              <li key={`m${i}`}>{n}</li>
+            ))}
+          </ul>
+          {score.learned !== undefined && taste && (
+            <p className="faint small">
+              Your taste: {taste.trust > 0 ? `counts for ${Math.round(taste.trust * 100)}% of this suggestion` : 'shown for interest; it has not yet earned a say in suggestions'}
+              {score.learnedWhy?.length ? `. ${score.learnedWhy.join('; ')}.` : '.'}
+            </p>
+          )}
+        </details>
+      )}
 
-      <h3>Keys</h3>
-      <div className="small muted" style={{ lineHeight: 2 }}>
-        <kbd>←</kbd> <kbd>→</kbd> frame · <kbd>↑</kbd> <kbd>↓</kbd> moment
-        <br />
-        <kbd>P</kbd> pick · <kbd>X</kbd> reject · <kbd>U</kbd> clear
-        <br />
-        <kbd>Enter</kbd> accept suggestion for this moment
-        <br />
-        <kbd>1</kbd>–<kbd>5</kbd> stars · <kbd>Z</kbd> zoom · <kbd>C</kbd> compare
-        <br />
-        <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo
-      </div>
+      <details className="insp-section">
+        <summary>
+          <h3 style={{ margin: 0 }}>Capture</h3>
+        </summary>
+        <div className="small muted" style={{ lineHeight: 1.7 }}>
+          {[shot.camera, shot.lens].filter(Boolean).join(' · ') || 'No camera data'}
+          <br />
+          {[shot.focal && `${Math.round(shot.focal)} mm`, shot.aperture && `f/${shot.aperture}`, shot.shutter && `${shot.shutter} s`, shot.iso && `ISO ${shot.iso}`].filter(Boolean).join(' · ')}
+          <br />
+          {new Date(shot.time).toLocaleString()} · {a.shotType}
+        </div>
+        <button className="link small" style={{ marginTop: 6 }} onClick={() => void window.studio.reveal(shot.path)}>
+          Show file in folder
+        </button>
+      </details>
+
+      <details className="insp-section">
+        <summary>
+          <h3 style={{ margin: 0 }}>Keyboard</h3>
+        </summary>
+        <dl className="keys">
+          <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>previous / next frame</dd>
+          <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>previous / next moment</dd>
+          <dt><kbd>P</kbd> <kbd>X</kbd> <kbd>U</kbd></dt><dd>pick, reject, clear</dd>
+          <dt><kbd>Enter</kbd></dt><dd>accept this moment's suggestion</dd>
+          <dt><kbd>1</kbd>–<kbd>5</kbd></dt><dd>stars</dd>
+          <dt><kbd>Z</kbd> <kbd>C</kbd></dt><dd>zoom, compare</dd>
+          <dt><kbd>Ctrl</kbd>+<kbd>Z</kbd></dt><dd>undo (with Shift: redo)</dd>
+        </dl>
+      </details>
+    </div>
+  )
+}
+
+/** Style and balance for this shoot: set once, so kept out of the way. */
+function CullSettings(): React.JSX.Element {
+  const { project, learned, chooseStyle, setBalance, setView } = useStore()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent | KeyboardEvent): void => {
+      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', close)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', close)
+    }
+  }, [open])
+  if (!project) return <></>
+  const style = learned.styles.find((x) => project.styleIds.includes(x.id))
+  return (
+    <div className="popover-wrap" ref={ref}>
+      <button className={`ghost ${open ? 'on' : ''}`} onClick={() => setOpen((v) => !v)} aria-expanded={open} title="The style this shoot is culled in, and how much the moment counts">
+        <Icon name="sliders" /> <span className="label ellipsis" style={{ maxWidth: 140 }}>{style?.name ?? 'No style'}</span>
+      </button>
+      {open && (
+        <div className="popover" role="dialog" aria-label="Cull settings">
+          <label htmlFor="cull-style">Shoot style</label>
+          <select id="cull-style" value={project.styleIds[0] ?? ''} onChange={(e) => chooseStyle(e.target.value || null)} aria-label="Shoot style">
+            <option value="">No style</option>
+            {learned.styles.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.name}
+              </option>
+            ))}
+          </select>
+          <p className="field-help">Sets the chapters, the emotions looked for, and the balance below.</p>
+          <label htmlFor="cull-balance">Craft or moment</label>
+          <div className="row" style={{ flexWrap: 'nowrap' }}>
+            <span className="faint small">Craft</span>
+            <input id="cull-balance" type="range" min={0} max={1} step={0.05} value={project.balance} onChange={(e) => setBalance(Number(e.target.value))} aria-label="Balance between craft and moment" />
+            <span className="faint small">Moment</span>
+          </div>
+          <p className="field-help">How much the emotion and the moment count against sharpness and exposure.</p>
+          <button className="link small" onClick={() => setView('profiles')}>
+            Edit shoot styles
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -640,7 +711,7 @@ function TriagePanel({ onDone }: { onDone: () => void }): React.JSX.Element {
         disabled={total === 0}
         onClick={() => {
           const n = applyTriage(TRIAGE.filter((t) => chosen[t.kind]).map((t) => t.kind))
-          notify(`${n} frames rejected. Ctrl+Z brings them back.`)
+          notify(`${n} frame${n === 1 ? '' : 's'} rejected. Ctrl+Z brings ${n === 1 ? 'it' : 'them'} back.`)
           onDone()
         }}
       >

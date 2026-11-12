@@ -110,8 +110,10 @@ const builtin = (name: string, description: string, valence: number, arousal: nu
  * pulls a concept toward what it actually looks like in this photographer's work.
  */
 export const STARTING_EMOTIONS: EmotionConcept[] = [
-  builtin('joy', 'A smile that reaches the eyes.', 0.8, 0.5, { mouthSmile: 0.8, cheekSquint: 0.5, eyeSquint: 0.3 }),
-  builtin('laughter', 'Open-mouthed laughing, eyes creased.', 0.9, 0.9, { mouthSmile: 0.9, jawOpen: 0.6, cheekSquint: 0.6, eyeSquint: 0.5 }),
+  // On real faces the model reports a broad smile with the upper lip raised (teeth) and the brows pulled
+  // down by the squint, so both are part of what joy and laughter look like to it.
+  builtin('joy', 'A smile that reaches the eyes.', 0.8, 0.5, { mouthSmile: 0.85, eyeSquint: 0.6, cheekSquint: 0.4, mouthUpperUp: 0.55, browDown: 0.5 }),
+  builtin('laughter', 'Open-mouthed laughing, eyes creased.', 0.9, 0.9, { mouthSmile: 0.9, jawOpen: 0.6, cheekSquint: 0.6, eyeSquint: 0.5, mouthUpperUp: 0.5, browDown: 0.4 }),
   builtin('tenderness', 'Soft, lowered or closed eyes with a faint smile.', 0.7, 0.2, { eyeClosed: 0.6, mouthSmile: 0.3 }),
   builtin('sadness', 'Inner brows raised, lip corners down.', -0.7, 0.3, { browInnerUp: 0.7, mouthFrown: 0.6, chinRaise: 0.3 }),
   builtin('crying', 'Face crumpled: brows up and together, eyes squeezed, mouth pulled wide.', -0.6, 0.8, { browInnerUp: 0.7, eyeSquint: 0.6, mouthFrown: 0.5, mouthStretch: 0.4, jawOpen: 0.3, cheekSquint: 0.3 }),

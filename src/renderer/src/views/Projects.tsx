@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useStore } from '../store'
+import { PageHeader } from '../components/PageHeader'
 
 export function Projects(): React.JSX.Element {
   const { summaries, createProject, openProject, deleteProject, learned, setView } = useStore()
@@ -10,11 +11,7 @@ export function Projects(): React.JSX.Element {
 
   return (
     <div className="page wide">
-      <h1>Projects</h1>
-      <p className="lead">
-        Each project holds one shoot: its brief, your selects, and the editing plan. Your photos stay where they are on
-        disk and are never changed.
-      </p>
+      <PageHeader title="Projects" lead="One project per shoot. Your photos stay where they are and are never changed." />
 
       <form
         className="card row"

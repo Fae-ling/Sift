@@ -5,6 +5,7 @@ import { applyLookToImage, deriveLook, describeLook, lookFromParams, lookStats, 
 import { estimateCost, formatCost } from '../components/AiCost'
 import { houseLookAsLook } from '../analysis/training'
 import { useStore } from '../store'
+import { PageHeader } from '../components/PageHeader'
 
 interface Loaded {
   path: string
@@ -130,12 +131,7 @@ export function Look(): React.JSX.Element {
 
   return (
     <div className="page wide">
-      <h1>Look extractor</h1>
-      <p className="lead">
-        Give it a finished photograph whose colour you admire. It works out the tone curve, the tint in shadows,
-        midtones and highlights, and the saturation, and writes them as a LUT or a Lightroom preset. It also tells you
-        what was done, so you can rebuild the look by hand and make it your own.
-      </p>
+      <PageHeader title="Look extractor" lead="Turn a finished photo's colour into a LUT or Lightroom preset, see what it is made of, and shape it for your concept." />
 
       <div className="row">
         <button className="primary" onClick={() => void pick('ref', setReference)}>

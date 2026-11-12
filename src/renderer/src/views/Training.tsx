@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { MIN_TESTED_PAIRS } from '../analysis/learner'
+import { MIN_TESTED_PAIRS, tendencies } from '../analysis/learner'
+import { PageHeader } from '../components/PageHeader'
 import { limitsFrom, trainingSummary } from '../analysis/training'
 import { useStore } from '../store'
 
@@ -8,8 +9,9 @@ const KIND = { finished: 'Finished photographs', look: 'Before/after pairs', dec
 const plural = (n: number): string => (n === 0 ? 'No new frames' : n === 1 ? '1 frame' : `${n} frames`)
 
 export function TrainingView(): React.JSX.Element {
-  const { training, teaching, taste, project, learned, trainFinished, trainLook, teachFromRatings, teachFromDelivered, resetTraining, setView, notify } = useStore()
+  const { training, teaching, taste, tasteData, setBlindBursts, forgetLearning, relearn, project, learned, trainFinished, trainLook, teachFromRatings, teachFromDelivered, resetTraining, setView, notify } = useStore()
   const [stars, setStars] = useState(1)
+  const [confirmForget, setConfirmForget] = useState(false)
   const summary = trainingSummary(training)
   const limits = limitsFrom(training)
   const pct = (v: number): string => `${Math.round(v * 100)}%`
@@ -26,12 +28,10 @@ export function TrainingView(): React.JSX.Element {
 
   return (
     <div className="page wide">
-      <h1>Training</h1>
-      <p className="lead">
-        Atelier gets better at your work by studying your work. Give it photographs and it adjusts each of its
-        functions to you. Everything is learned on this computer; nothing is uploaded. Train as often as you like:
-        each run adds to what it knows.
-      </p>
+      <PageHeader
+        title="Training"
+        lead="Atelier gets better at your work by studying your work. Each section teaches one part of it with your own photographs. Everything is learned on this computer, and each run adds to what it already knows."
+      />
 
       {teaching.running && (
         <div className="card" style={{ marginBottom: 12 }}>
@@ -50,15 +50,79 @@ export function TrainingView(): React.JSX.Element {
             then use one of the buttons below. Decisions you made before Atelier count as your unprompted choices, the
             strongest evidence there is. It also learns from every decision you make while culling here.
           </p>
-          <p className="small muted">
-            {taste
-              ? `So far: ${taste.report.decisions} decisions from ${taste.report.projects} project${taste.report.projects === 1 ? '' : 's'}. ${
-                  taste.report.testedPairs >= MIN_TESTED_PAIRS
-                    ? `On bursts it was never shown, the built-in rules agree with you ${pct(taste.report.rulesAgree)} of the time and the trained suggestions ${pct(taste.report.blendedAgree)}; your learned taste has ${pct(taste.trust)} of the say.`
-                    : `It needs ${MIN_TESTED_PAIRS - taste.report.testedPairs} more comparisons in set-aside bursts before the training may change suggestions.`
-                }`
-              : 'Nothing learned yet.'}
+          <div className="your-eye">
+          <h3>Your eye</h3>
+        {taste ? (
+          <>
+            <div className="stats" style={{ marginTop: 0 }}>
+              <div>
+                <div className="stat">{taste.report.decisions}</div>
+                <div className="muted small">decisions learned from, across {taste.report.projects} project{taste.report.projects === 1 ? '' : 's'}</div>
+              </div>
+              <div>
+                <div className="stat">{taste.report.testedPairs >= MIN_TESTED_PAIRS ? pct(taste.report.rulesAgree) : '–'}</div>
+                <div className="muted small">built-in rules agree with you</div>
+              </div>
+              <div>
+                <div className="stat" style={{ color: taste.trust > 0 ? 'var(--pick)' : undefined }}>
+                  {taste.report.testedPairs >= MIN_TESTED_PAIRS ? pct(taste.report.blendedAgree) : '–'}
+                </div>
+                <div className="muted small">with what it has learned from you</div>
+              </div>
+              <div>
+                <div className="stat">{pct(taste.trust)}</div>
+                <div className="muted small">say your learned taste has in each suggestion</div>
+              </div>
+            </div>
+            <p className="small muted">
+              {taste.report.testedPairs < MIN_TESTED_PAIRS
+                ? `Still gathering evidence. Agreement is measured on bursts set aside and never learned from: ${taste.report.testedPairs} comparisons so far, ${MIN_TESTED_PAIRS} needed before what it has learned may influence suggestions. Until then the built-in rules decide.`
+                : taste.trust > 0
+                  ? `Measured on ${taste.report.testedPairs} choices from bursts that were set aside and never learned from: how often the frame you kept was ranked above the one you passed over. The learned share is whatever gives the best agreement there, so it only grows when it earns it.`
+                  : `Measured on ${taste.report.testedPairs} choices from bursts that were set aside. What it has learned does not yet beat the built-in rules there, so it is not used. It keeps learning with every decision.`}{' '}
+              {taste.report.blindDecisions} of your decisions were made with no suggestion shown.
+            </p>
+            {tendencies(taste.model).length > 0 && (
+              <>
+                <h3>What it has noticed about your choices</h3>
+                <ul className="small" style={{ lineHeight: 1.6, paddingLeft: 18, margin: 0 }}>
+                  {tendencies(taste.model).map((t) => (
+                    <li key={t}>{t.startsWith('you') ? t[0].toUpperCase() + t.slice(1) : `You favour ${t}`}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </>
+        ) : (
+          <p className="muted small" style={{ margin: 0 }}>
+            Nothing learned yet. Every pick and reject you make teaches Atelier your taste; choices you make by hand
+            teach more than suggestions you accept. It retrains as you cull and whenever you close a project.
           </p>
+        )}
+        <div className="row" style={{ marginTop: 12 }}>
+          <label style={{ fontWeight: 400, margin: 0 }} className="row">
+            <input type="checkbox" style={{ width: 'auto' }} checked={tasteData.blindBursts} onChange={(e) => setBlindBursts(e.target.checked)} />
+            Show about one moment in ten without a suggestion, so my unprompted choice can be learned from
+          </label>
+          <div className="spacer" />
+          <button onClick={relearn}>Learn now</button>
+          {confirmForget ? (
+            <>
+              <button className="danger" onClick={() => void forgetLearning().then(() => setConfirmForget(false))}>
+                Forget everything learned
+              </button>
+              <button onClick={() => setConfirmForget(false)}>Keep</button>
+            </>
+          ) : (
+            taste && (
+              <button className="link small" onClick={() => setConfirmForget(true)}>
+                Forget
+              </button>
+            )
+          )}
+        </div>
+      </div>
+
           {project ? (
             <div className="row">
               <button disabled={teaching.running} onClick={() => void run(async () => `${plural(await teachFromRatings(stars))} learned from Lightroom ratings in “${project.name}”.`)}>
@@ -89,9 +153,6 @@ export function TrainingView(): React.JSX.Element {
           ) : (
             <p className="small muted">Open the project of a past shoot to teach from its ratings or delivered files.</p>
           )}
-          <button className="link small" style={{ marginTop: 8 }} onClick={() => setView('profiles')}>
-            See what it has learned about your eye
-          </button>
         </section>
 
         <section className="card">

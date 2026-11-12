@@ -11,7 +11,7 @@ whenever you have new finished work. Each area can be forgotten separately.
 
 | Part of the app | Give it | Minimum before it takes effect | Where you see the result |
 | --- | --- | --- | --- |
-| Culling suggestions | Past shoots you culled; every decision you make here | about 30 set-aside comparisons, in practice a few hundred decisions in bursts | Shoot styles → Your eye |
+| Culling suggestions | Past shoots you culled; every decision you make here | about 30 set-aside comparisons, in practice a few hundred decisions in bursts | Training → Your eye |
 | Diagnose a photo | Finished photographs you are happy with | 12 photographs with a person in them | "Judged against your N finished photographs" in Diagnose |
 | Emotion reading | Faces you name in Cull; unnamed expressions you or Claude name | one example creates an emotion; a dozen make it dependable | Emotions |
 | Your look | Unedited frames and their finished versions, same file names | 1 pair; 10 or more gives a stable average | Look extractor → Your house look |
@@ -43,7 +43,7 @@ Decisions made before Atelier count double: you made them with no suggestion fro
 this app in front of you. Decisions you have already made in the project are never
 overwritten by an import.
 
-*How to tell it has learned:* Shoot styles → Your eye shows how often the
+*How to tell it has learned:* Training → Your eye shows how often the
 built-in rules agree with you, how often the trained suggestions do, and how much say
 your learned taste has earned. It stays at zero until it demonstrably does better.
 

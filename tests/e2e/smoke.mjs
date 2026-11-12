@@ -128,7 +128,7 @@ try {
   await page.getByRole('button', { name: 'Cull with Claude' }).click()
   await page.getByRole('button', { name: 'Read the shoot' }).click()
   await page.getByText('Every moment has been read.').waitFor()
-  await page.getByText(/Editor's read \(9\/10\)/).first().waitFor()
+  await page.getByText(/Claude, 9\/10/).first().waitFor()
   assert.notEqual(await page.locator('.scene-chapter').first().inputValue(), '', 'scenes are labelled with their chapter')
   await snap('3-cull-read')
   await page.getByRole('button', { name: 'Cull with Claude' }).click()
@@ -154,7 +154,7 @@ try {
   }
 
   // The second look lists the best frame of every moment nothing was kept from.
-  await page.getByRole('button', { name: /^Second look/ }).click()
+  await page.getByLabel('More filters').selectOption('unkept')
   await snap('3-cull-second-look')
   await page.getByRole('button', { name: /^All \d/ }).click()
 
@@ -164,26 +164,29 @@ try {
   assert.ok((await page.locator('.strip .flag.pick').count()) >= 1, 'accepting a suggestion makes a pick')
   await snap('3-cull-accepted')
 
-  // A shoot style learns from a folder of photographs, has its gallery put into words, and is developed by Claude.
-  await page.getByRole('button', { name: 'Shoot styles' }).click()
   // The decisions made above have been learned from.
+  await page.locator('.sidebar .nav', { hasText: 'Training' }).click()
   await page.getByRole('button', { name: 'Learn now' }).click()
   await page.getByText(/decisions learned from/).waitFor()
   assert.match(readFileSync(join(userData, 'learning.json'), 'utf8'), /"examples":\[\{/, 'decisions are stored as examples')
-  const card = page.locator('.card', { hasText: 'LARP and battle' }).first()
-  await card.getByRole('button', { name: 'Open', exact: true }).click()
-  await card.getByRole('button', { name: /Learn from a folder of photographs/ }).click()
-  await card.getByText(/photographs; \d+% show people/).waitFor({ timeout: 400_000 })
-  await card.getByRole('button', { name: /Put the gallery into words/ }).click()
-  await card.getByText('Stand-in essence.').waitFor()
-  await card.getByRole('button', { name: /Develop with Claude|Refine with Claude/ }).click()
-  await card.getByText(/Stand-in notes for LARP and battle/).waitFor()
-  await card.getByRole('button', { name: 'Accept', exact: true }).click()
-  await card.getByLabel('How much this style values triumph').waitFor()
+
+  // A shoot style learns from a folder of photographs, has them put into words, and is developed by Claude.
+  await page.locator('.sidebar .nav', { hasText: 'Shoot styles' }).click()
+  await page.locator('.split-list .item', { hasText: 'LARP and battle' }).click()
+  await page.getByRole('tab', { name: 'Learning' }).click()
+  await page.getByRole('button', { name: /Learn from a folder of photographs/ }).click()
+  await page.getByText(/photographs; \d+% show people/).waitFor({ timeout: 400_000 })
+  await page.getByRole('button', { name: /Put the photographs into words/ }).click()
+  await page.getByText('Stand-in essence.').waitFor()
+  await page.getByRole('button', { name: /Develop with Claude|Refine with Claude/ }).click()
+  await page.getByText(/Stand-in notes for LARP and battle/).waitFor()
+  await page.getByRole('button', { name: 'Accept', exact: true }).click()
+  await page.getByRole('tab', { name: 'Emotions' }).click()
+  await page.getByLabel('How much this style values triumph').waitFor()
   await snap('4-styles')
 
   // The emotion taught in Cull is now part of what the app knows.
-  await page.getByRole('button', { name: /^Emotions/ }).click()
+  await page.locator('.sidebar .nav', { hasText: 'Emotions' }).click()
   await page.getByRole('heading', { name: 'What it knows' }).waitFor()
   await snap('4-emotions')
 
@@ -263,7 +266,7 @@ try {
   }
 
   // Training: norms from finished photographs, habits from Lightroom sidecars, decisions from ratings.
-  await page.getByRole('button', { name: 'Training', exact: true }).click()
+  await page.locator('.sidebar .nav', { hasText: 'Training' }).click()
   await page.getByRole('button', { name: /Train on finished photographs/ }).click()
   await page.getByText(/finished photographs so far|Learned from \d+ finished photographs/).waitFor({ timeout: 400_000 })
   await page.getByRole('button', { name: /Learn from Lightroom ratings/ }).click()

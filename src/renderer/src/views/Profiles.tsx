@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { styleCacheId, type Beat, type Genre, type Style, type StyleProposal } from '@shared/types'
 import { FAMILY_EMOTIONS } from '../analysis/emotion'
-import { MIN_TESTED_PAIRS, tendencies } from '../analysis/learner'
+import { tendencies } from '../analysis/learner'
 import { thumbUrl } from '../analysis/pipeline'
 import { emotionLifts, emotionWeights, profileFacts } from '../analysis/style'
 import { estimateCost, formatCost } from '../components/AiCost'
+import { PageHeader } from '../components/PageHeader'
 import { useStore } from '../store'
 
 const FAMILIES: { id: Genre; label: string }[] = [
@@ -18,137 +19,95 @@ const lines = (text: string): string[] => text.split('\n').map((t) => t.trim()).
 const splitTags = (text: string): string[] => text.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean)
 
 export function Profiles(): React.JSX.Element {
-  const { learned, learning, project, createProfile, taste, tasteData, setBlindBursts, forgetLearning, relearn } = useStore()
-  const [confirmForget, setConfirmForget] = useState(false)
+  const { learned, learning, project, createProfile } = useStore()
+  const [selected, setSelected] = useState<string | null>(project?.styleIds[0] ?? learned.styles[0]?.id ?? null)
+  const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [feeling, setFeeling] = useState('')
   const [family, setFamily] = useState<Genre>('event')
-  const [open, setOpen] = useState<string | null>(project?.styleIds[0] ?? null)
-  const pct = (v: number): string => `${Math.round(v * 100)}%`
+  const style = learned.styles.find((x) => x.id === selected) ?? learned.styles[0]
+
+  // If the selected style is deleted, fall back to the first.
+  useEffect(() => {
+    if (selected && !learned.styles.some((x) => x.id === selected)) setSelected(learned.styles[0]?.id ?? null)
+  }, [learned.styles, selected])
 
   return (
-    <div className="page wide">
-      <h1>Shoot styles</h1>
-      <p className="lead">
-        A style is a kind of work you do: a wedding, a LARP battle, a boudoir session, a birthday. It holds what the cull
-        should look for there: the chapters that must not be missed, the emotions that carry it, the flaws nobody
-        minds. Make your own, let Claude help develop them, and each one keeps learning from the shoots you cull in it.
-      </p>
-
-      <form
-        className="card"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (!name.trim()) return
-          void createProfile(name.trim(), family, feeling.trim(), []).then(setOpen)
-          setName('')
-          setFeeling('')
-        }}
-      >
-        <div className="row">
-          <input style={{ flex: 1, minWidth: 200 }} placeholder="New style, e.g. Medieval battle re-enactment" value={name} onChange={(e) => setName(e.target.value)} aria-label="Style name" />
-          <select style={{ width: 230 }} value={family} onChange={(e) => setFamily(e.target.value as Genre)} aria-label="Closest kind of work">
-            {FAMILIES.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.label}
-              </option>
-            ))}
-          </select>
-          <button className="primary" disabled={!name.trim()}>
-            Create style
+    <div className="split">
+      <aside className="split-list" aria-label="Shoot styles">
+        <div className="row" style={{ justifyContent: 'space-between', padding: '4px 10px 10px' }}>
+          <h3 style={{ margin: 0 }}>Styles</h3>
+          <button className="sm" onClick={() => setCreating(true)}>
+            New style
           </button>
         </div>
-        <input style={{ marginTop: 8 }} placeholder="In a sentence: what are these pictures for, and what should they feel like? (Claude can develop the rest.)" value={feeling} onChange={(e) => setFeeling(e.target.value)} aria-label="What the style is for" />
-      </form>
-
-      {learning.running && (
-        <div className="card" style={{ marginTop: 12 }}>
-          Studying the gallery: {learning.done} of {learning.total}
-          <div className="bar" style={{ marginTop: 8 }}>
-            <div style={{ width: `${(100 * learning.done) / Math.max(1, learning.total)}%` }} />
-          </div>
-        </div>
-      )}
-
-      <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
-        {learned.styles.map((s) => (
-          <StyleCard key={s.id} style={s} open={open === s.id} onToggle={() => setOpen(open === s.id ? null : s.id)} />
+        {learned.styles.map((x) => (
+          <button key={x.id} className={`item ${!creating && style?.id === x.id ? 'on' : ''}`} onClick={() => (setSelected(x.id), setCreating(false))} aria-current={!creating && style?.id === x.id}>
+            <b>
+              {x.name}
+              {project?.styleIds.includes(x.id) && <span className="active-dot" title={`Used for “${project.name}”`} />}
+            </b>
+            <small>
+              {x.chapters.length} chapters · {x.chapters.filter((c) => c.must).length} must-have
+              {x.sources.length ? ` · learned from ${x.sources.reduce((n, s) => n + s.count, 0)}` : ''}
+            </small>
+          </button>
         ))}
-      </div>
+      </aside>
 
-      <h2 style={{ marginTop: 8 }}>Your eye</h2>
-      <div className="card">
-        {taste ? (
-          <>
-            <div className="stats" style={{ marginTop: 0 }}>
-              <div>
-                <div className="stat">{taste.report.decisions}</div>
-                <div className="muted small">decisions learned from, across {taste.report.projects} project{taste.report.projects === 1 ? '' : 's'}</div>
-              </div>
-              <div>
-                <div className="stat">{taste.report.testedPairs >= MIN_TESTED_PAIRS ? pct(taste.report.rulesAgree) : '–'}</div>
-                <div className="muted small">built-in rules agree with you</div>
-              </div>
-              <div>
-                <div className="stat" style={{ color: taste.trust > 0 ? 'var(--pick)' : undefined }}>
-                  {taste.report.testedPairs >= MIN_TESTED_PAIRS ? pct(taste.report.blendedAgree) : '–'}
-                </div>
-                <div className="muted small">with what it has learned from you</div>
-              </div>
-              <div>
-                <div className="stat">{pct(taste.trust)}</div>
-                <div className="muted small">say your learned taste has in each suggestion</div>
-              </div>
-            </div>
-            <p className="small muted">
-              {taste.report.testedPairs < MIN_TESTED_PAIRS
-                ? `Still gathering evidence. Agreement is measured on bursts set aside and never learned from: ${taste.report.testedPairs} comparisons so far, ${MIN_TESTED_PAIRS} needed before what it has learned may influence suggestions. Until then the built-in rules decide.`
-                : taste.trust > 0
-                  ? `Measured on ${taste.report.testedPairs} choices from bursts that were set aside and never learned from: how often the frame you kept was ranked above the one you passed over. The learned share is whatever gives the best agreement there, so it only grows when it earns it.`
-                  : `Measured on ${taste.report.testedPairs} choices from bursts that were set aside. What it has learned does not yet beat the built-in rules there, so it is not used. It keeps learning with every decision.`}{' '}
-              {taste.report.blindDecisions} of your decisions were made with no suggestion shown.
-            </p>
-            {tendencies(taste.model).length > 0 && (
-              <>
-                <h3>What it has noticed about your choices</h3>
-                <ul className="small" style={{ lineHeight: 1.6, paddingLeft: 18, margin: 0 }}>
-                  {tendencies(taste.model).map((t) => (
-                    <li key={t}>{t.startsWith('you') ? t[0].toUpperCase() + t.slice(1) : `You favour ${t}`}</li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </>
-        ) : (
-          <p className="muted small" style={{ margin: 0 }}>
-            Nothing learned yet. Every pick and reject you make teaches Atelier your taste; choices you make by hand
-            teach more than suggestions you accept. It retrains as you cull and whenever you close a project.
-          </p>
-        )}
-        <div className="row" style={{ marginTop: 12 }}>
-          <label style={{ fontWeight: 400, margin: 0 }} className="row">
-            <input type="checkbox" style={{ width: 'auto' }} checked={tasteData.blindBursts} onChange={(e) => setBlindBursts(e.target.checked)} />
-            Show about one moment in ten without a suggestion, so my unprompted choice can be learned from
-          </label>
-          <div className="spacer" />
-          <button onClick={relearn}>Learn now</button>
-          {confirmForget ? (
+      <div className="split-detail">
+        <div className="page wide" style={{ maxWidth: 900 }}>
+          {creating || !style ? (
             <>
-              <button className="danger" onClick={() => void forgetLearning().then(() => setConfirmForget(false))}>
-                Forget everything learned
-              </button>
-              <button onClick={() => setConfirmForget(false)}>Keep</button>
+              <PageHeader title="New shoot style" lead="A kind of work you do: a wedding, a LARP battle, a boudoir session, a birthday. Give it a name and a sentence; Claude can develop the rest, and it learns from every shoot you cull in it." />
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  if (!name.trim()) return
+                  void createProfile(name.trim(), family, feeling.trim(), []).then((id) => (setSelected(id), setCreating(false)))
+                  setName('')
+                  setFeeling('')
+                }}
+              >
+                <label htmlFor="new-name">Name</label>
+                <input id="new-name" autoFocus placeholder="e.g. Medieval battle re-enactment" value={name} onChange={(e) => setName(e.target.value)} aria-label="Style name" />
+                <label htmlFor="new-family">
+                  Closest kind of work<span className="hint">sets sensible starting weights</span>
+                </label>
+                <select id="new-family" style={{ maxWidth: 320 }} value={family} onChange={(e) => setFamily(e.target.value as Genre)} aria-label="Closest kind of work">
+                  {FAMILIES.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+                <label htmlFor="new-feeling">What are these pictures for?</label>
+                <input id="new-feeling" placeholder="In a sentence: what they are for, and what they should feel like" value={feeling} onChange={(e) => setFeeling(e.target.value)} aria-label="What the style is for" />
+                <div className="row" style={{ marginTop: 20 }}>
+                  <button className="primary" disabled={!name.trim()}>
+                    Create style
+                  </button>
+                  {style && (
+                    <button type="button" className="ghost" onClick={() => setCreating(false)}>
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </form>
             </>
           ) : (
-            taste && (
-              <button className="link small" onClick={() => setConfirmForget(true)}>
-                Forget
-              </button>
-            )
+            <StyleEditor key={style.id} style={style} />
+          )}
+          {learning.running && (
+            <div className="card" style={{ marginTop: 16 }}>
+              Studying the photographs: {learning.done} of {learning.total}
+              <div className="bar" style={{ marginTop: 8 }}>
+                <div style={{ width: `${(100 * learning.done) / Math.max(1, learning.total)}%` }} />
+              </div>
+            </div>
           )}
         </div>
       </div>
-
     </div>
   )
 }
@@ -167,7 +126,17 @@ function describe(s: Style): string {
   ].join('\n')
 }
 
-function StyleCard({ style, open, onToggle }: { style: Style; open: boolean; onToggle: () => void }): React.JSX.Element {
+type Tab = 'overview' | 'chapters' | 'emotions' | 'markers' | 'learning'
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'chapters', label: 'Chapters' },
+  { id: 'emotions', label: 'Emotions' },
+  { id: 'markers', label: 'Markers' },
+  { id: 'learning', label: 'Learning' }
+]
+
+function StyleEditor({ style }: { style: Style }): React.JSX.Element {
+  const [tab, setTab] = useState<Tab>('overview')
   const { project, settings, learning, emotions, taste, editProfile, addGallery, rememberPicks, distil, removeStyle, chooseStyle, notify } = useStore()
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
@@ -242,98 +211,139 @@ function StyleCard({ style, open, onToggle }: { style: Style; open: boolean; onT
     notify(`“${style.name}” updated.`)
   }
 
+  const developButton = settings.hasApiKey ? (
+    <button className="primary" disabled={busy !== null} onClick={() => void develop()}>
+      {busy === 'develop' ? 'Thinking…' : evidence() ? 'Refine with Claude' : 'Develop with Claude'}
+      <span className="small" style={{ opacity: 0.65 }}>{estimateCost(settings.model, 1500 + (active && picks.length >= 6 ? 16 * 150 : 0), 3500)}</span>
+    </button>
+  ) : null
+
   return (
-    <div className="card" style={active ? { borderColor: 'var(--gem)' } : undefined}>
-      <div className="row" style={{ justifyContent: 'space-between', cursor: 'pointer' }} onClick={onToggle}>
-        <div>
-          <b style={{ fontSize: 15 }}>{style.name}</b>
-          <span className="muted small"> · {style.chapters.length} chapters, {style.chapters.filter((c) => c.must).length} not to be missed{style.sources.length ? ` · learned from ${style.sources.reduce((n, x) => n + x.count, 0)} photographs` : ''}</span>
-          <div className="muted small">{style.feeling}</div>
-        </div>
-        <div className="row" onClick={(e) => e.stopPropagation()}>
-          {project && (
-            <button className={active ? 'primary' : ''} onClick={() => chooseStyle(active ? null : style.id)}>
-              {active ? `Culling “${project.name}” in this style` : 'Use for this project'}
+    <>
+      <PageHeader title={style.name} lead={style.feeling || 'No description yet.'}>
+        {project && (
+          <button className={active ? 'on' : ''} onClick={() => chooseStyle(active ? null : style.id)} title={active ? `Stop using this style for “${project.name}”` : `Cull “${project.name}” in this style`}>
+            {active ? `Used for “${project.name}”` : 'Use for this project'}
+          </button>
+        )}
+        {developButton}
+      </PageHeader>
+
+      {proposal && (
+        <div className="note teach">
+          <p>
+            <b>Claude's proposal.</b> {proposal.notes}
+          </p>
+          <p className="small">{proposal.feeling}</p>
+          <p className="small">
+            <b>Chapters:</b> {proposal.chapters.map((c) => `${c.name}${c.must ? ' ★' : ''}`).join(' · ')}
+          </p>
+          <p className="small">
+            <b>Emotions:</b> {proposal.emotions.map((x) => `${x.name} ${x.weight > 0 ? '+' : ''}${x.weight.toFixed(1)}`).join(' · ')}
+          </p>
+          <p className="small">
+            <b>Look for:</b> {proposal.lookFor.join(' · ')}
+          </p>
+          <p className="small">
+            <b>Forgive:</b> {proposal.forgive.join(' · ')}
+          </p>
+          <div className="row">
+            <button className="primary" onClick={() => apply(proposal)}>
+              Accept
             </button>
-          )}
-          <button onClick={onToggle}>{open ? 'Close' : 'Open'}</button>
+            <button className="ghost" onClick={() => setProposal(null)}>
+              Discard
+            </button>
+            {proposal.usage && <span className="faint small">Cost {formatCost(proposal.usage.costUsd)}</span>}
+          </div>
         </div>
+      )}
+      {!settings.hasApiKey && <p className="faint small">With an API key (Settings), Claude can develop this style with you. Nothing changes until you accept.</p>}
+
+      <div className="tabbar" role="tablist" aria-label="Style">
+        {TABS.map((t) => (
+          <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {open && (
-        <div style={{ marginTop: 12 }}>
+      {tab === 'overview' && (
+        <div role="tabpanel">
           <div className="grid-2">
             <div>
-              <label htmlFor={`n-${style.id}`}>Name</label>
-              <input id={`n-${style.id}`} defaultValue={style.name} onBlur={(e) => e.target.value.trim() && edit({ name: e.target.value.trim() })} />
+              <label htmlFor={`n-${style.id}`} style={{ marginTop: 0 }}>Name</label>
+              <input id={`n-${style.id}`} defaultValue={style.name} onBlur={(ev) => ev.target.value.trim() && edit({ name: ev.target.value.trim() })} />
             </div>
             <div>
-              <label htmlFor={`t-${style.id}`}>
+              <label htmlFor={`t-${style.id}`} style={{ marginTop: 0 }}>
                 Atmosphere<span className="hint">comma separated</span>
               </label>
-              <input id={`t-${style.id}`} key={style.tags.join()} defaultValue={style.tags.join(', ')} onBlur={(e) => edit({ tags: splitTags(e.target.value) })} />
+              <input id={`t-${style.id}`} key={style.tags.join()} defaultValue={style.tags.join(', ')} onBlur={(ev) => edit({ tags: splitTags(ev.target.value) })} />
             </div>
           </div>
           <label htmlFor={`f-${style.id}`}>What these pictures are for</label>
-          <textarea id={`f-${style.id}`} key={style.feeling} rows={2} defaultValue={style.feeling} onBlur={(e) => edit({ feeling: e.target.value })} />
-
-          <div className="row" style={{ marginTop: 12 }}>
-            {settings.hasApiKey ? (
-              <button className="primary" disabled={busy !== null} onClick={() => void develop()}>
-                {busy === 'develop' ? 'Thinking…' : evidence() ? 'Refine with Claude from my culling' : 'Develop with Claude'}{' '}
-                <span className="small" style={{ opacity: 0.7 }}>{estimateCost(settings.model, 1500 + (active && picks.length >= 6 ? 16 * 150 : 0), 3500)}</span>
-              </button>
-            ) : (
-              <span className="muted small">Add an API key in Settings and Claude can develop this style with you.</span>
-            )}
-            <span className="muted small">Claude proposes chapters, emotions and markers; nothing changes until you accept.</span>
+          <textarea id={`f-${style.id}`} key={style.feeling} rows={2} defaultValue={style.feeling} onBlur={(ev) => edit({ feeling: ev.target.value })} />
+          <label htmlFor={`b-${style.id}`}>
+            Craft or moment<span className="hint">{Math.round(style.balance * 100)}% moment</span>
+          </label>
+          <div className="row" style={{ maxWidth: 420, flexWrap: 'nowrap' }}>
+            <span className="faint small">Craft</span>
+            <input id={`b-${style.id}`} type="range" min={0.1} max={0.9} step={0.05} value={style.balance} onChange={(ev) => edit({ balance: Number(ev.target.value) })} />
+            <span className="faint small">Moment</span>
           </div>
+          <p className="field-help">How much emotion and the moment count against sharpness and exposure when this style suggests keepers.</p>
 
-          {proposal && (
-            <div className="note teach" style={{ marginTop: 12 }}>
-              <p>
-                <b>Claude's proposal.</b> {proposal.notes}
-              </p>
-              <p className="small">{proposal.feeling}</p>
-              <p className="small">
-                <b>Chapters:</b> {proposal.chapters.map((c) => `${c.name}${c.must ? ' ★' : ''}`).join(' · ')}
-              </p>
-              <p className="small">
-                <b>Emotions:</b> {proposal.emotions.map((e) => `${e.name} ${e.weight > 0 ? '+' : ''}${e.weight.toFixed(1)}`).join(' · ')}
-              </p>
-              <p className="small">
-                <b>Look for:</b> {proposal.lookFor.join(' · ')}
-              </p>
-              <p className="small">
-                <b>Forgive:</b> {proposal.forgive.join(' · ')}
-              </p>
+          <div className="section" style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
+            {confirm ? (
               <div className="row">
-                <button className="primary" onClick={() => apply(proposal)}>
-                  Accept
+                <span className="small">Delete “{style.name}”? Projects that use it keep their chapters.</span>
+                <button className="danger" onClick={() => void removeStyle(style.id)}>
+                  Delete style
                 </button>
-                <button onClick={() => setProposal(null)}>Discard</button>
-                {proposal.usage && <span className="muted small">Cost {formatCost(proposal.usage.costUsd)}</span>}
+                <button className="ghost" onClick={() => setConfirm(false)}>
+                  Keep
+                </button>
               </div>
-            </div>
-          )}
+            ) : (
+              <button className="ghost danger" onClick={() => setConfirm(true)}>
+                Delete style…
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
-          <h3>Chapters<span className="muted" style={{ textTransform: 'none', letterSpacing: 0 }}> · tick the ones a shoot must not come back without</span></h3>
+      {tab === 'chapters' && (
+        <div role="tabpanel">
+          <p className="muted small">The chapters a shoot in this style contains, in order. Tick the ones a shoot must not come back without: the cull protects their frames.</p>
+          <div className="plan-row with-must faint small" style={{ marginBottom: 4 }}>
+            <span title="Must not be missed">Must</span>
+            <span>Chapter</span>
+            <span>What makes a keeper</span>
+            <span />
+          </div>
           {style.chapters.map((c, i) => (
-            <div className="plan-row" key={i} style={{ gridTemplateColumns: '24px 220px 1fr auto' }}>
-              <input type="checkbox" style={{ width: 'auto', marginTop: 10 }} checked={!!c.must} onChange={(e) => setChapter(i, { must: e.target.checked })} aria-label={`${c.name} must not be missed`} />
-              <input value={c.name} aria-label="Chapter name" onChange={(e) => setChapter(i, { name: e.target.value })} />
-              <textarea value={c.look} rows={2} aria-label="What makes a keeper" onChange={(e) => setChapter(i, { look: e.target.value })} />
-              <button className="link small" onClick={() => edit({ chapters: style.chapters.filter((_, j) => j !== i) })}>
-                Remove
+            <div className="plan-row with-must" key={i}>
+              <span className="must">
+                <input type="checkbox" checked={!!c.must} onChange={(ev) => setChapter(i, { must: ev.target.checked })} aria-label={`${c.name} must not be missed`} />
+              </span>
+              <input value={c.name} aria-label="Chapter name" onChange={(ev) => setChapter(i, { name: ev.target.value })} />
+              <textarea value={c.look} rows={2} aria-label="What makes a keeper" onChange={(ev) => setChapter(i, { look: ev.target.value })} />
+              <button className="ghost remove" onClick={() => edit({ chapters: style.chapters.filter((_, j) => j !== i) })} aria-label={`Remove ${c.name}`} title="Remove chapter">
+                ×
               </button>
             </div>
           ))}
           <button onClick={() => edit({ chapters: [...style.chapters, { name: 'New chapter', look: '' }] })}>Add a chapter</button>
+        </div>
+      )}
 
-          <h3>Emotions this style looks for</h3>
+      {tab === 'emotions' && (
+        <div role="tabpanel">
           <p className="muted small">
-            Right: what the picture is for. Left: works against it. Middle: no opinion. The dot shows what your own
-            decisions in this style have added.
+            How much this style values each emotion: right is what the picture is for, left works against it, middle is
+            no opinion. An arrow shows where your own decisions in this style have moved it.
           </p>
           <div className="emo-grid">
             {names.map((n) => {
@@ -342,8 +352,8 @@ function StyleCard({ style, open, onToggle }: { style: Style; open: boolean; onT
               return (
                 <div key={n} className="emo-row">
                   <span>{n}</span>
-                  <input type="range" min={-1} max={1} step={0.1} value={declared} aria-label={`How much this style values ${n}`} onChange={(e) => edit({ emotions: { ...style.emotions, [n]: Number(e.target.value) } })} />
-                  <span className="muted small" title={lift ? `Learned from ${lift.n} of your decisions` : 'Nothing learned from your decisions yet'}>
+                  <input type="range" min={-1} max={1} step={0.1} value={declared} aria-label={`How much this style values ${n}`} onChange={(ev) => edit({ emotions: { ...style.emotions, [n]: Number(ev.target.value) } })} />
+                  <span className="faint small" title={lift ? `Learned from ${lift.n} of your decisions` : 'Nothing learned from your decisions yet'}>
                     {(weights[n] ?? declared).toFixed(1)}
                     {lift && lift.n >= 8 ? (lift.w > 0.05 ? ' ↑' : lift.w < -0.05 ? ' ↓' : '') : ''}
                   </span>
@@ -351,27 +361,29 @@ function StyleCard({ style, open, onToggle }: { style: Style; open: boolean; onT
               )
             })}
           </div>
+        </div>
+      )}
 
-          <div className="grid-2">
-            <div>
-              <label htmlFor={`l-${style.id}`}>
-                Look for<span className="hint">one marker per line</span>
-              </label>
-              <textarea id={`l-${style.id}`} key={style.lookFor.join()} rows={4} defaultValue={style.lookFor.join('\n')} onBlur={(e) => edit({ lookFor: lines(e.target.value) })} />
-            </div>
-            <div>
-              <label htmlFor={`g-${style.id}`}>
-                Forgive<span className="hint">flaws that do not matter here</span>
-              </label>
-              <textarea id={`g-${style.id}`} key={style.forgive.join()} rows={4} defaultValue={style.forgive.join('\n')} onBlur={(e) => edit({ forgive: lines(e.target.value) })} />
-            </div>
+      {tab === 'markers' && (
+        <div role="tabpanel" className="grid-2">
+          <div>
+            <label htmlFor={`l-${style.id}`} style={{ marginTop: 0 }}>
+              Look for<span className="hint">one per line</span>
+            </label>
+            <textarea id={`l-${style.id}`} key={style.lookFor.join()} rows={8} defaultValue={style.lookFor.join('\n')} onBlur={(ev) => edit({ lookFor: lines(ev.target.value) })} />
           </div>
-          <label htmlFor={`b-${style.id}`}>
-            Craft against moment<span className="hint">{Math.round(style.balance * 100)}% moment</span>
-          </label>
-          <input id={`b-${style.id}`} type="range" min={0.1} max={0.9} step={0.05} value={style.balance} onChange={(e) => edit({ balance: Number(e.target.value) })} style={{ maxWidth: 320, padding: 0, border: 0, background: 'none' }} />
+          <div>
+            <label htmlFor={`g-${style.id}`} style={{ marginTop: 0 }}>
+              Forgive<span className="hint">flaws that do not matter here</span>
+            </label>
+            <textarea id={`g-${style.id}`} key={style.forgive.join()} rows={8} defaultValue={style.forgive.join('\n')} onBlur={(ev) => edit({ forgive: lines(ev.target.value) })} />
+          </div>
+          <p className="field-help" style={{ gridColumn: '1 / -1' }}>Claude reads these when it culls in this style.</p>
+        </div>
+      )}
 
-          <h3>Learned from photographs</h3>
+      {tab === 'learning' && (
+        <div role="tabpanel">
           {style.profile ? (
             <>
               <ul className="small" style={{ lineHeight: 1.6, paddingLeft: 18, margin: '0 0 8px' }}>
@@ -379,20 +391,23 @@ function StyleCard({ style, open, onToggle }: { style: Style; open: boolean; onT
                   <li key={i}>{f}</li>
                 ))}
               </ul>
-              <div className="muted small">From: {style.sources.map((x) => `${x.name} (${x.count})`).join(', ')}</div>
+              <p className="faint small">From: {style.sources.map((x) => `${x.name} (${x.count})`).join(', ')}</p>
               {style.samples.length > 0 && (
                 <div className="film" style={{ marginTop: 8 }}>
-                  {style.samples.slice(-14).map((id) => (
-                    <img key={id} src={thumbUrl(styleCacheId(style.id), id)} alt="" style={{ width: 70, height: 48, objectFit: 'cover', borderRadius: 3 }} loading="lazy" />
+                  {style.samples.slice(-16).map((id) => (
+                    <img key={id} src={thumbUrl(styleCacheId(style.id), id)} alt="" style={{ width: 76, height: 52, objectFit: 'cover', borderRadius: 4 }} loading="lazy" />
                   ))}
                 </div>
               )}
             </>
           ) : (
-            <p className="muted small">Nothing yet. Add a folder of photographs in this style (yours or someone's you admire), or your picks from a project.</p>
+            <div className="empty-state">
+              <p>Nothing learned from photographs yet.</p>
+              <p className="small">Add a folder of work in this style, yours or someone's you admire, or your picks from a project.</p>
+            </div>
           )}
           {style.essence && (
-            <div className="note" style={{ marginTop: 10 }}>
+            <div className="note" style={{ marginTop: 12 }}>
               <p className="small">{style.essence.summary}</p>
               <ul className="small" style={{ paddingLeft: 18, margin: 0 }}>
                 {style.essence.principles.map((p, i) => (
@@ -401,8 +416,7 @@ function StyleCard({ style, open, onToggle }: { style: Style; open: boolean; onT
               </ul>
             </div>
           )}
-
-          <div className="row" style={{ marginTop: 12 }}>
+          <div className="row" style={{ marginTop: 16 }}>
             <button
               disabled={learning.running}
               onClick={() =>
@@ -416,30 +430,18 @@ function StyleCard({ style, open, onToggle }: { style: Style; open: boolean; onT
             </button>
             {active && project && (
               <button onClick={() => void guard('picks', () => rememberPicks(style.id))} disabled={picks.length < 10} title={picks.length < 10 ? 'Needs at least ten picks' : ''}>
-                Learn from my {picks.length} picks in “{project.name}”
+                Learn from my {picks.length} picks
               </button>
             )}
             {style.samples.length >= 6 && settings.hasApiKey && (
-              <button disabled={busy !== null} onClick={() => void guard('distil', () => distil(style.id))}>
-                {busy === 'distil' ? 'Distilling…' : 'Put the gallery into words'}
-              </button>
-            )}
-            <div className="spacer" />
-            {confirm ? (
-              <>
-                <button className="danger" onClick={() => void removeStyle(style.id)}>
-                  Delete style
-                </button>
-                <button onClick={() => setConfirm(false)}>Keep</button>
-              </>
-            ) : (
-              <button className="link small" onClick={() => setConfirm(true)}>
-                Delete
+              <button className="ghost" disabled={busy !== null} onClick={() => void guard('distil', () => distil(style.id))}>
+                {busy === 'distil' ? 'Distilling…' : 'Put the photographs into words'}
               </button>
             )}
           </div>
+          <p className="field-help">Atelier measures the photographs and keeps a few small thumbnails; the files are never changed or shared.</p>
         </div>
       )}
-    </div>
+    </>
   )
 }

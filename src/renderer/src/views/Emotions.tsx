@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { signature, type EmotionConcept, type Pointer } from '../analysis/emotion'
 import { estimateCost } from '../components/AiCost'
 import { useStore } from '../store'
+import { PageHeader } from '../components/PageHeader'
 
 /** How many unnamed expressions are shown to Claude in one request. */
 const ASK_AT_ONCE = 24
@@ -32,12 +33,7 @@ export function Emotions(): React.JSX.Element {
 
   return (
     <div className="page wide">
-      <h1>Emotions</h1>
-      <p className="lead">
-        What Atelier can read on a face, and how it learned it. Every emotion starts as a description and becomes more
-        exact with each example. When it meets a strong expression it cannot name, it keeps it here until you or Claude
-        say what it is. You can teach it any emotion your work needs.
-      </p>
+      <PageHeader title="Emotions" lead="What Atelier can read on a face. Every emotion becomes more exact with each example you or Claude give it, and you can teach it any emotion your work needs." />
 
       <h2>What is this?</h2>
       {waiting.length === 0 ? (

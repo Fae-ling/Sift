@@ -8,6 +8,7 @@ import { analyse, polygonMask, type Analysis } from '../analysis/reading'
 import { estimateCost, formatCost } from '../components/AiCost'
 import { Thumb } from '../components/Thumb'
 import { useStore } from '../store'
+import { PageHeader } from '../components/PageHeader'
 
 // --- drawing ---------------------------------------------------------------------------------
 
@@ -341,12 +342,7 @@ export function Diagnose(): React.JSX.Element {
 
   return (
     <div className="page wide">
-      <h1>Diagnose a photo</h1>
-      <p className="lead">
-        Before you retouch: what is wrong with this picture? Where the subject merges with the background, where skin is
-        uneven, what pulls the eye away, where attention actually goes. Most of these questions have a measurable
-        answer. What the picture should feel like is not one of them, and stays yours.
-      </p>
+      <PageHeader title="Diagnose a photo" lead="What holds one picture back before you retouch it: where the eye goes, whether the subject separates from the background, how even the skin is." />
 
       <div className="row">
         <button className="primary" onClick={() => void open()}>
@@ -364,7 +360,9 @@ export function Diagnose(): React.JSX.Element {
 
       {working && <p className="muted" style={{ marginTop: 16 }}>Reading the photo…</p>}
       {!source && !working && picks.length === 0 && (
-        <p className="muted" style={{ marginTop: 16 }}>Open any photo, or pick frames in a project and they appear here.</p>
+        <div className="empty-state" style={{ marginTop: 16 }}>
+          <p>Open any photo, or pick frames in a project and they appear here to choose from.</p>
+        </div>
       )}
 
       {analysis && (

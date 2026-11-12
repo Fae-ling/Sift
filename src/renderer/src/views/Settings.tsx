@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { MODELS } from '@shared/types'
 import { useStore } from '../store'
+import { PageHeader } from '../components/PageHeader'
 
 export function SettingsView(): React.JSX.Element {
   const { settings, saveSettings, notify } = useStore()
@@ -12,19 +13,18 @@ export function SettingsView(): React.JSX.Element {
 
   return (
     <div className="page">
-      <h1>Settings</h1>
+      <PageHeader title="Settings" lead="Claude is optional. Everything except the buttons marked with Claude runs on this computer at no cost." />
 
       <h2>What runs where</h2>
       <div className="note teach">
         <p>
-          <b>On this computer, free:</b> reading RAW previews, focus, closed eyes, exposure, grouping repeats, colour
-          measurements, the editing notes, and everything in Learn. Your photos never leave the machine for any of it.
+          <b>On this computer, free:</b> reading RAW previews, focus, eyes, exposure, emotions on faces, grouping,
+          composition, the ultrafast cull, training, and Learn. Your photos never leave the machine for any of it.
         </p>
         <p>
-          <b>Optional, paid per use:</b> the story sequence and the per-image grading plan. These send small previews
-          and your brief to Anthropic's Claude API. A typical shoot costs a few cents; each button shows an estimate
-          first and the real cost after.
-        </p>
+          <b>Optional, paid per use:</b> the buttons marked with Claude (Cull with Claude, naming faces, developing a
+          style, the story sequence, the photo diagnosis, shaping a look). They send small previews and your text to
+          Anthropic's Claude API. Each shows an estimate first and the real cost after.</p>
       </div>
 
       <h2>Spent on advice</h2>
@@ -67,7 +67,7 @@ export function SettingsView(): React.JSX.Element {
       </form>
 
       <h2>Model for advice</h2>
-      <select style={{ maxWidth: 420 }} value={settings.model} onChange={(e) => void saveSettings({ model: e.target.value })} aria-label="Model">
+      <select style={{ maxWidth: 560 }} value={settings.model} onChange={(e) => void saveSettings({ model: e.target.value })} aria-label="Model">
         {MODELS.map((m) => (
           <option key={m.id} value={m.id}>
             {m.label} (${m.inPerM} in / ${m.outPerM} out per million tokens)

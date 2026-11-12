@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { facesAvailable } from '../analysis/faces'
 import { bodyOf } from '../analysis/grouping'
 import { useStore } from '../store'
+import { PageHeader } from '../components/PageHeader'
 
 export function Import(): React.JSX.Element {
   const { project, ingest, importFolder, cancelIngest, regroup, setView, notify, setClockOffset, setFastImport, deep } = useStore()
@@ -35,34 +36,43 @@ export function Import(): React.JSX.Element {
 
   return (
     <div className="page">
-      <h1>Import</h1>
-      <p className="lead">
-        Point Atelier at the folder from your card. It reads the preview your camera already stored inside each RAW
-        file, so a thousand frames take minutes, and it measures focus, eyes, exposure and repeats on this computer.
-        Nothing is uploaded and no file is changed.
-      </p>
-
-      <div className="row">
-        <button className="primary" onClick={() => void choose()} disabled={ingest.running}>
-          {project.shots.length ? 'Add another folder…' : 'Choose shoot folder…'}
-        </button>
-        {!ingest.running && pending > 0 && project.folder && (
-          <button onClick={() => void importFolder(project.folder!)}>Resume analysis ({pending} left)</button>
+      <PageHeader title="Import" lead="Point Atelier at the folder from your card. It reads the preview inside each RAW and measures every frame on this computer. Nothing is uploaded or changed.">
+        {analysed.length > 0 && (
+          <button className="primary" onClick={() => setView('cull')}>
+            Start culling
+          </button>
         )}
-        {project.folder && <span className="muted small">{project.folder}</span>}
-      </div>
+      </PageHeader>
 
-      <label style={{ fontWeight: 400, marginTop: 12 }} className="row">
-        <input type="checkbox" style={{ width: 'auto' }} checked={!!project.fastImport} onChange={(e) => setFastImport(e.target.checked)} disabled={ingest.running} />
-        Fast import for very large shoots
-        <span className="hint">about twice as quick; focus is judged on a smaller image and small faces in wide shots are not searched for</span>
-      </label>
-
-      {project.shots.length === 0 && !ingest.running && (
-        <p className="muted small" style={{ marginTop: 10, maxWidth: 680 }}>
-          The window that opens lists folders only, so the folder with your RAW files will look empty. That is normal:
-          open the folder that holds the photos and choose it. Subfolders are included.
-        </p>
+      {project.shots.length === 0 && !ingest.running ? (
+        <div className="empty-state" style={{ padding: 40 }}>
+          <p style={{ color: 'var(--text)', fontSize: 15 }}>Choose the folder that holds the shoot</p>
+          <p className="small">
+            The window lists folders only, so a folder of RAW files looks empty in it. That is normal: open it and choose
+            it. Subfolders are included.
+          </p>
+          <button className="primary" onClick={() => void choose()}>
+            Choose shoot folder…
+          </button>
+          <label className="check" style={{ justifyContent: 'center', marginTop: 16 }}>
+            <input type="checkbox" checked={!!project.fastImport} onChange={(e) => setFastImport(e.target.checked)} />
+            <span>
+              Fast import <span className="faint">· for very large shoots: quicker, skips small faces in wide shots</span>
+            </span>
+          </label>
+        </div>
+      ) : (
+        <div className="row">
+          <button onClick={() => void choose()} disabled={ingest.running}>
+            Add another folder…
+          </button>
+          {!ingest.running && pending > 0 && project.folder && <button onClick={() => void importFolder(project.folder!)}>Resume analysis ({pending} left)</button>}
+          {project.folder && (
+            <span className="faint small ellipsis" title={project.folder}>
+              {project.folder}
+            </span>
+          )}
+        </div>
       )}
 
       {faces === false && (
@@ -136,6 +146,11 @@ export function Import(): React.JSX.Element {
             </p>
           </div>
 
+          <details className="card" style={{ marginTop: 16 }}>
+            <summary>
+              <b>Grouping</b>
+              <span className="faint small"> · scene breaks{bodies.size > 1 ? ' and camera clocks' : ''}</span>
+            </summary>
           <label htmlFor="gap">
             A new scene starts after a pause of<span className="hint">{Math.round(project.sceneGapSec / 60)} min {project.sceneGapSec % 60 ? `${project.sceneGapSec % 60} s` : ''}</span>
           </label>
@@ -144,7 +159,7 @@ export function Import(): React.JSX.Element {
 
           {bodies.size > 1 && (
             <>
-              <h2>Camera clocks</h2>
+              <h3 style={{ marginTop: 24 }}>Camera clocks</h3>
               <p className="muted small" style={{ maxWidth: 680 }}>
                 This shoot comes from {bodies.size} cameras. If their clocks disagree, frames interleave in the wrong
                 order and scenes split oddly. Find one moment both cameras caught, note the time each shows for it in
@@ -168,11 +183,7 @@ export function Import(): React.JSX.Element {
             </>
           )}
 
-          <div className="row" style={{ marginTop: 16 }}>
-            <button className="primary" onClick={() => setView('cull')}>
-              Start culling
-            </button>
-          </div>
+          </details>
         </>
       )}
     </div>

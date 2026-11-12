@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ExportResult, XmpItem } from '@shared/types'
 import { useStore } from '../store'
+import { PageHeader } from '../components/PageHeader'
 
 /** A starting star rating for a pick you have not rated yourself. */
 const starsFor = (overall: number): number => (overall >= 85 ? 5 : overall >= 75 ? 4 : overall >= 62 ? 3 : overall >= 48 ? 2 : 1)
@@ -34,11 +35,7 @@ export function Export(): React.JSX.Element {
 
   return (
     <div className="page">
-      <h1>Hand off to Lightroom</h1>
-      <p className="lead">
-        Your decisions travel as small XMP sidecar files written next to each RAW. Lightroom Classic reads them on
-        import. The RAW files themselves are never changed, and a sidecar that already exists is updated, not replaced.
-      </p>
+      <PageHeader title="Hand off to Lightroom" lead="Your picks and rejects travel as ratings and colour labels in small sidecar files beside each RAW. The RAW files are never changed." />
 
       <div className="stats">
         <div className="card">
