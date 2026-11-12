@@ -21,11 +21,16 @@ Claude's help when wanted, teaches it what they see. See
 | **People** | Tells the people of a shoot apart by face, hair and clothes. Name them, mark the **key people**: their frames count for more, their closed eyes count for more than a bystander's, and you can see how many kept frames each has. Faces are told apart on your machine, never identified. | free |
 | **Mistakes against assets** | Learns from your decisions which mistakes you forgive for which assets ("closed eyes kept when there is laughter") and stops rejecting those frames, showing the evidence instead. | free |
 | **Learns from Claude** | Everything Claude says about a frame is kept. Its words for what is happening are tied to the frame's measurements, so the app learns to recognise them by itself; they count fully once your decision agreed with Claude about that frame. Claude, in turn, is told before every read what your decisions have shown and where you went against it. | free once paid for |
-| **Re-estimate** | Scores a culled project again with what the app knows today (minus what it learned from that project) and reports how many of your calls it would now make, plus frames worth another look. Under *What it knows*. | free |
+| **Re-estimate** | Scores a culled project again with what the app knows today (minus what it learned from that project) and reports how many of your calls it would now make, plus frames worth another look. For one shoot in Cull's settings popover; for all projects in Workshop → Overview. | free |
+| **Setup guide** | Opens on first start: your kinds of work, past shoots culled in Lightroom (imported and learned from in one step), finished work, your colour, Claude. Every step skippable; runs again from Settings. | free |
+| **Choosing several frames** | Ctrl-click, Shift-click or Ctrl+A in Cull, then pick, reject, clear or rate them all at once. | free |
+| **Why you rejected it** | After a reject, one number key gives the reason. The app learns what frames rejected for each reason look like, and tells Claude. | free |
+| **Workshop** | A separate window for everything learned: your eye, styles, emotions, gestures, words, mistakes and reasons, the record with Claude, and teaching with photos. Every learned item can be looked through and removed or switched off. | free |
+| **Updates** | Settings → Updates installs a newer version over the old one and restarts; your data stays and is backed up first. Finds new versions on GitHub with a read-only token, or installs a downloaded installer. Backup and restore of everything learned. | free |
 | **Shoot styles** | Your kinds of work (wedding, LARP battle, boudoir, birthday, fantasy...). Each holds its chapters and which must not be missed, the emotions it looks for, what to look for and what to forgive, and its balance of craft against moment. Create one from a sentence; Claude can develop it and later refine it from what you kept. Styles also learn from gallery folders and from your decisions. | free; Claude development optional |
 | **Cull, working tools** | Keepers-first filters with counts; **Second look** (the best frame of every moment you kept nothing from, to catch a missed shot-list moment); side-by-side compare (C); undo and redo; a chapter filter once frames are read. | free |
 | **Editor's read** | Optional. Claude looks at one to three thumbnails per moment with your brief and story plan, and says for each which chapter it belongs to, how much it carries and why. Runs in batches; can be paused and resumed. | optional; shows an estimate first |
-| **Learns your eye** | Every pick and reject becomes an example. A small model of your taste is retrained as you cull and tested on bursts it was never shown; it only influences suggestions to the extent it beats the built-in rules there. About one burst in ten is shown without a suggestion, so your unprompted choices can be learned from. See Training → Your eye. | free |
+| **Learns your eye** | Every pick and reject becomes an example. A small model of your taste is retrained as you cull and tested on bursts it was never shown; it only influences suggestions to the extent it beats the built-in rules there. About one burst in ten is shown without a suggestion, so your unprompted choices can be learned from. See Workshop → Your eye. | free |
 | **Training** | One screen to teach with your own photographs: culling from past shoots (Lightroom ratings or a folder of delivered files), diagnosis norms from finished photographs, a house look from before/after pairs. Each run adds to what is known; each area can be forgotten. See [docs/TRAINING.md](docs/TRAINING.md). | free |
 | **Cull with Claude** | The editor's read, now aware of the chosen profile as well as the brief and story plan. | optional |
 | **Story** | Your picks as a sequence: coverage by chapter and shot type, gaps, reordering. **Your eye** compares your decisions with the suggestions and can tune the balance to your taste. Optionally asks Claude for a picture editor's sequence. | optional, cents |
@@ -44,6 +49,19 @@ the Claude API, which needs your own key (Settings). A story request sends small
 thumbnails of your picks; a grading plan sends one preview. Each button shows an
 estimate before and the actual cost after. You can choose a cheaper model in
 Settings. With no key, everything else still works.
+
+## Updating without losing anything
+
+Everything Atelier learns and every project live in `%APPDATA%\Atelier`, never in the
+folder the program is installed in. Installing a newer version over the old one
+(or uninstalling) leaves that folder alone.
+
+Every build is published as a GitHub release (`Atelier-Setup-0.2.N.exe`). In the app,
+Settings → Updates either finds it for you (add a fine-grained GitHub token with
+*Contents: read-only* on this repository once) or installs one you downloaded
+(*Install from a file*). Before installing, it copies your data into
+`%APPDATA%\Atelier\backups`. Settings → Your data also backs everything up to a
+folder of your choice and restores it.
 
 ## Install (Windows)
 

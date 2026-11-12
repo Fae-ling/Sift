@@ -11,8 +11,11 @@ asarUnpack:
   - node_modules/exiftool-vendored.pl/**
 win:
   target: nsis
+  artifactName: Atelier-Setup-${version}.${ext}
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  # What the app has learned lives in %APPDATA%\Atelier and survives updates and uninstalls alike.
+  deleteAppDataOnUninstall: false
 linux:
   target: dir

@@ -2,7 +2,13 @@
 
 Atelier improves by studying your work. This guide says what to give each part,
 how much it needs, and how to tell that it has learned. All training happens on
-your computer and nothing is uploaded. Open **Training** in the sidebar.
+your computer and nothing is uploaded.
+
+**The quickest start is the setup guide**, which opens the first time the app runs
+(and again from Settings → Run the setup guide). It walks through every step below
+in order. Afterwards, everything here is in the **Workshop** window (bottom left of
+the main window): *Teach with photos* to add more, and one section per learned part
+to look through what was learned and remove or switch off anything.
 
 Training is cumulative: every run adds to what is already known, so repeat it
 whenever you have new finished work. Each area can be forgotten separately.
@@ -11,7 +17,8 @@ whenever you have new finished work. Each area can be forgotten separately.
 
 | Part of the app | Give it | Minimum before it takes effect | Where you see the result |
 | --- | --- | --- | --- |
-| Culling suggestions | Past shoots you culled; every decision you make here | about 30 set-aside comparisons, in practice a few hundred decisions in bursts | Training → Your eye |
+| Culling suggestions | Past shoots you culled; every decision you make here | about 30 set-aside comparisons, in practice a few hundred decisions in bursts | Workshop → Your eye |
+| Why you reject | A reason, one key press after each reject | 4 frames with the same reason | Workshop → Mistakes and reasons |
 | Diagnose a photo | Finished photographs you are happy with | 12 photographs with a person in them | "Judged against your N finished photographs" in Diagnose |
 | Emotion reading | Faces you name in Cull; unnamed expressions you or Claude name | one example creates an emotion; a dozen make it dependable | Emotions |
 | Your look | Unedited frames and their finished versions, same file names | 1 pair; 10 or more gives a stable average | Look extractor → Your house look |
@@ -23,27 +30,34 @@ The culling model learns from decisions: which frame of a moment you kept and
 which you passed over. There are three ways to give it decisions.
 
 **From a shoot you already culled in Lightroom** (the fastest way to teach it a lot):
+in the setup guide's *Past shoots* step, or Workshop → Teach with photos, choose the
+folder that holds *every* frame (not only the keepers), the kind of shoot, and what
+"kept" means (for example at least 1 star), then **Learn from this shoot**. The app
+imports the folder as a project, takes your choices and learns from them in one go.
+Lightroom must have written the ratings to the files: Catalog Settings → Metadata →
+Automatically write changes into XMP, or select the photos and press Ctrl+S.
 
-1. Create a project for that shoot and set the kind of shoot.
-2. Import the folder that holds *every* frame, not only the keepers.
-3. Go to Training. Choose what "kept" means (for example at least 1 star) and press
-   **Learn from Lightroom ratings**. Lightroom must have written the ratings to the
-   files: Catalog Settings → Metadata → Automatically write changes into XMP, or
-   select the photos and press Ctrl+S.
-
-**From a folder of delivered files:** same steps 1 and 2, then **Learn from a folder
-of delivered files** and choose the folder of exports. Files are matched by name, so
+**From a folder of delivered files:** the same, with *Delivered files* chosen and the
+folder of exports given. Files are matched by name, so
 `IMG_0123.jpg` or `IMG_0123-Edit.jpg` marks `IMG_0123.ARW` as kept; every other frame
 counts as not kept.
 
 **By culling here.** Every pick and reject is learned from, every 25 decisions and
 when you close the project.
 
+**By saying why.** After a reject, a row of reasons appears (eyes, focus, expression,
+pose, background, light, composition, unflattering, nothing happens, a better take
+exists, or your own words). Press its number. Frames that look like ones you rejected
+for a reason are then marked down a little, with a note; "a better take exists" says
+nothing about the frame itself and is not learned from. Switch the question off in
+Cull's settings popover if you prefer to answer only now and then (the inspector of a
+rejected frame always lets you give or change reasons).
+
 Decisions made before Atelier count double: you made them with no suggestion from
 this app in front of you. Decisions you have already made in the project are never
 overwritten by an import.
 
-*How to tell it has learned:* Training → Your eye shows how often the
+*How to tell it has learned:* Workshop → Your eye shows how often the
 built-in rules agree with you, how often the trained suggestions do, and how much say
 your learned taste has earned. It stays at zero until it demonstrably does better.
 

@@ -57,7 +57,7 @@ export function Brief(): React.JSX.Element {
             </select>
             <p className="field-help">
               Sets the chapters, the emotions looked for and the balance.{' '}
-              <button className="link" onClick={() => setView('profiles')}>
+              <button className="link" onClick={() => void window.studio.openWorkshop('profiles')}>
                 Edit styles
               </button>
             </p>

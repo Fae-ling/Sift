@@ -1,9 +1,9 @@
 import { Happening } from '../components/Happening'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { FaceInfo, Shot } from '@shared/types'
+import { REJECT_REASONS, type FaceInfo, type Shot } from '@shared/types'
 import { previewUrl } from '../analysis/pipeline'
 import { BLINK_LIMIT } from '../analysis/scoring'
-import { Thumb } from '../components/Thumb'
+import { Thumb, type ClickMods } from '../components/Thumb'
 import { estimateCost, formatCost } from '../components/AiCost'
 import { Icon } from '../components/Icon'
 import { isHidden, READ_TOKENS, readCandidates, triage, useStore, visibleShots, type Filter, type TriageKind } from '../store'
@@ -26,10 +26,12 @@ const MORE_FILTERS: { id: Filter; label: string; hint: string }[] = [
   { id: 'warnings', label: 'Flagged', hint: 'Closed eyes, soft, or badly exposed' }
 ]
 
+const NONE = new Set<string>()
+
 const time = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 export function Cull(): React.JSX.Element {
-  const { project, selectedId, select, filter, setFilter, decide, acceptSuggestions, setView, chapter, setChapter, setRating, undo, redo, tasteData, setSceneChapter, deep, cancelDeepRead, relook } = useStore()
+  const { project, selectedId, select, filter, setFilter, decide, acceptSuggestions, setView, chapter, setChapter, setRating, undo, redo, tasteData, setSceneChapter, deep, cancelDeepRead, relook, marked, setMarked, asking, setAsking, setWhy, settings } = useStore()
   const [showTriage, setShowTriage] = useState(false)
   const [compare, setCompare] = useState(false)
   const [zoom, setZoom] = useState(false)
@@ -97,6 +99,41 @@ export function Cull(): React.JSX.Element {
     if (current) stripRef.current?.querySelector(`[data-shot="${current.id}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [current?.id])
 
+  const markedSet = useMemo(() => new Set(marked), [marked])
+  // Ctrl/Cmd-click adds or removes a frame; Shift-click takes everything between; a plain click starts over.
+  const onThumb = useCallback(
+    (id: string, mods: ClickMods) => {
+      setAsking(null)
+      if (mods.range && current) {
+        const a = list.findIndex((s) => s.id === current.id)
+        const b = list.findIndex((s) => s.id === id)
+        const [from, to] = a < b ? [a, b] : [b, a]
+        setMarked([...new Set([...marked, ...list.slice(from, to + 1).map((s) => s.id)])])
+        return
+      }
+      if (mods.toggle) {
+        const base = marked.length ? marked : current ? [current.id] : []
+        setMarked(base.includes(id) ? base.filter((x) => x !== id) : [...base, id])
+        select(id)
+        return
+      }
+      setMarked([])
+      select(id)
+    },
+    [current, list, marked, select, setMarked, setAsking]
+  )
+  /** The frames a key or button acts on: those chosen together, else the one in view. */
+  const targets = useCallback((): string[] => (marked.length ? marked : current ? [current.id] : []), [marked, current])
+  /** Rejects, then asks why (if that is switched on) before moving on. */
+  const reject = useCallback(
+    (ids: string[], advance: () => void) => {
+      decide(ids, 'reject')
+      if (settings.askWhy) setAsking(ids)
+      else advance()
+    },
+    [decide, settings.askWhy, setAsking]
+  )
+
   const move = useCallback(
     (delta: number) => {
       if (!current) return
@@ -134,25 +171,51 @@ export function Cull(): React.JSX.Element {
         e.preventDefault()
         return redo()
       }
+      if ((e.ctrlKey || e.metaKey) && key === 'a') {
+        e.preventDefault()
+        return setMarked(list.map((s) => s.id))
+      }
+      // While the reason row is showing, a number answers it; anything else skips it.
+      if (asking) {
+        const i = /^[0-9]$/.test(key) ? (Number(key) + 9) % 10 : -1
+        if (i >= 0 && REJECT_REASONS[i]) {
+          e.preventDefault()
+          setWhy(asking, [REJECT_REASONS[i]])
+          setAsking(null)
+          if (!marked.length) move(1)
+          return
+        }
+        if (key === 'enter' || key === 'escape' || key === 'arrowright') {
+          e.preventDefault()
+          setAsking(null)
+          if (!marked.length) move(1)
+          return
+        }
+        setAsking(null)
+      }
+      if (key === 'escape' && marked.length) {
+        e.preventDefault()
+        return setMarked([])
+      }
       if (!current || e.ctrlKey || e.metaKey || e.altKey) return
       if (key === 'arrowright') move(1)
       else if (key === 'arrowleft') move(-1)
       else if (key === 'arrowdown') moveStack(1)
       else if (key === 'arrowup') moveStack(-1)
-      else if (key === 'p') (decide([current.id], 'pick'), move(1))
-      else if (key === 'x') (decide([current.id], 'reject'), move(1))
-      else if (key === 'u') decide([current.id], null)
+      else if (key === 'p') (decide(targets(), 'pick'), marked.length || move(1))
+      else if (key === 'x') reject(targets(), () => marked.length || move(1))
+      else if (key === 'u') decide(targets(), null)
       // In a burst shown without a suggestion there is nothing to accept: the choice is the photographer's.
       else if (key === 'enter') hidden.has(current.id) || (acceptSuggestions(stack.map((s) => s.id)), moveStack(1))
       else if (key === 'z' || key === ' ') setZoom((z) => !z)
       else if (key === 'c') setCompare((c) => !c)
-      else if (/^[0-5]$/.test(key)) setRating(current.id, Number(key))
+      else if (/^[0-5]$/.test(key)) for (const id of targets()) setRating(id, Number(key))
       else return
       e.preventDefault()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [current, stack, hidden, move, moveStack, decide, acceptSuggestions, setRating, undo, redo])
+  }, [current, stack, hidden, move, moveStack, decide, acceptSuggestions, setRating, undo, redo, list, asking, marked, setMarked, setAsking, setWhy, targets, reject])
 
   if (!project) return <></>
   if (shots.length === 0) {
@@ -242,7 +305,7 @@ export function Cull(): React.JSX.Element {
       {showRead && <ReadPanel />}
       {showTriage && <TriagePanel onDone={() => setShowTriage(false)} />}
 
-      <div className="strip" ref={stripRef}>
+      <div className="strip" ref={stripRef} role="listbox" aria-multiselectable="true" aria-label="Frames">
         {list.length === 0 && <p className="muted small" style={{ padding: 8 }}>Nothing matches this filter.</p>}
         {scenes.map((scene) => (
           <SceneBlock
@@ -254,7 +317,8 @@ export function Cull(): React.JSX.Element {
             // Only the scene holding the selection is given it, so moving through a large shoot redraws one scene, not all.
             selectedId={current && scene.stacks.some((st) => st.some((x) => x.id === current.id)) ? current.id : null}
             hidden={hidden}
-            onSelect={select}
+            marked={scene.stacks.some((st) => st.some((x) => markedSet.has(x.id))) ? markedSet : NONE}
+            onSelect={onThumb}
             onChapter={setSceneChapter}
           />
         ))}
@@ -296,7 +360,7 @@ export function Cull(): React.JSX.Element {
             <div className="compare">
               {stack.map((s) => (
                 <div key={s.id}>
-                  <Thumb projectId={project.id} shot={s} selected={s.id === current.id} onSelect={select} hide={hidden.has(s.id)} />
+                  <Thumb projectId={project.id} shot={s} selected={s.id === current.id} marked={markedSet.has(s.id)} onSelect={onThumb} hide={hidden.has(s.id)} />
                   <div className="cap">
                     {hidden.has(s.id) ? '·' : Math.round(s.score?.overall ?? 0)}
                     {hidden.has(s.id) ? '' : s.suggestion === 'pick' ? ' · best' : s.suggestion === 'alternate' ? ' · close' : ''}
@@ -315,6 +379,45 @@ export function Cull(): React.JSX.Element {
                 </div>
               )}
             </div>
+            {asking ? (
+              <ReasonBar
+                count={asking.length}
+                onPick={(why) => {
+                  setWhy(asking, why)
+                  setAsking(null)
+                  if (!marked.length) move(1)
+                }}
+                onSkip={() => {
+                  setAsking(null)
+                  if (!marked.length) move(1)
+                }}
+              />
+            ) : (
+              marked.length > 1 && (
+                <div className="selection-bar" role="toolbar" aria-label={`${marked.length} frames chosen`}>
+                  <b>{marked.length} chosen</b>
+                  <button className="pick-btn" onClick={() => decide(marked, 'pick')}>
+                    Pick all <kbd>P</kbd>
+                  </button>
+                  <button className="reject-btn" onClick={() => reject(marked, () => undefined)}>
+                    Reject all <kbd>X</kbd>
+                  </button>
+                  <button onClick={() => decide(marked, null)}>
+                    Clear <kbd>U</kbd>
+                  </button>
+                  <span className="stars" role="group" aria-label="Rate all">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <button key={n} onClick={() => marked.forEach((id) => setRating(id, n))} aria-label={`${n} stars for all`}>
+                        ★
+                      </button>
+                    ))}
+                  </span>
+                  <button className="ghost" onClick={() => setMarked([])}>
+                    Done <kbd>Esc</kbd>
+                  </button>
+                </div>
+              )
+            )}
           </div>
           <Inspector shot={current} projectId={project.id} hide={hidden.has(current.id)} />
         </>
@@ -357,7 +460,7 @@ const TAG_TEXT = { laugh: 'laughter', joy: 'joy', connection: 'connection', embr
 
 
 function Inspector({ shot, projectId, hide }: { shot: Shot; projectId: string; hide: boolean }): React.JSX.Element {
-  const { decide, setRating, taste, setFacePerson } = useStore()
+  const { decide, setRating, taste, setFacePerson, settings, setAsking } = useStore()
   const score = shot.score
   const a = shot.analysis!
   const chapterName = shot.chapter ?? shot.read?.beat
@@ -372,7 +475,15 @@ function Inspector({ shot, projectId, hide }: { shot: Shot; projectId: string; h
           <button className={shot.decision === 'pick' ? 'on pick' : ''} onClick={() => decide([shot.id], shot.decision === 'pick' ? null : 'pick')} aria-pressed={shot.decision === 'pick'}>
             Pick <kbd>P</kbd>
           </button>
-          <button className={shot.decision === 'reject' ? 'on reject' : ''} onClick={() => decide([shot.id], shot.decision === 'reject' ? null : 'reject')} aria-pressed={shot.decision === 'reject'}>
+          <button
+            className={shot.decision === 'reject' ? 'on reject' : ''}
+            onClick={() => {
+              const rejecting = shot.decision !== 'reject'
+              decide([shot.id], rejecting ? 'reject' : null)
+              if (rejecting && settings.askWhy) setAsking([shot.id])
+            }}
+            aria-pressed={shot.decision === 'reject'}
+          >
             Reject <kbd>X</kbd>
           </button>
         </div>
@@ -428,6 +539,8 @@ function Inspector({ shot, projectId, hide }: { shot: Shot; projectId: string; h
           </ul>
         </section>
       )}
+
+      {shot.decision === 'reject' && <WhyRejected shot={shot} />}
 
       <Happening shot={shot} hide={hide} />
 
@@ -487,6 +600,10 @@ function Inspector({ shot, projectId, hide }: { shot: Shot; projectId: string; h
           <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>previous / next frame</dd>
           <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>previous / next moment</dd>
           <dt><kbd>P</kbd> <kbd>X</kbd> <kbd>U</kbd></dt><dd>pick, reject, clear</dd>
+          <dt><kbd>1</kbd>–<kbd>0</kbd></dt><dd>after a reject: why</dd>
+          <dt>Ctrl+click</dt><dd>choose several frames</dd>
+          <dt>Shift+click</dt><dd>choose a range</dd>
+          <dt><kbd>Ctrl</kbd>+<kbd>A</kbd></dt><dd>choose all shown; <kbd>Esc</kbd> clears</dd>
           <dt><kbd>Enter</kbd></dt><dd>accept this moment's suggestion</dd>
           <dt><kbd>1</kbd>–<kbd>5</kbd></dt><dd>stars</dd>
           <dt><kbd>Z</kbd> <kbd>C</kbd></dt><dd>zoom, compare</dd>
@@ -499,7 +616,7 @@ function Inspector({ shot, projectId, hide }: { shot: Shot; projectId: string; h
 
 /** Style and balance for this shoot: set once, so kept out of the way. */
 function CullSettings(): React.JSX.Element {
-  const { project, learned, chooseStyle, setBalance, setView } = useStore()
+  const { project, learned, chooseStyle, setBalance, settings, setAskWhy, reestimate, setFilter, notify } = useStore()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -540,7 +657,25 @@ function CullSettings(): React.JSX.Element {
             <span className="faint small">Moment</span>
           </div>
           <p className="field-help">How much the emotion and the moment count against sharpness and exposure.</p>
-          <button className="link small" onClick={() => setView('profiles')}>
+          <label className="check" style={{ marginTop: 12 }}>
+            <input type="checkbox" checked={settings.askWhy} onChange={(e) => void setAskWhy(e.target.checked)} />
+            <span>Ask why when I reject</span>
+          </label>
+          <div className="row" style={{ marginTop: 8 }}>
+            <button
+              className="sm"
+              title="Scores this shoot again with everything known today, minus what was learned from it, and counts how many of your calls it would make"
+              onClick={() => {
+                const e = reestimate()
+                notify(e && e.moments ? `Today the app would make ${Math.round(e.now * 100)}% of your calls in this shoot.` : 'Decide some frames by hand first.')
+                const found = useStore.getState().relook
+                if (e && found && found.missed.length + found.doubted.length) setFilter('relook')
+              }}
+            >
+              Re-estimate this shoot
+            </button>
+          </div>
+          <button className="link small" onClick={() => void window.studio.openWorkshop('profiles')}>
             Edit shoot styles
           </button>
         </div>
@@ -663,7 +798,8 @@ const SceneBlock = memo(function SceneBlock(props: {
   plan: string[]
   selectedId: string | null
   hidden: Set<string>
-  onSelect: (id: string) => void
+  marked: Set<string>
+  onSelect: (id: string, mods: ClickMods) => void
   onChapter: (sceneId: number, chapter: string | null) => void
 }): React.JSX.Element {
   const { scene, chapter, plan } = props
@@ -691,7 +827,7 @@ const SceneBlock = memo(function SceneBlock(props: {
       {scene.stacks.map((st) => (
         <div className={`stack ${st.length > 1 ? 'multi' : ''}`} key={st[0].id}>
           {st.map((x) => (
-            <Thumb key={x.id} projectId={props.projectId} shot={x} selected={x.id === props.selectedId} onSelect={props.onSelect} hide={props.hidden.has(x.id)} />
+            <Thumb key={x.id} projectId={props.projectId} shot={x} selected={x.id === props.selectedId} marked={props.marked.has(x.id)} onSelect={props.onSelect} hide={props.hidden.has(x.id)} />
           ))}
         </div>
       ))}
@@ -790,5 +926,82 @@ function ReadPanel(): React.JSX.Element {
         </div>
       )}
     </div>
+  )
+}
+
+/** The row of reasons that appears after a reject. A number key or a click answers it. */
+function ReasonBar({ count, onPick, onSkip }: { count: number; onPick: (why: string[]) => void; onSkip: () => void }): React.JSX.Element {
+  const [other, setOther] = useState('')
+  return (
+    <div className="reason-bar" role="dialog" aria-label="Why was it rejected?">
+      <div className="reason-head">
+        <b>Why{count > 1 ? ` (${count} frames)` : ''}?</b>
+        <span className="faint small">Press a number, or Enter to skip. It teaches the cull what you mind.</span>
+        <div className="spacer" />
+        <button className="ghost sm" onClick={onSkip}>
+          Skip
+        </button>
+      </div>
+      <div className="reason-chips">
+        {REJECT_REASONS.map((r, i) => (
+          <button key={r} className="reason" onClick={() => onPick([r])}>
+            <kbd>{(i + 1) % 10}</kbd> {r}
+          </button>
+        ))}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (other.trim()) onPick([other])
+          }}
+        >
+          <input className="reason-other" placeholder="Something else…" value={other} onChange={(e) => setOther(e.target.value)} aria-label="Another reason" />
+        </form>
+      </div>
+    </div>
+  )
+}
+
+/** For a rejected frame: the reasons given, which can be changed at any time. */
+function WhyRejected({ shot }: { shot: Shot }): React.JSX.Element {
+  const { setWhy } = useStore()
+  const [editing, setEditing] = useState(false)
+  const [other, setOther] = useState('')
+  useEffect(() => setEditing(false), [shot.id])
+  const why = shot.why ?? []
+  const toggle = (r: string): void => setWhy([shot.id], why.includes(r) ? why.filter((x) => x !== r) : [...why, r])
+  const open = editing || why.length === 0
+  const shown = open ? [...REJECT_REASONS, ...why.filter((w) => !REJECT_REASONS.includes(w))] : why
+  return (
+    <section className="insp-section">
+      <h3>
+        Why rejected
+        {!open && (
+          <button className="link small" style={{ marginLeft: 8, textTransform: 'none', letterSpacing: 0 }} onClick={() => setEditing(true)}>
+            change
+          </button>
+        )}
+      </h3>
+      <div className="chips">
+        {shown.map((r) => (
+          <button key={r} className={`chip toggle ${why.includes(r) ? 'on' : ''}`} onClick={() => toggle(r)} aria-pressed={why.includes(r)}>
+            {r}
+          </button>
+        ))}
+      </div>
+      {open && (
+        <form
+          className="row"
+          style={{ marginTop: 4 }}
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!other.trim()) return
+            setWhy([shot.id], [...why, other])
+            setOther('')
+          }}
+        >
+          <input style={{ flex: 1 }} placeholder="Another reason, then Enter" value={other} onChange={(e) => setOther(e.target.value)} aria-label="Another reason" />
+        </form>
+      )}
+    </section>
   )
 }

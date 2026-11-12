@@ -77,9 +77,25 @@ export async function loadProject(id: string): Promise<Project> {
 
 const BACKUP_EVERY_MS = 10 * 60 * 1000
 
+/** Writes still in progress, per file: a new write waits for the previous one, so the last save wins and two never collide. */
+const pending = new Map<string, Promise<void>>()
+let writes = 0
+
 async function writeAtomic(file: string, text: string): Promise<void> {
-  await fs.writeFile(file + '.tmp', text)
-  await fs.rename(file + '.tmp', file)
+  const before = pending.get(file) ?? Promise.resolve()
+  const tmp = `${file}.${process.pid}.${++writes}.tmp`
+  const next = before
+    .catch(() => {})
+    .then(async () => {
+      await fs.writeFile(tmp, text)
+      await fs.rename(tmp, file)
+    })
+  pending.set(file, next)
+  try {
+    await next
+  } finally {
+    if (pending.get(file) === next) pending.delete(file)
+  }
 }
 
 export async function saveProject(project: Project, analysisChanged = true): Promise<void> {
@@ -123,9 +139,7 @@ export async function getLearned(): Promise<Learned> {
 }
 
 export async function saveLearned(learned: Learned): Promise<void> {
-  const tmp = learnedFile() + '.tmp'
-  await fs.writeFile(tmp, JSON.stringify(learned))
-  await fs.rename(tmp, learnedFile())
+  await writeAtomic(learnedFile(), JSON.stringify(learned))
 }
 
 export const removeStyleSamples = (styleId: string): Promise<void> => removeProject(styleCacheId(styleId))
@@ -161,9 +175,7 @@ export async function getLearning(): Promise<unknown> {
 }
 
 export async function saveLearning(data: unknown): Promise<void> {
-  const tmp = learningFile() + '.tmp'
-  await fs.writeFile(tmp, JSON.stringify(data))
-  await fs.rename(tmp, learningFile())
+  await writeAtomic(learningFile(), JSON.stringify(data))
 }
 
 // --- what was learned from photographs provided for training ---
@@ -179,9 +191,7 @@ export async function getTraining(): Promise<unknown> {
 }
 
 export async function saveTraining(data: unknown): Promise<void> {
-  const tmp = trainingFile() + '.tmp'
-  await fs.writeFile(tmp, JSON.stringify(data))
-  await fs.rename(tmp, trainingFile())
+  await writeAtomic(trainingFile(), JSON.stringify(data))
 }
 
 // --- what the optional AI advice has cost ---
@@ -208,6 +218,10 @@ export async function recordSpend(usd: number): Promise<void> {
 interface StoredSettings {
   model?: string
   apiKeyEnc?: string
+  /** The first-run guide: where it got to, and whether it was finished or put away. */
+  guide?: Settings['guide']
+  /** Ask why when a frame is rejected. */
+  askWhy?: boolean
 }
 const settingsFile = (): string => join(app.getPath('userData'), 'settings.json')
 /** Used when the OS offers no encrypted storage: the key then lives for this session only. */
@@ -240,11 +254,14 @@ export async function getModel(): Promise<string> {
 }
 
 export async function getSettings(): Promise<Settings> {
-  return { hasApiKey: !!(await getApiKey()), model: await getModel() }
+  const s = await readStored()
+  return { hasApiKey: !!(await getApiKey()), model: await getModel(), guide: s.guide ?? { step: 0, done: false }, askWhy: s.askWhy ?? true }
 }
 
-export async function setSettings(patch: { apiKey?: string; model?: string }): Promise<Settings> {
+export async function setSettings(patch: { apiKey?: string; model?: string; guide?: Settings['guide']; askWhy?: boolean }): Promise<Settings> {
   const s = await readStored()
+  if (patch.guide) s.guide = patch.guide
+  if (patch.askWhy !== undefined) s.askWhy = patch.askWhy
   if (patch.model && MODELS.some((m) => m.id === patch.model)) s.model = patch.model
   if (patch.apiKey !== undefined) {
     const key = patch.apiKey.trim()

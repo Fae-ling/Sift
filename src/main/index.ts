@@ -6,6 +6,7 @@ import { atmosphere, developStyle, diagnose, nameFaces, narrativeRead, storyAdvi
 import { promises as fs } from 'node:fs'
 import { copySelects, exportXmp, readRatings, saveFiles } from './exporter'
 import { exiftool, extractPreview, savePreview, scanFolder } from './ingest'
+import { appVersion, backupTo, checkForUpdate, downloadAndInstall, installFromFile, restoreFrom, setUpdateToken } from './updater'
 import {
   getData,
   saveData,
@@ -35,33 +36,68 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }
 ])
 
-function createWindow(): void {
+const BACKGROUND = '#04121c'
+
+function newWindow(options: Electron.BrowserWindowConstructorOptions, hash = ''): BrowserWindow {
   const win = new BrowserWindow({
-    width: 1480,
-    height: 940,
-    minWidth: 1100,
-    minHeight: 700,
-    backgroundColor: '#1c1c1c',
+    backgroundColor: BACKGROUND,
     autoHideMenuBar: true,
-    title: 'Atelier',
+    ...options,
     webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, sandbox: false }
   })
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https:\/\//.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
-  if (process.env.ELECTRON_RENDERER_URL) void win.loadURL(process.env.ELECTRON_RENDERER_URL)
-  else void win.loadFile(join(__dirname, '../renderer/index.html'))
+  if (process.env.ELECTRON_RENDERER_URL) void win.loadURL(process.env.ELECTRON_RENDERER_URL + hash)
+  else void win.loadFile(join(__dirname, '../renderer/index.html'), { hash: hash.replace(/^#/, '') })
+  return win
+}
+
+let mainWindow: BrowserWindow | null = null
+let workshop: BrowserWindow | null = null
+
+function createWindow(): void {
+  mainWindow = newWindow({ width: 1480, height: 940, minWidth: 1100, minHeight: 700, title: 'Atelier' })
+  mainWindow.on('closed', () => {
+    mainWindow = null
+    // The workshop has no use without the studio.
+    workshop?.close()
+  })
+}
+
+/** The workshop: everything the app has learned and the training, in a window of its own. */
+function openWorkshop(section?: string): void {
+  if (workshop && !workshop.isDestroyed()) {
+    if (section) workshop.webContents.send('workshop:go', section)
+    workshop.focus()
+    return
+  }
+  workshop = newWindow({ width: 1240, height: 880, minWidth: 960, minHeight: 640, title: 'Atelier · Workshop' }, `#workshop${section ? '/' + section : ''}`)
+  workshop.on('closed', () => (workshop = null))
+}
+
+/** Tells the other windows that a store on disk changed, so they reload it. */
+function changed(sender: Electron.WebContents, name: string): void {
+  for (const w of BrowserWindow.getAllWindows()) if (w.webContents !== sender && !w.isDestroyed()) w.webContents.send('changed', name)
 }
 
 function registerIpc(): void {
   const handle = <A extends unknown[], R>(channel: string, fn: (...args: A) => R | Promise<R>): void => {
     ipcMain.handle(channel, (_event, ...args) => fn(...(args as A)))
   }
+  /** A save that the other windows must hear about. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const saving = <A extends any[]>(channel: string, name: (...args: A) => string, fn: (...args: A) => Promise<void>): void => {
+    ipcMain.handle(channel, async (event, ...args) => {
+      await fn(...(args as A))
+      changed(event.sender, name(...(args as A)))
+    })
+  }
   handle('projects:list', listProjects)
   handle('projects:load', (id: string) => loadProject(id))
-  handle('projects:save', (project: Project, analysisChanged?: boolean) => saveProject(project, analysisChanged))
-  handle('projects:remove', (id: string) => removeProject(id))
+  saving('projects:save', (p: Project, _a?: boolean) => `project:${p.id}`, (project: Project, analysisChanged?: boolean) => saveProject(project, analysisChanged))
+  saving('projects:remove', (id: string) => `project:${id}`, (id: string) => removeProject(id))
   handle('pickFolder', async () => {
     // A folder picker lists folders only, so a folder full of photos looks empty in it.
     const result = await dialog.showOpenDialog({
@@ -84,7 +120,7 @@ function registerIpc(): void {
   handle('saveFiles', (folder: string, files: { name: string; data: ArrayBuffer }[]) => saveFiles(folder, files))
   handle('scan', (folder: string, anyImage?: boolean) => scanFolder(folder, anyImage))
   handle('learned:get', getLearned)
-  handle('learned:save', (learned: Learned) => saveLearned(learned))
+  saving('learned:save', (_l: Learned) => 'learned', (learned: Learned) => saveLearned(learned))
   handle('learned:removeSamples', (styleId: string) => removeStyleSamples(styleId))
   handle('extract', (projectId: string, shotId: string, path: string) => extractPreview(projectId, shotId, path))
   handle('savePreview', (projectId: string, shotId: string, preview: ArrayBuffer, thumb: ArrayBuffer) =>
@@ -94,15 +130,44 @@ function registerIpc(): void {
   handle('copySelects', (paths: string[], dest: string) => copySelects(paths, dest))
   handle('reveal', (path: string) => shell.showItemInFolder(path))
   handle('data:get', (name: string) => getData(name))
-  handle('data:save', (name: string, value: unknown) => saveData(name, value))
+  saving('data:save', (name: string, _v: unknown) => name, (name: string, value: unknown) => saveData(name, value))
   handle('learning:get', getLearning)
-  handle('learning:save', (data: unknown) => saveLearning(data))
+  saving('learning:save', (_d: unknown) => 'learning', (data: unknown) => saveLearning(data))
   handle('training:get', getTraining)
-  handle('training:save', (data: unknown) => saveTraining(data))
+  saving('training:save', (_d: unknown) => 'training', (data: unknown) => saveTraining(data))
   handle('readRatings', (paths: string[]) => readRatings(paths))
   handle('spend', getSpend)
   handle('settings:get', getSettings)
-  handle('settings:set', (patch: { apiKey?: string; model?: string }) => setSettings(patch))
+  ipcMain.handle('settings:set', async (event, patch: Parameters<typeof setSettings>[0]) => {
+    const s = await setSettings(patch)
+    changed(event.sender, 'settings')
+    return s
+  })
+  handle('workshop:open', (section?: string) => openWorkshop(section))
+  handle('studio:focus', () => mainWindow?.focus())
+  handle('update:check', checkForUpdate)
+  handle('update:setToken', (token: string) => setUpdateToken(token))
+  ipcMain.handle('update:download', (event, assetId: number) => downloadAndInstall(assetId, event.sender))
+  handle('update:installFile', async () => {
+    const result = await dialog.showOpenDialog({ title: 'Choose the new Atelier installer', filters: [{ name: 'Installer', extensions: ['exe'] }], properties: ['openFile'] })
+    if (result.canceled) return false
+    await installFromFile(result.filePaths[0])
+    return true
+  })
+  handle('data:backup', async () => {
+    const result = await dialog.showOpenDialog({ title: 'Choose where to put the backup', buttonLabel: 'Back up here', properties: ['openDirectory', 'createDirectory'] })
+    if (result.canceled) return null
+    const folder = join(result.filePaths[0], `Atelier backup ${new Date().toISOString().slice(0, 10)}`)
+    await backupTo(folder)
+    return folder
+  })
+  handle('data:restore', async () => {
+    const result = await dialog.showOpenDialog({ title: 'Choose an Atelier backup folder', properties: ['openDirectory'] })
+    if (result.canceled) return null
+    return restoreFrom(result.filePaths[0])
+  })
+  handle('data:folder', () => shell.openPath(app.getPath('userData')))
+  handle('app:version', appVersion)
   handle('ai:story', (req: StoryRequest) => storyAdvice(req))
   handle('ai:read', (req: ReadRequest) => narrativeRead(req))
   handle('ai:nameFaces', (req: NameFacesRequest) => nameFaces(req))

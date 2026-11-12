@@ -3,7 +3,7 @@ import { useStore } from '../store'
 import { PageHeader } from '../components/PageHeader'
 
 export function Projects(): React.JSX.Element {
-  const { summaries, createProject, openProject, deleteProject, learned, setView } = useStore()
+  const { summaries, createProject, openProject, deleteProject, learned } = useStore()
   const [name, setName] = useState('')
   const [styleId, setStyleId] = useState('')
   const chosen = styleId || learned.styles[0]?.id || ''
@@ -35,7 +35,7 @@ export function Projects(): React.JSX.Element {
 
       <p className="muted small" style={{ marginTop: 8 }}>
         The style tells the cull what to look for. Not in the list?{' '}
-        <button className="link" onClick={() => setView('profiles')}>
+        <button className="link" onClick={() => void window.studio.openWorkshop('profiles')}>
           Create a style
         </button>{' '}
         for the kind of work you do.

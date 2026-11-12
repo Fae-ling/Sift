@@ -16,6 +16,13 @@ comes next, `DEVELOPMENT_PLAN.md`.
 
 ## Screens
 
+There are two windows. The **studio** (main window) holds the work: projects, the
+five steps, the tools, Settings, and the setup guide (`views/Guide.tsx`) on first
+start. The **workshop** (`#workshop` in the same renderer, opened from the studio's
+sidebar) holds what the app has learned and the training. Each window has its own
+state; when one saves a store, the main process tells the other (`changed`), which
+reloads it without saving back (`reloadChanged`).
+
 | Screen | File | What the user does there |
 | --- | --- | --- |
 | Projects | `views/Projects.tsx` | Create, open, delete projects |
@@ -25,10 +32,11 @@ comes next, `DEVELOPMENT_PLAN.md`.
 | 3 Cull | `views/Cull.tsx` | Decide per moment: ultrafast cull, filters, compare, undo, style, balance, teaching emotions on faces, scene chapters, Cull with Claude |
 | 4 Story | `views/Story.tsx` | Sequence picks, chapter coverage, "Your eye", picture editor's opinion |
 | 5 Hand off | `views/Export.tsx` | Ratings and labels to XMP; copy picks |
-| Training | `views/Training.tsx` | Teach each part with your own photographs; training log |
-| Shoot styles | `views/Profiles.tsx` | Kinds of work: chapters, must-haves, emotion weights, markers; Claude development; the learned taste and its self-check |
-| What it knows | `views/Knowledge.tsx` | Trade-offs learned, words for what is happening, gestures, the record with Claude, re-estimates |
-| Emotions | `views/Emotions.tsx` | What the app reads on faces; naming expressions it could not name |
+| Workshop: overview | `views/Workshop.tsx` | Everything learned at a glance; re-estimate all projects |
+| Workshop: your eye, gestures, words, mistakes and reasons, Claude | `views/Workshop.tsx` | Look through what was learned; remove it or switch it off |
+| Workshop: teach with photos | `views/Training.tsx` | Past shoots (`PastShootForm`), finished work, before/after pairs; training log |
+| Workshop: shoot styles | `views/Profiles.tsx` | Kinds of work: chapters, must-haves, emotion weights, markers; Claude development |
+| Workshop: emotions | `views/Emotions.tsx` | What the app reads on faces; naming expressions; removing single examples |
 | Diagnose a photo | `views/Diagnose.tsx` | What is wrong with one picture before retouching; try-it preview; masks |
 | Look extractor | `views/Look.tsx` | A reference photo's look as LUT or Lightroom preset |
 | Learn | `views/Learn.tsx` | Articles (`knowledge/index.ts`) |
@@ -96,6 +104,8 @@ the app in `out/renderer/mediapipe`.
 | `learning.json` | Examples of the photographer's decisions, per project |
 | `training.json` | Norms of finished photographs, editing habits, house look, feedback, log |
 | `spend.json` | What Claude has cost, by month |
+| `update.json` | The GitHub token for updates, encrypted |
+| `backups/` | Copies of all of the above made before each update (the newest three) |
 | `settings.json` | Model choice; encrypted API key |
 
 ## Calls to Claude (`src/main/ai.ts`)

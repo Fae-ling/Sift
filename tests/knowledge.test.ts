@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import type { Analysis, FaceInfo, Score, Shot } from '@shared/types'
 import { estimateOf, relookOf } from '../src/renderer/src/analysis/estimate'
 import { emptyGestures, GESTURE_CUES, leadGesture, poseCues, readGesture, teachGesture, withOthers, type Mark } from '../src/renderer/src/analysis/gesture'
+import { newer } from '../src/shared/version'
+import { learn as learnTaste, FEATURES } from '../src/renderer/src/analysis/learner'
+import { absorbReasons, emptyReasons, ledgerEntries, reasonConcepts, withoutExcluded, tagDirections } from '../src/renderer/src/analysis/knowledge'
 import { absorb, assetLift, briefing, claudeRecord, emptyKnowledge, forgiveness, learnTags, ledgerOf, mergedLedger, recogniseTags, settleTags, verdictOf, vocabulary, type Concepts } from '../src/renderer/src/analysis/knowledge'
 import { scoreAndSuggest } from '../src/renderer/src/analysis/scoring'
 import { assignPeople, keyPeopleIn, likeness, mergePeople } from '../src/renderer/src/analysis/people'
@@ -279,5 +282,81 @@ describe('the ledger in the cull', () => {
     expect(s.score!.gem).toBe(false)
     expect(s.suggestion).toBe('reject')
     expect(s.score!.tradeoff).toContain('only 1 of 10')
+  })
+})
+
+describe('reasons for rejecting', () => {
+  // Frames rejected for an awkward pose share a gesture; the rest do not.
+  const awkward = (): Analysis => analysis({ bodies: [{ x: 0.3, y: 0.1, w: 0.4, h: 0.8, g: [0, 0, 0, 0, 0, 90, 0, 0, 80, 0, 0, 0, 0, 0, 0, 0] }] })
+  const plain = (): Analysis => analysis({ bodies: [{ x: 0.3, y: 0.1, w: 0.4, h: 0.8, g: new Array(16).fill(0) }] })
+  const shots = (): Shot[] => [
+    ...Array.from({ length: 6 }, () => shot({ analysis: awkward(), decision: 'reject', why: ['awkward pose'] })),
+    ...Array.from({ length: 12 }, () => shot({ analysis: plain(), decision: 'pick' })),
+    shot({ analysis: plain(), decision: 'reject', why: ['a better take exists'] })
+  ]
+  it('learns what a reason looks like, and recognises it in a new frame', () => {
+    const r = absorbReasons(emptyReasons(), 'p', shots())
+    expect(r.tags.map((t) => t.name)).toEqual(['awkward pose'])
+    const c = reasonConcepts(r)
+    expect(tagDirections(c).map((d) => d.name)).toEqual(['awkward pose'])
+  })
+  it('marks a frame that looks like those down, with a note', () => {
+    const r = reasonConcepts(absorbReasons(emptyReasons(), 'p', shots()))
+    const fresh = [shot({ id: 'new-awkward', stackId: 990, analysis: awkward(), score: undefined }), shot({ id: 'new-plain', stackId: 991, analysis: plain(), score: undefined })]
+    const out = scoreAndSuggest(fresh, { genre: 'portrait', balance: 0.5, reasons: { store: r } })
+    expect(out[0].score!.flaws).toContain('looks like: awkward pose')
+    expect(out[0].score!.notes.join(' ')).toContain('rejected for awkward pose')
+    expect(out[1].score!.flaws).not.toContain('looks like: awkward pose')
+  })
+  it('rebuilds a project\'s reasons when they change', () => {
+    const once = absorbReasons(emptyReasons(), 'p', shots())
+    const again = absorbReasons(once, 'p', shots().map((s) => ({ ...s, why: undefined })))
+    expect(again.tags).toEqual([])
+  })
+})
+
+describe('removing what was learned', () => {
+  const l = mergedLedger(
+    {
+      projects: {
+        a: ledgerOf(
+          [
+            ...Array.from({ length: 20 }, (_, i) => shot({ decision: i % 2 ? 'pick' : 'reject', decidedBy: 'manual', score: score({ flaws: [], assets: [] }) })),
+            ...Array.from({ length: 6 }, () => shot({ decision: 'pick', decidedBy: 'manual', score: score({ flaws: ['closed eyes'], assets: ['laughter'] }) }))
+          ],
+          's'
+        )
+      }
+    },
+    's'
+  )
+  it('lists each mistake, trade-off and asset', () => {
+    expect(ledgerEntries(l).map((e) => e.key).sort()).toEqual(['asset:laughter', 'flaw:closed eyes', 'trade:closed eyes|laughter'])
+  })
+  it('leaves out what was switched off', () => {
+    expect(forgiveness(withoutExcluded(l, ['trade:closed eyes|laughter']), ['closed eyes'], ['laughter'])!.asset).toBeNull()
+    expect(assetLift(withoutExcluded(l, ['asset:laughter']), 'laughter')).toBeNull()
+    expect(withoutExcluded(l, ['flaw:closed eyes']).flaws['closed eyes']).toBeUndefined()
+  })
+  it('trains the taste model without a measurement that was ruled out', () => {
+    const i = FEATURES.findIndex((f) => f.key === 'focus')
+    const examples = Array.from({ length: 80 }, (_, k) => {
+      const x = new Array(FEATURES.length).fill(0)
+      x[0] = 1
+      x[i] = k % 2
+      return { x, y: (k % 2) as 0 | 1, w: 1, stack: k, h: 50 }
+    })
+    const data = { version: 2, blindBursts: false, projects: { a: { genre: 'portrait' as const, updatedAt: 1, examples } } }
+    expect(Math.abs(learnTaste(data, 'portrait').model.weights[i])).toBeGreaterThan(0.5)
+    expect(learnTaste({ ...data, ignored: ['focus'] }, 'portrait').model.weights[i]).toBe(0)
+  })
+})
+
+describe('updates', () => {
+  it('compares versions numerically', () => {
+    expect(newer('v0.2.14', '0.2.9')).toBe(true)
+    expect(newer('0.2.9', '0.2.14')).toBe(false)
+    expect(newer('0.3.0', '0.2.99')).toBe(true)
+    expect(newer('0.2.5', '0.2.5')).toBe(false)
   })
 })

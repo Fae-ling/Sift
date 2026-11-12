@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { MODELS } from '@shared/types'
+import { MODELS, type UpdateStatus } from '@shared/types'
 import { useStore } from '../store'
 import { PageHeader } from '../components/PageHeader'
 
@@ -13,7 +13,11 @@ export function SettingsView(): React.JSX.Element {
 
   return (
     <div className="page">
-      <PageHeader title="Settings" lead="Claude is optional. Everything except the buttons marked with Claude runs on this computer at no cost." />
+      <PageHeader title="Settings" lead="Claude is optional. Everything except the buttons marked with Claude runs on this computer at no cost.">
+        <button onClick={() => void saveSettings({ guide: { step: 0, done: false } })}>Run the setup guide</button>
+      </PageHeader>
+
+      <Updates />
 
       <h2>What runs where</h2>
       <div className="note teach">
@@ -79,5 +83,106 @@ export function SettingsView(): React.JSX.Element {
         opinion. Prices are Anthropic's list prices at the time this version was built.
       </p>
     </div>
+  )
+}
+
+/** Updating in place, and backing up what the app has learned. */
+function Updates(): React.JSX.Element {
+  const { notify } = useStore()
+  const [status, setStatus] = useState<UpdateStatus | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [token, setToken] = useState('')
+  const [progress, setProgress] = useState<number | null>(null)
+  const check = async (): Promise<void> => {
+    setChecking(true)
+    try {
+      setStatus(await window.studio.update.check())
+    } finally {
+      setChecking(false)
+    }
+  }
+  useEffect(() => {
+    void check()
+    return window.studio.update.onProgress(setProgress)
+  }, [])
+  const fail = (err: unknown): void => {
+    setProgress(null)
+    notify((err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+  }
+
+  return (
+    <>
+      <h2>Updates</h2>
+      <div className="card update-card">
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <div>
+            <div className="stat" style={{ fontSize: 18 }}>Atelier {status?.current ?? ''}</div>
+            <div className="muted small">
+              {status?.latest
+                ? `Version ${status.latest.version} is available (${new Date(status.latest.published).toLocaleDateString()}).`
+                : status?.hasToken
+                  ? status.error ?? 'This is the newest version.'
+                  : 'Updates are found on GitHub once a token is added below, or installed from a file you downloaded.'}
+            </div>
+          </div>
+          <div className="row">
+            {status?.hasToken && (
+              <button disabled={checking} onClick={() => void check()}>
+                {checking ? 'Checking…' : 'Check again'}
+              </button>
+            )}
+            {status?.latest && (
+              <button className="primary" disabled={progress !== null} onClick={() => void window.studio.update.download(status.latest!.assetId).catch(fail)}>
+                {progress !== null ? `Downloading ${Math.round(progress * 100)}%…` : `Update to ${status.latest.version}`}
+              </button>
+            )}
+            <button onClick={() => void window.studio.update.installFile().catch(fail)} title="Choose an Atelier installer you downloaded from GitHub">
+              Install from a file…
+            </button>
+          </div>
+        </div>
+        <p className="small muted" style={{ marginTop: 12, marginBottom: 0 }}>
+          An update installs over this version and restarts the app. What it has learned and all your projects stay where
+          they are ({status?.dataFolder ?? 'the app data folder'}), and a backup of them is made first, just in case.
+        </p>
+      </div>
+      {!status?.hasToken ? (
+        <details className="update-token">
+          <summary>Find updates automatically</summary>
+          <p className="small muted">
+            The project's code is private, so the app needs permission to look for new versions. On GitHub, open Settings
+            → Developer settings → Fine-grained tokens, create a token for the repository with <b>Contents: read-only</b>,
+            and paste it here. It is stored encrypted on this computer and only sent to GitHub.
+          </p>
+          <form
+            className="row"
+            onSubmit={(e) => {
+              e.preventDefault()
+              void window.studio.update
+                .setToken(token)
+                .then(() => (setToken(''), check()))
+                .catch(fail)
+            }}
+          >
+            <input type="password" style={{ flex: 1, minWidth: 260 }} placeholder="github_pat_…" value={token} onChange={(e) => setToken(e.target.value)} aria-label="GitHub token" autoComplete="off" />
+            <button disabled={!token.trim()}>Save token</button>
+          </form>
+        </details>
+      ) : (
+        <button className="ghost sm" style={{ marginTop: 6 }} onClick={() => void window.studio.update.setToken('').then(check)}>
+          Remove the GitHub token
+        </button>
+      )}
+
+      <h2>Your data</h2>
+      <p className="muted small">Everything learned and every project's decisions, as plain files. A backup can be put back on this or another computer.</p>
+      <div className="row">
+        <button onClick={() => void window.studio.backup.save().then((f) => f && notify(`Backed up to ${f}.`)).catch(fail)}>Back up…</button>
+        <button onClick={() => void window.studio.backup.restore().then((n) => n !== null && notify(`Restored ${n} files.`)).catch(fail)}>Restore from a backup…</button>
+        <button className="ghost" onClick={() => void window.studio.backup.reveal()}>
+          Open the data folder
+        </button>
+      </div>
+    </>
   )
 }

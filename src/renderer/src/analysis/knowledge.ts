@@ -20,7 +20,7 @@
 //     new assessment, with everything else the app has learned, so that it
 //     judges for this photographer and not for photographers in general.
 
-import type { Analysis, NarrativeRead, Person, Shot } from '@shared/types'
+import { RELATIVE_REASON, type Analysis, type NarrativeRead, type Person, type Shot } from '@shared/types'
 import { toCues } from './emotion'
 import { GESTURE_CUES } from './gesture'
 import { namesIn } from './people'
@@ -315,6 +315,62 @@ export function assetLines(l: ProjectLedger, limit = 5): { valued: string[]; pas
   }
 }
 
+// --- reasons for rejecting -------------------------------------------------------
+
+/**
+ * Why the photographer rejected frames, tied to what those frames looked like.
+ * Each reason is a direction away from the average decided frame; an undecided
+ * frame that lies in that direction "looks like frames you rejected for an
+ * awkward pose". Reasons that only say a sibling was better teach nothing about
+ * the frame and are left out.
+ */
+export interface Reasons {
+  tags: TagConcept[]
+  /** Per project, the sum and count of the vectors of every decided frame: the average they are measured from. */
+  means: Record<string, { sum: number[]; n: number }>
+}
+
+export const emptyReasons = (): Reasons => ({ tags: [], means: {} })
+
+/** Rebuilds what one project's rejections say. Safe to repeat. */
+export function absorbReasons(r: Reasons, projectId: string, shots: Shot[]): Reasons {
+  const prefix = projectId + ':'
+  let tags = r.tags.map((t) => ({ ...t, examples: t.examples.filter((e) => !e.key.startsWith(prefix)) }))
+  let sum: number[] | null = null
+  let n = 0
+  for (const s of shots) {
+    if (s.decision === null || !s.analysis) continue
+    const v = sceneVector(s.analysis)
+    sum = sum ? sum.map((x, i) => x + v[i]) : [...v]
+    n++
+    if (s.decision !== 'reject') continue
+    for (const reason of s.why ?? []) {
+      const name = cleanTag(reason)
+      if (!name || name === RELATIVE_REASON) continue
+      const example: TagExample = { v, source: 'you', key: `${projectId}:${s.id}`, w: 1 }
+      const t = tags.find((x) => x.name === name)
+      if (t) t.examples = [...t.examples, example].slice(-MAX_TAG_EXAMPLES * 2)
+      else tags.push({ name, examples: [example] })
+    }
+  }
+  tags = tags.filter((t) => t.examples.length)
+  const means = { ...r.means }
+  if (sum && n) means[projectId] = { sum: sum.map((x) => Math.round(x * 100) / 100), n }
+  else delete means[projectId]
+  return { tags, means }
+}
+
+/** The reasons as a Concepts store, so they can be recognised like words for what is happening. */
+export function reasonConcepts(r: Reasons): Concepts {
+  const parts = Object.values(r.means)
+  const n = parts.reduce((k, p) => k + p.n, 0)
+  const mean = n ? parts[0].sum.map((_, i) => parts.reduce((s, p) => s + (p.sum[i] ?? 0), 0) / n) : []
+  return { mean, seen: n, tags: r.tags }
+}
+
+/** Reasons given, most used first. */
+export const reasonCounts = (r: Reasons): { name: string; count: number }[] => r.tags.map((t) => ({ name: t.name, count: t.examples.length })).sort((a, b) => b.count - a.count)
+
 // --- 3. the record with Claude -------------------------------------------------------
 
 /** Whether a read amounts to "keep this" or "leave this", or neither. */
@@ -367,10 +423,61 @@ export interface Knowledge {
   ledger: Ledger
   claude: Record<string, ClaudeRecord>
   notes: Note[]
+  reasons: Reasons
+  /**
+   * What the photographer told the app not to use: 'asset:<name>', 'flaw:<name>',
+   * 'trade:<flaw>|<asset>'. Excluded entries are left out of scoring and of what Claude is told.
+   */
+  excluded: string[]
 }
 
 export const KNOWLEDGE_VERSION = 1
-export const emptyKnowledge = (): Knowledge => ({ version: KNOWLEDGE_VERSION, concepts: { mean: [], seen: 0, tags: [] }, ledger: { projects: {} }, claude: {}, notes: [] })
+export const emptyKnowledge = (): Knowledge => ({ version: KNOWLEDGE_VERSION, concepts: { mean: [], seen: 0, tags: [] }, ledger: { projects: {} }, claude: {}, notes: [], reasons: emptyReasons(), excluded: [] })
+
+/** The ledger with excluded entries taken out. */
+export function withoutExcluded(l: ProjectLedger, excluded: string[]): ProjectLedger {
+  if (!excluded.length) return l
+  const x = new Set(excluded)
+  const assets = Object.fromEntries(Object.entries(l.assets).filter(([a]) => !x.has(`asset:${a}`)))
+  const flaws = Object.fromEntries(
+    Object.entries(l.flaws)
+      .filter(([f]) => !x.has(`flaw:${f}`))
+      .map(([f, row]) => [f, Object.fromEntries(Object.entries(row).filter(([a]) => a === '*' || (!x.has(`trade:${f}|${a}`) && !x.has(`asset:${a}`))))])
+  )
+  return { ...l, assets, flaws }
+}
+
+/** The ledger's entries one by one, for showing and excluding: mistakes, trade-offs, assets. */
+export interface LedgerEntry {
+  key: string
+  kind: 'flaw' | 'trade' | 'asset'
+  text: string
+  /** Kept and seen. */
+  k: number
+  n: number
+  /** How strongly it shows: the larger, the more it moves suggestions. */
+  strength: number
+}
+
+export function ledgerEntries(l: ProjectLedger): LedgerEntry[] {
+  const out: LedgerEntry[] = []
+  const cleanRate = l.clean.n ? Math.max(0.05, l.clean.k / l.clean.n) : 0.5
+  for (const [flaw, row] of Object.entries(l.flaws)) {
+    const base = row['*']
+    if (!base || base.n < MIN_EVIDENCE) continue
+    const baseRate = base.k / base.n
+    out.push({ key: `flaw:${flaw}`, kind: 'flaw', text: `${flaw}`, k: base.k, n: base.n, strength: Math.abs(baseRate - cleanRate) })
+    for (const [asset, t] of Object.entries(row)) {
+      if (asset === '*' || t.n < MIN_EVIDENCE) continue
+      out.push({ key: `trade:${flaw}|${asset}`, kind: 'trade', text: `${flaw}, with ${asset}`, k: t.k, n: t.n, strength: t.k / t.n - baseRate })
+    }
+  }
+  for (const a of Object.keys(l.assets)) {
+    const x = assetLift(l, a)
+    if (x) out.push({ key: `asset:${a}`, kind: 'asset', text: a, k: x.k, n: x.n, strength: x.lift })
+  }
+  return out.sort((a, b) => b.n - a.n)
+}
 
 export const addNote = (k: Knowledge, note: Note): Knowledge => ({ ...k, notes: [...k.notes.filter((n) => n.text !== note.text), note].slice(-24) })
 
@@ -385,7 +492,7 @@ export function absorb(k: Knowledge, projectId: string, shots: Shot[], style: st
   if (record.agreed + record.disagreed) claude[projectId] = record
   else delete claude[projectId]
   const verdicts = new Map(shots.filter((s) => s.read).map((s) => [s.id, verdictOf(s)]))
-  return { ...k, ledger: { projects }, claude, concepts: settleTags(k.concepts, projectId, verdicts) }
+  return { ...k, ledger: { projects }, claude, concepts: settleTags(k.concepts, projectId, verdicts), reasons: absorbReasons(k.reasons ?? emptyReasons(), projectId, shots) }
 }
 
 /**
@@ -404,12 +511,15 @@ export function briefing(input: {
   const { knowledge: k, shots } = input
   const parts: string[] = []
   if (input.tendencies.length) parts.push(`Their past decisions show they favour: ${input.tendencies.join('; ')}.`)
-  const ledger = mergedLedger(k.ledger, input.style)
+  const ledger = withoutExcluded(mergedLedger(k.ledger, input.style), k.excluded ?? [])
   const trade = tradeoffLines(ledger, 5)
   if (trade.length) parts.push(`Mistakes against assets, from their own culls:\n${trade.map((t) => `- ${t}`).join('\n')}`)
   const { valued, passed } = assetLines(ledger, 5)
   if (valued.length) parts.push(`They keep more often than average: ${valued.join('; ')}.`)
   if (passed.length) parts.push(`They keep less often than average: ${passed.join('; ')}.`)
+
+  const why = reasonCounts(k.reasons ?? emptyReasons()).filter((r) => r.count >= 2).slice(0, 6)
+  if (why.length) parts.push(`Reasons they gave when rejecting frames: ${why.map((r) => `${r.name} (${r.count})`).join(', ')}.`)
 
   const records = Object.values(k.claude)
   const agreed = records.reduce((n, r) => n + r.agreed, 0)
@@ -434,7 +544,7 @@ export function briefing(input: {
     const say = (s: Shot): string => {
       const who = namesIn(s, input.people)
       const what = s.read?.what || s.score?.happening || s.analysis?.shotType || 'a frame'
-      return `- ${what}${who.length ? ` [${who.join(', ')}]` : ''}`
+      return `- ${what}${who.length ? ` [${who.join(', ')}]` : ''}${s.why?.length ? ` (because: ${s.why.join(', ')})` : ''}`
     }
     // The most recent decisions made by hand say most about what they are looking for today.
     const recent = (list: Shot[], n: number): Shot[] => list.filter((s) => s.decidedBy !== 'accepted').slice(-n)

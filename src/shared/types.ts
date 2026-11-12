@@ -309,6 +309,8 @@ export interface Shot {
   stackId?: number
   suggestion?: Suggestion
   read?: NarrativeRead
+  /** Why the photographer rejected it, in their words (REJECT_REASONS labels or their own). */
+  why?: string[]
   /** Who each face is (a Person id, or null), in the order of the analysis' faces. */
   people?: (string | null)[]
   /** Indices of faces the photographer assigned to a person by hand: left alone when people are found again. */
@@ -389,6 +391,18 @@ export interface ProjectSummary {
 export interface Settings {
   hasApiKey: boolean
   model: string
+  /** The first-run guide: the step reached, and whether it was finished or put away. */
+  guide: { step: number; done: boolean }
+  /** Ask why when a frame is rejected (a row of reasons appears; a key answers it). */
+  askWhy: boolean
+}
+
+export interface UpdateStatus {
+  current: string
+  hasToken: boolean
+  dataFolder: string
+  latest?: { version: string; notes: string; published: string; assetId: number; size: number }
+  error?: string
 }
 
 export interface ScannedFile {
@@ -465,7 +479,32 @@ export interface StudioApi {
   spend(): Promise<Record<string, number>>
   settings: {
     get(): Promise<Settings>
-    set(patch: { apiKey?: string; model?: string }): Promise<Settings>
+    set(patch: { apiKey?: string; model?: string; guide?: Settings['guide']; askWhy?: boolean }): Promise<Settings>
+  }
+  /** Opens the workshop window (what the app has learned, and training), at a section if given. */
+  openWorkshop(section?: string): Promise<void>
+  /** Brings the main window forward. */
+  focusStudio(): Promise<void>
+  /** Called when another window saved a store ('emotions', 'learned', 'project:<id>'...). Returns an unsubscribe. */
+  onChanged(fn: (name: string) => void): () => void
+  /** The workshop window is asked to show a section. */
+  onWorkshopGo(fn: (section: string) => void): () => void
+  version(): Promise<string>
+  update: {
+    check(): Promise<UpdateStatus>
+    setToken(token: string): Promise<void>
+    /** Downloads and installs; the app restarts into the new version. */
+    download(assetId: number): Promise<void>
+    onProgress(fn: (share: number) => void): () => void
+    /** Asks for a downloaded installer and runs it. False if cancelled. */
+    installFile(): Promise<boolean>
+  }
+  backup: {
+    /** Asks for a folder and copies everything learned and decided into it. Returns the backup folder, or null. */
+    save(): Promise<string | null>
+    /** Asks for a backup folder and restores from it. Returns the number of files, or null if cancelled. */
+    restore(): Promise<number | null>
+    reveal(): Promise<void>
   }
   ai: {
     story(req: StoryRequest): Promise<StoryAdvice>
@@ -613,6 +652,22 @@ export interface ReadResult {
   reads: Record<string, NarrativeRead>
   usage: Usage
 }
+
+/** Reasons offered when a frame is rejected, in key order (1..9, 0). The photographer can add their own. */
+export const REJECT_REASONS = [
+  'eyes closed or looking away',
+  'out of focus',
+  'bad expression',
+  'awkward pose',
+  'distracting background',
+  'light or exposure',
+  'composition',
+  'unflattering',
+  'nothing happens',
+  'a better take exists'
+]
+/** A reason that says nothing about the frame itself, only that a sibling was better. */
+export const RELATIVE_REASON = 'a better take exists'
 
 export const RAW_EXTENSIONS = ['arw', 'raf', 'cr2', 'cr3', 'nef', 'dng', 'orf', 'rw2', 'pef', 'srw']
 export const IMAGE_EXTENSIONS = [...RAW_EXTENSIONS, 'jpg', 'jpeg']

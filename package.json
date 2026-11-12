@@ -1,7 +1,7 @@
 {
   "name": "atelier-studio",
   "productName": "Atelier",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A local-first project studio for photographers, filmmakers and designers: cull faster, learn to grade, tell better stories.",
   "main": "out/main/index.js",
   "author": "Atelier",

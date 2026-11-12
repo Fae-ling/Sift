@@ -30,14 +30,14 @@ import { emptyEmotions, EMOTION_VERSION, dismissPointer, forgetEmotion, namePoin
 import { buildProfile, emotionLifts, emotionWeights, feelOf, mergeLifts, mergeProfiles, newStyle, profileFacts, STARTER_STYLES, styleNotes, upgradeStyle } from './analysis/style'
 import type { StyleProfile } from '@shared/types'
 import { emptyGestures, forgetGesture, GESTURE_VERSION, gestureCentroid, readGesture, teachGesture, type GestureStore } from './analysis/gesture'
-import { absorb, addNote, briefing, cleanTag, emptyKnowledge, KNOWLEDGE_VERSION, learnTags, mergedLedger, READ_WEIGHT, sceneVector, tagDirections, vocabulary, type Knowledge, type Note, type ProjectLedger } from './analysis/knowledge'
+import { absorb, addNote, briefing, cleanTag, emptyKnowledge, emptyReasons, KNOWLEDGE_VERSION, learnTags, mergedLedger, READ_WEIGHT, reasonConcepts, sceneVector, tagDirections, vocabulary, withoutExcluded, type Knowledge, type Note, type ProjectLedger } from './analysis/knowledge'
 import { appearances, assignPeople, mergePeople, namesIn } from './analysis/people'
 import { estimateOf, relookOf, type Relook } from './analysis/estimate'
 import { faceThumb } from './analysis/pipeline'
 import { FEATURES, tendencies } from './analysis/learner'
 
 type ViewBase = 'projects' | 'profiles' | 'emotions' | 'training' | 'look' | 'diagnose' | 'brief' | 'import' | 'cull' | 'story' | 'export' | 'learn' | 'settings'
-export type View = ViewBase | 'people' | 'knowledge'
+export type View = ViewBase | 'people' | 'overview' | 'taste' | 'gestures' | 'words' | 'reasons' | 'claude'
 export type Filter = 'all' | 'suggested' | 'undecided' | 'picks' | 'rejects' | 'warnings' | 'gems' | 'unkept' | 'must' | 'relook' | 'key'
 
 interface IngestState {
@@ -174,6 +174,30 @@ interface State {
   mergePerson(fromId: string, intoId: string): void
   /** Says who a face is: an existing person, 'new' for someone not listed yet, or null for nobody in particular. */
   setFacePerson(shotId: string, face: number, personId: string | 'new' | null): void
+  /** Frames chosen together in Cull (Ctrl- or Shift-click), to decide in one go. */
+  marked: string[]
+  setMarked(ids: string[]): void
+  /** Says why frames were rejected. Reasons replace any given before. */
+  setWhy(ids: string[], why: string[]): void
+  /** Frames just rejected, waiting for a reason (the reason row is showing). */
+  asking: string[] | null
+  setAsking(ids: string[] | null): void
+  setAskWhy(on: boolean): Promise<void>
+  /** Imports a past shoot as a project, takes the decisions from its ratings or delivered files, learns from them. */
+  learnFromPastShoot(input: { folder: string; name: string; styleId: string; from: { stars: number } | { delivered: string }; fast: boolean }): Promise<number>
+  /** Puts the open project away without switching view (for the guide and the workshop). */
+  putAway(): Promise<void>
+  /** Remove or rule out something learned. */
+  forgetEmotionExample(name: string, at: number): void
+  forgetGestureExamples(name: string): void
+  forgetReason(name: string): void
+  forgetNote(at: number): void
+  forgetClaudeRecord(projectId: string): void
+  setExcluded(key: string, excluded: boolean): void
+  setIgnoredMeasurement(key: string, ignored: boolean): void
+  forgetProjectDecisions(projectId: string): void
+  /** Reloads a store another window changed, without saving anything back. */
+  reloadChanged(name: string): Promise<void>
   /** Frames a re-estimate of the open project turned up. */
   relook: Relook | null
   /** Scores the open project again with what the app knows today, minus what it learned here. */
@@ -209,8 +233,10 @@ interface State {
   readShoot(): Promise<void>
   cancelRead(): void
   loadSettings(): Promise<void>
-  saveSettings(patch: { apiKey?: string; model?: string }): Promise<void>
+  saveSettings(patch: Parameters<StudioSettingsSet>[0]): Promise<void>
 }
+
+type StudioSettingsSet = Window['studio']['settings']['set']
 
 const newId = (): string => crypto.randomUUID().replace(/-/g, '').slice(0, 16)
 
@@ -246,6 +272,7 @@ function scoring(p: Pick<Project, 'genre' | 'balance' | 'styleIds' | 'storyPlan'
   return {
     gestures: { store: currentGestures, centroids: gestureCentroids() },
     concepts: { store: currentKnowledge.concepts, directions: directionsNow() },
+    reasons: reasonsNow(),
     ledger: ledgerFor(p.styleIds[0] ?? '', without?.projectId),
     people: p.people,
     emotions: { store: currentEmotions, weights: emotionWeights(active[0]) },
@@ -271,11 +298,22 @@ function directionsNow(): ReturnType<typeof tagDirections> {
   if (directionCache?.of !== currentKnowledge.concepts) directionCache = { of: currentKnowledge.concepts, list: tagDirections(currentKnowledge.concepts) }
   return directionCache.list
 }
-let ledgerCache: { of: Knowledge['ledger']; key: string; merged: ProjectLedger } | null = null
+let ledgerCache: { of: Knowledge['ledger']; excluded: string[]; key: string; merged: ProjectLedger } | null = null
 function ledgerFor(style: string, except?: string): ProjectLedger {
   const key = `${style}|${except ?? ''}`
-  if (ledgerCache?.of !== currentKnowledge.ledger || ledgerCache.key !== key) ledgerCache = { of: currentKnowledge.ledger, key, merged: mergedLedger(currentKnowledge.ledger, style, except) }
+  const k = currentKnowledge
+  if (ledgerCache?.of !== k.ledger || ledgerCache.excluded !== k.excluded || ledgerCache.key !== key)
+    ledgerCache = { of: k.ledger, excluded: k.excluded, key, merged: withoutExcluded(mergedLedger(k.ledger, style, except), k.excluded ?? []) }
   return ledgerCache.merged
+}
+let reasonCache: { of: Knowledge['reasons']; value: { store: ReturnType<typeof reasonConcepts>; directions: ReturnType<typeof tagDirections> } } | null = null
+function reasonsNow(): { store: ReturnType<typeof reasonConcepts>; directions: ReturnType<typeof tagDirections> } {
+  const r = currentKnowledge.reasons ?? emptyReasons()
+  if (reasonCache?.of !== r) {
+    const store = reasonConcepts(r)
+    reasonCache = { of: r, value: { store, directions: tagDirections(store) } }
+  }
+  return reasonCache.value
 }
 
 function setKnowledge(set: (p: Partial<State>) => void, knowledge: Knowledge, save = true): void {
@@ -490,7 +528,7 @@ export const useStore = create<State>((set, get) => ({
   project: null,
   selectedId: null,
   filter: 'all',
-  settings: { hasApiKey: false, model: '' },
+  settings: { hasApiKey: false, model: '', guide: { step: 0, done: true }, askWhy: true },
   ingest: { running: false, done: 0, total: 0, failed: 0, startedAt: 0 },
   reading: { running: false, done: 0, total: 0 },
   learned: { styles: [], balance: {} },
@@ -503,6 +541,8 @@ export const useStore = create<State>((set, get) => ({
   gestures: emptyGestures(),
   knowledge: emptyKnowledge(),
   relook: null,
+  marked: [],
+  asking: null,
   estimating: { running: false, done: 0, total: 0 },
   training: emptyTraining(),
   teaching: { running: false, done: 0, total: 0, label: '' },
@@ -559,7 +599,7 @@ export const useStore = create<State>((set, get) => ({
     if (loaded.balance === undefined) project.shots = scoreAndSuggest(project.shots, scoring(project, get().learned))
     const has = project.shots.length > 0
     // Open on the frames the cull would keep; everything else is one click away.
-    set({ project, view: has ? 'cull' : 'brief', selectedId: null, filter: has ? 'suggested' : 'all', chapter: null, undoStack: [], redoStack: [], relook: null })
+    set({ project, view: has ? 'cull' : 'brief', selectedId: null, filter: has ? 'suggested' : 'all', chapter: null, undoStack: [], redoStack: [], relook: null, marked: [], asking: null })
     // Score the project with the taste model as it stands, tuned to this kind of shoot.
     get().relearn()
   },
@@ -615,6 +655,7 @@ export const useStore = create<State>((set, get) => ({
           ? {
               ...s,
               decision,
+              why: decision === 'reject' ? s.why : undefined,
               // How the choice was made decides how much it teaches.
               decidedBy: decision ? ('manual' as const) : undefined,
               suggestedThen: decision ? s.suggestion : undefined,
@@ -1143,6 +1184,119 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setFastImport: (on) => get().update((p) => ({ ...p, fastImport: on })),
+
+  setMarked: (marked) => set({ marked }),
+  setAsking: (asking) => set({ asking }),
+  setWhy: (ids, why) => {
+    const wanted = new Set(ids)
+    const clean = [...new Set(why.map((w) => w.trim().toLowerCase()).filter(Boolean))]
+    get().update((p) => ({ ...p, shots: p.shots.map((s) => (wanted.has(s.id) && s.decision === 'reject' ? { ...s, why: clean.length ? clean : undefined } : s)) }))
+    // A reason is learned from at once: it is cheap to file, and the next frames should already feel it.
+    const p = get().project
+    if (p) {
+      setKnowledge(set, absorb(get().knowledge, p.id, p.shots, p.styleIds[0] ?? ''))
+      rescore(get)
+    }
+  },
+  setAskWhy: async (on) => set({ settings: await window.studio.settings.set({ askWhy: on }) }),
+
+  putAway: async () => {
+    const project = get().project
+    if (!project) return
+    get().relearn()
+    clearTimeout(saveTimer)
+    await window.studio.projects.save(get().project!, true)
+    cancelRequested = true
+    set({ project: null, selectedId: null, marked: [], asking: null })
+    await get().refreshProjects()
+  },
+
+  learnFromPastShoot: async ({ folder, name, styleId, from, fast }) => {
+    const view = get().view
+    if (get().project) await get().putAway()
+    await get().createProject(name, styleId)
+    set({ view })
+    get().setFastImport(fast)
+    await get().importFolder(folder)
+    const count = 'stars' in from ? await get().teachFromRatings(from.stars) : await get().teachFromDelivered(from.delivered)
+    await get().putAway()
+    set({ view })
+    return count
+  },
+
+  forgetEmotionExample: (name, at) => {
+    const e = get().emotions
+    setEmotions(set, { ...e, concepts: e.concepts.map((c) => (c.name === name ? { ...c, examples: c.examples.filter((x) => x.at !== at) } : c)) })
+    rescore(get)
+  },
+  forgetGestureExamples: (name) => get().forgetGestureNamed(name),
+  forgetReason: (name) => {
+    const k = get().knowledge
+    const reasons = k.reasons ?? emptyReasons()
+    setKnowledge(set, { ...k, reasons: { ...reasons, tags: reasons.tags.filter((t) => t.name !== name) } })
+    rescore(get)
+  },
+  forgetNote: (at) => setKnowledge(set, { ...get().knowledge, notes: get().knowledge.notes.filter((n) => n.at !== at) }),
+  forgetClaudeRecord: (projectId) => {
+    const claude = { ...get().knowledge.claude }
+    delete claude[projectId]
+    setKnowledge(set, { ...get().knowledge, claude })
+  },
+  setExcluded: (key, excluded) => {
+    const k = get().knowledge
+    const list = new Set(k.excluded ?? [])
+    if (excluded) list.add(key)
+    else list.delete(key)
+    setKnowledge(set, { ...k, excluded: [...list] })
+    rescore(get)
+  },
+  setIgnoredMeasurement: (key, ignored) => {
+    const data = get().tasteData
+    const list = new Set(data.ignored ?? [])
+    if (ignored) list.add(key)
+    else list.delete(key)
+    set({ tasteData: { ...data, ignored: [...list] } })
+    get().relearn()
+  },
+  forgetProjectDecisions: (projectId) => {
+    const data = get().tasteData
+    const projects = { ...data.projects }
+    delete projects[projectId]
+    const k = get().knowledge
+    const ledger = { projects: { ...k.ledger.projects } }
+    delete ledger.projects[projectId]
+    set({ tasteData: { ...data, projects } })
+    setKnowledge(set, { ...k, ledger })
+    get().relearn()
+  },
+
+  reloadChanged: async (name) => {
+    // Another window saved this. Load it and score again; never save it back, or the windows would echo forever.
+    if (name === 'emotions') {
+      const stored = (await window.studio.data.get('emotions')) as EmotionStore | null
+      if (stored && stored.version === EMOTION_VERSION) setEmotions(set, stored, false)
+    } else if (name === 'knowledge' || name === 'gestures') {
+      await get().loadKnowledge()
+    } else if (name === 'learned') {
+      const learned = await window.studio.learned.get()
+      set({ learned: { ...learned, styles: learned.styles.map(upgradeStyle) } })
+    } else if (name === 'learning') {
+      const stored = (await window.studio.learning.get()) as LearningData | null
+      if (!stored || stored.version !== FEATURE_VERSION) return
+      for (const p of Object.values(stored.projects)) for (const e of p.examples) while (e.x.length < FEATURES.length) e.x.push(0)
+      const total = Object.values(stored.projects).reduce((n, p) => n + p.examples.length, 0)
+      currentTaste = total ? learnTaste(stored, get().project?.genre ?? 'other') : null
+      set({ tasteData: stored, taste: currentTaste })
+    } else if (name === 'training') {
+      await get().loadTraining()
+    } else if (name === 'settings') {
+      await get().loadSettings()
+    } else if (name.startsWith('project:')) {
+      if (!get().project) await get().refreshProjects()
+      return
+    } else return
+    rescore(get)
+  },
 
   loadKnowledge: async () => {
     const [k, g] = await Promise.all([window.studio.data.get('knowledge'), window.studio.data.get('gestures')])

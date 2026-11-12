@@ -8,7 +8,7 @@ import { PageHeader } from '../components/PageHeader'
 const ASK_AT_ONCE = 24
 
 export function Emotions(): React.JSX.Element {
-  const { emotions, settings, project, learned, namePointerAs, dropPointer, forgetEmotionNamed, notify } = useStore()
+  const { emotions, settings, project, learned, namePointerAs, dropPointer, forgetEmotionNamed, forgetEmotionExample, notify } = useStore()
   const [asking, setAsking] = useState(false)
   const waiting = [...emotions.pointers].filter((p) => p.thumbs.length > 0).sort((a, b) => b.count - a.count)
   const style = learned.styles.find((s) => project?.styleIds.includes(s.id))
@@ -65,11 +65,11 @@ export function Emotions(): React.JSX.Element {
       <h2>What it knows</h2>
       <p className="muted small">
         To teach it more, open a frame in Cull and click the emotion under a face: confirm it, correct it, or type a new
-        one.
+        one. Hover an example to remove it.
       </p>
       <div className="cards" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
         {emotions.concepts.map((c) => (
-          <ConceptCard key={c.name} concept={c} onForget={() => forgetEmotionNamed(c.name)} />
+          <ConceptCard key={c.name} concept={c} onForget={() => forgetEmotionNamed(c.name)} onForgetExample={(at) => forgetEmotionExample(c.name, at)} />
         ))}
       </div>
     </div>
@@ -113,10 +113,10 @@ function PointerRow({ pointer, names, onName, onDrop }: { pointer: Pointer; name
   )
 }
 
-function ConceptCard({ concept: c, onForget }: { concept: EmotionConcept; onForget: () => void }): React.JSX.Element {
+function ConceptCard({ concept: c, onForget, onForgetExample }: { concept: EmotionConcept; onForget: () => void; onForgetExample: (at: number) => void }): React.JSX.Element {
   const yours = c.examples.filter((e) => e.source === 'you').length
   const claudes = c.examples.length - yours
-  const thumbs = c.examples.filter((e) => e.thumb).slice(-6)
+  const thumbs = c.examples.filter((e) => e.thumb).slice(-12)
   return (
     <div className="card">
       <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -130,7 +130,12 @@ function ConceptCard({ concept: c, onForget }: { concept: EmotionConcept; onForg
       {thumbs.length > 0 && (
         <div className="faces" style={{ marginBottom: 8 }}>
           {thumbs.map((e, i) => (
-            <img key={i} src={e.thumb} alt={`An example of ${c.name}`} style={{ width: 44, height: 44 }} />
+            <span key={i} className="example">
+              <img src={e.thumb} alt={`An example of ${c.name}, from ${e.source === 'you' ? 'you' : 'Claude'}`} />
+              <button className="example-x" onClick={() => onForgetExample(e.at)} aria-label={`Remove this example of ${c.name}`} title="Remove this example">
+                ×
+              </button>
+            </span>
           ))}
         </div>
       )}

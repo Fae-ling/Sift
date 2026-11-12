@@ -146,6 +146,8 @@ export interface LearningData {
   /** Whether some bursts are shown without a suggestion, to collect unprompted choices. */
   blindBursts: boolean
   projects: Record<string, ProjectExamples>
+  /** Measurements the photographer told the model not to use (FEATURES keys). */
+  ignored?: string[]
 }
 
 export const emptyLearning = (): LearningData => ({ version: FEATURE_VERSION, blindBursts: true, projects: {} })
@@ -298,10 +300,13 @@ export const isBlindBurst = (projectId: string, stackId: number): boolean => has
 export function learn(data: LearningData, genre: Genre): Learned {
   const projects = Object.entries(data.projects).sort((a, b) => b[1].updatedAt - a[1].updatedAt)
   const all: { e: Example; key: string }[] = []
+  // A measurement the photographer ruled out is invisible to the model: always zero, so its weight stays zero.
+  const off = new Set((data.ignored ?? []).map((k) => FEATURES.findIndex((f) => f.key === k)).filter((i) => i > 0))
+  const clean = (x: number[]): number[] => (off.size ? x.map((v, i) => (off.has(i) ? 0 : v)) : x)
   projects.forEach(([id, p], age) => {
     // Each older project counts a little less; a different kind of shoot counts for half.
     const scale = Math.pow(0.93, age) * (p.genre === genre ? 1 : 0.5)
-    for (const e of p.examples) all.push({ e: { ...e, w: e.w * scale }, key: `${id}:${e.stack}` })
+    for (const e of p.examples) all.push({ e: { ...e, x: clean(e.x), w: e.w * scale }, key: `${id}:${e.stack}` })
   })
   const keyOf = new Map(all.map(({ e, key }) => [e, key]))
   const key = (e: Example): string => keyOf.get(e)!
@@ -354,6 +359,15 @@ export function learn(data: LearningData, genre: Genre): Learned {
       blindDecisions: all.filter(({ e }) => e.blind).length
     }
   }
+}
+
+/** Each measurement and how strongly the model leans on it, in words: for showing and ruling out. */
+export function leanings(model: Model): { key: string; text: string; w: number }[] {
+  return model.weights
+    .map((w, i) => ({ w, f: FEATURES[i] }))
+    .filter(({ f }) => f.key !== 'bias')
+    .map(({ w, f }) => ({ key: f.key, text: w >= 0 ? f.more : f.less, w }))
+    .sort((a, b) => Math.abs(b.w) - Math.abs(a.w))
 }
 
 /** What the model has learned, strongest tendencies first, in words. */

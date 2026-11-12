@@ -27,7 +27,7 @@ const app = await electron.launch({
   executablePath: packaged ?? require('electron'),
   // Software WebGL, so the face model also runs on machines without a graphics card.
   args: [...(packaged ? [] : [resolve('out/main/index.js')]), '--no-sandbox', '--enable-unsafe-swiftshader'],
-  env: { ...process.env, ATELIER_USER_DATA: userData }
+  env: { ...process.env, ATELIER_USER_DATA: userData, ANTHROPIC_API_KEY: 'stand-in' }
 })
 const errors = []
 /** Waits until a count read from the window satisfies a condition: the window redraws a moment after a key press. */
@@ -56,8 +56,6 @@ try {
 
   // The paid editor's read is replaced by a stand-in, so the test spends nothing and needs no key.
   await app.evaluate(({ ipcMain }) => {
-    ipcMain.removeHandler('settings:get')
-    ipcMain.handle('settings:get', () => ({ hasApiKey: true, model: 'claude-opus-5-5' }))
     ipcMain.removeHandler('ai:essence')
     ipcMain.handle('ai:essence', () => ({ summary: 'Stand-in essence.', principles: ['Keeps laughter.'], lookFor: ['Hands'], forgive: ['Blur'] }))
     ipcMain.removeHandler('ai:developStyle')
@@ -79,6 +77,22 @@ try {
     }))
   })
   await page.reload()
+
+  // The first-run guide: add a kind of work, learn from a past shoot, then put the guide away.
+  await page.getByRole('dialog', { name: 'Setting up Atelier' }).waitFor()
+  await snap('0-guide')
+  await page.getByRole('button', { name: 'Start' }).click()
+  await page.getByLabel('Style name').fill('LARP night')
+  await page.getByRole('button', { name: 'Add style' }).click()
+  await page.locator('.chip.big', { hasText: 'LARP night' }).waitFor()
+  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('button', { name: /Choose its folder of originals/ }).click()
+  await page.getByRole('button', { name: 'Learn from this shoot' }).click()
+  await page.getByText(/Learned from \d+ decisions|nothing to learn from/).waitFor({ timeout: 300_000 })
+  await snap('0-guide-past-shoot')
+  await page.getByRole('button', { name: 'Skip the guide' }).click()
+  await page.getByRole('dialog', { name: 'Setting up Atelier' }).waitFor({ state: 'detached' })
+  assert.match(readFileSync(join(userData, 'settings.json'), 'utf8'), /"done":true/, 'the guide stays put away')
 
   await page.getByLabel('Project name').fill('Smoke test')
   await page.getByLabel('Shoot style').selectOption({ label: 'Wedding' })
@@ -158,37 +172,57 @@ try {
   await snap('3-cull-second-look')
   await page.getByRole('button', { name: /^All \d/ }).click()
 
+  // Several frames chosen with Ctrl-click are rejected in one go, and the reason is asked for.
+  await page.locator('.strip .thumb').nth(0).click()
+  await page.locator('.strip .thumb').nth(1).click({ modifiers: ['Control'] })
+  await page.getByText('2 chosen').waitFor()
+  await snap('3-cull-chosen')
+  await page.keyboard.press('x')
+  await page.getByText('Why (2 frames)?').waitFor()
+  await snap('3-cull-why')
+  await page.keyboard.press('4')
+  await until(() => page.locator('.strip .thumb[title*="rejected: awkward pose"]').count(), (n) => n === 2, 'both frames carry the reason')
+  await page.keyboard.press('Escape')
+  await page.getByText('2 chosen').waitFor({ state: 'detached' })
+
   // A hidden gem is left for the photographer to decide; decide the first frame by hand.
   await page.locator('.strip .thumb').first().click()
   await page.keyboard.press('p')
   assert.ok((await page.locator('.strip .flag.pick').count()) >= 1, 'accepting a suggestion makes a pick')
   await snap('3-cull-accepted')
 
-  // The decisions made above have been learned from.
-  await page.locator('.sidebar .nav', { hasText: 'Training' }).click()
-  await page.getByRole('button', { name: 'Learn now' }).click()
-  await page.getByText(/decisions learned from/).waitFor()
+  // The workshop opens in a window of its own; the decisions made above have been learned from.
+  const [ws] = await Promise.all([app.waitForEvent('window'), page.locator('.workshop-link').click()])
+  ws.on('console', (m) => m.type() === 'error' && !expected(m.text()) && errors.push(`workshop: ${m.text()}`))
+  ws.on('pageerror', (e) => errors.push(`workshop: ${e}`))
+  const wsnap = async (name) => shotsDir && (await ws.screenshot({ path: join(shotsDir, `${name}.png`) }))
+  await ws.getByRole('heading', { name: 'Workshop' }).waitFor()
+  await wsnap('w-overview')
+  await ws.locator('.sidebar .nav', { hasText: 'Your eye' }).click()
+  await ws.getByRole('button', { name: 'Learn now' }).click()
+  await ws.getByText(/decisions, \d+ project/).waitFor()
+  await wsnap('w-your-eye')
   assert.match(readFileSync(join(userData, 'learning.json'), 'utf8'), /"examples":\[\{/, 'decisions are stored as examples')
 
   // A shoot style learns from a folder of photographs, has them put into words, and is developed by Claude.
-  await page.locator('.sidebar .nav', { hasText: 'Shoot styles' }).click()
-  await page.locator('.split-list .item', { hasText: 'LARP and battle' }).click()
-  await page.getByRole('tab', { name: 'Learning' }).click()
-  await page.getByRole('button', { name: /Learn from a folder of photographs/ }).click()
-  await page.getByText(/photographs; \d+% show people/).waitFor({ timeout: 400_000 })
-  await page.getByRole('button', { name: /Put the photographs into words/ }).click()
-  await page.getByText('Stand-in essence.').waitFor()
-  await page.getByRole('button', { name: /Develop with Claude|Refine with Claude/ }).click()
-  await page.getByText(/Stand-in notes for LARP and battle/).waitFor()
-  await page.getByRole('button', { name: 'Accept', exact: true }).click()
-  await page.getByRole('tab', { name: 'Emotions' }).click()
-  await page.getByLabel('How much this style values triumph').waitFor()
-  await snap('4-styles')
+  await ws.locator('.sidebar .nav', { hasText: 'Shoot styles' }).click()
+  await ws.locator('.split-list .item', { hasText: 'LARP and battle' }).click()
+  await ws.getByRole('tab', { name: 'Learning' }).click()
+  await ws.getByRole('button', { name: /Learn from a folder of photographs/ }).click()
+  await ws.getByText(/photographs; \d+% show people/).waitFor({ timeout: 400_000 })
+  await ws.getByRole('button', { name: /Put the photographs into words/ }).click()
+  await ws.getByText('Stand-in essence.').waitFor()
+  await ws.getByRole('button', { name: /Develop with Claude|Refine with Claude/ }).click()
+  await ws.getByText(/Stand-in notes for LARP and battle/).waitFor()
+  await ws.getByRole('button', { name: 'Accept', exact: true }).click()
+  await ws.getByRole('tab', { name: 'Emotions' }).click()
+  await ws.getByLabel('How much this style values triumph').waitFor()
+  await wsnap('w-styles')
 
   // The emotion taught in Cull is now part of what the app knows.
-  await page.locator('.sidebar .nav', { hasText: 'Emotions' }).click()
-  await page.getByRole('heading', { name: 'What it knows' }).waitFor()
-  await snap('4-emotions')
+  await ws.locator('.sidebar .nav', { hasText: 'Emotions' }).click()
+  await ws.getByRole('heading', { name: 'What it knows' }).waitFor()
+  await wsnap('w-emotions')
 
   // The look extractor turns a reference photo into a LUT.
   const jpgs = readdirSync(samples).filter((f) => /\.jpe?g$/i.test(f))
@@ -257,22 +291,12 @@ try {
   }
   await snap('5-exported')
 
-  // Clear the decision on the RAW so that its Lightroom rating (written at hand-off) is something new to learn.
-  if (rawFile) {
-    await page.getByRole('button', { name: 'Cull', exact: false }).first().click()
-    await page.getByRole('button', { name: /^All \d/ }).click()
-    await page.locator(`.strip .thumb[title="${rawFile}"]`).click()
-    await page.keyboard.press('u')
-  }
-
-  // Training: norms from finished photographs, habits from Lightroom sidecars, decisions from ratings.
-  await page.locator('.sidebar .nav', { hasText: 'Training' }).click()
-  await page.getByRole('button', { name: /Train on finished photographs/ }).click()
-  await page.getByText(/finished photographs so far|Learned from \d+ finished photographs/).waitFor({ timeout: 400_000 })
-  await page.getByRole('button', { name: /Learn from Lightroom ratings/ }).click()
-  await page.getByText(rawFile ? /1 frame learned from Lightroom ratings/ : /learned from Lightroom ratings/).waitFor({ timeout: 60_000 })
+  // Training in the workshop: norms from finished photographs.
+  await ws.locator('.sidebar .nav', { hasText: 'Teach with photos' }).click()
+  await ws.getByRole('button', { name: /Choose finished photographs/ }).click()
+  await ws.getByText(/Learned from \d+ finished photographs|finished photographs so far/).waitFor({ timeout: 400_000 })
   assert.match(readFileSync(join(userData, 'training.json'), 'utf8'), /"norms":\{"/, 'what was learned is stored')
-  await snap('6-training')
+  await wsnap('w-training')
 
   // People: the shoot's people are told apart; one is named and marked as key.
   await page.locator('.sidebar .nav', { hasText: 'People' }).click()
@@ -288,15 +312,29 @@ try {
     await snap('7-key-person')
   } else console.log('note: no people were told apart in these samples')
 
-  // What it knows: Claude's words were stored, the decisions were filed, and the project can be re-estimated.
-  await page.locator('.sidebar .nav', { hasText: 'What it knows' }).click()
-  await page.locator('.chip', { hasText: 'portrait sitting' }).waitFor()
-  await page.getByRole('button', { name: 'Re-estimate this project' }).click()
-  await page.getByText(/Last re-estimate: the app's call matched yours/).waitFor()
-  await snap('8-knowledge')
+  // The shoot can be re-estimated from the cull settings.
+  await page.locator('.sidebar .nav', { hasText: 'Cull' }).click()
+  await page.locator('.popover-wrap > button').click()
+  await page.getByRole('button', { name: 'Re-estimate this shoot' }).click()
+  await page.getByText(/Today the app would make|Decide some frames by hand first/).waitFor()
+  await page.keyboard.press('Escape')
+
+  // In the workshop: Claude's words were stored, the reason given is listed and can be forgotten.
+  await ws.locator('.sidebar .nav', { hasText: 'What is happening' }).click()
+  await ws.locator('.list-title', { hasText: 'portrait sitting' }).waitFor()
+  await wsnap('w-words')
+  await ws.locator('.sidebar .nav', { hasText: 'Mistakes and reasons' }).click()
+  const reasonRow = ws.locator('.list-row', { hasText: 'awkward pose' })
+  await reasonRow.waitFor()
+  await wsnap('w-reasons')
+  await reasonRow.getByRole('button', { name: 'Forget' }).click()
+  await reasonRow.waitFor({ state: 'detached' })
+  await ws.locator('.sidebar .nav', { hasText: 'Overview' }).click()
+  await ws.getByRole('button', { name: 'Re-estimate all projects' }).waitFor()
   const knowledge = JSON.parse(readFileSync(join(userData, 'knowledge.json'), 'utf8'))
   assert.ok(knowledge.concepts.tags.some((t) => t.name === 'portrait sitting'), "Claude's description is stored for learning")
-  assert.ok(Object.keys(knowledge.ledger.projects).length === 1, 'decisions are filed as mistakes against assets')
+  assert.ok(Object.keys(knowledge.ledger.projects).length >= 1, 'decisions are filed as mistakes against assets')
+  assert.ok(!knowledge.reasons.tags.some((t) => t.name === 'awkward pose'), 'a forgotten reason is gone')
 
   assert.deepEqual(errors, [], 'no console errors')
   console.log('smoke test passed')

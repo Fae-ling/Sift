@@ -158,6 +158,8 @@ export interface ScoreOptions {
   gestures?: { store: GestureStore; centroids?: number[][] }
   /** What the app has learned to recognise as happening in a frame. */
   concepts?: { store: Concepts; directions?: ReturnType<typeof tagDirections> }
+  /** Why the photographer has rejected frames before, as something that can be recognised. */
+  reasons?: { store: Concepts; directions?: ReturnType<typeof tagDirections> }
   /** The photographer's decisions so far, filed by mistake and asset. */
   ledger?: ProjectLedger
   /** The people of this shoot; the key ones count for more. */
@@ -469,6 +471,7 @@ export function scoreAndSuggest(shots: Shot[], options: ScoreOptions): Shot[] {
     if (said.length || !options.concepts || !directions.length) return said
     return recogniseTags(sceneVector(s.analysis!), options.concepts.store, directions)
   }
+  const reasonDirections = options.reasons ? (options.reasons.directions ?? tagDirections(options.reasons.store)) : []
   const mustChapter = (s: Shot): boolean => !!options.must?.has(s.chapter ?? s.read?.beat ?? '')
 
   const scores = new Map<string, Score>()
@@ -500,6 +503,15 @@ export function scoreAndSuggest(shots: Shot[], options: ScoreOptions): Shot[] {
     for (const s of stack) {
       const score = scores.get(s.id)!
       const flaws = (score.flaws = flawsOf(score, s.analysis!))
+      // A frame that looks like frames the photographer rejected for a reason they gave.
+      if (options.reasons && reasonDirections.length && s.decision === null) {
+        const like = recogniseTags(sceneVector(s.analysis!), options.reasons.store, reasonDirections).slice(0, 2)
+        for (const r of like) {
+          flaws.push(`looks like: ${r}`)
+          score.overall = Math.max(0, score.overall - 5)
+        }
+        if (like.length) score.notes.push(`Looks like frames you rejected for ${like.join(' and ')}.`)
+      }
       const assets = (score.assets = assetsOf(score, s, s.analysis!))
       const ledger = options.ledger
       if (!ledger) continue
