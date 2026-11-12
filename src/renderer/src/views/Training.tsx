@@ -1,17 +1,16 @@
 import { useState } from 'react'
 import { MIN_TESTED_PAIRS } from '../analysis/learner'
-import { habitsFrom, limitsFrom, trainingSummary } from '../analysis/training'
+import { limitsFrom, trainingSummary } from '../analysis/training'
 import { useStore } from '../store'
 
-const KIND = { finished: 'Finished photographs', edits: 'Lightroom edits', look: 'Before/after pairs', decisions: 'Past decisions' }
+const KIND = { finished: 'Finished photographs', look: 'Before/after pairs', decisions: 'Past decisions' }
 
 const plural = (n: number): string => (n === 0 ? 'No new frames' : n === 1 ? '1 frame' : `${n} frames`)
 
 export function TrainingView(): React.JSX.Element {
-  const { training, teaching, taste, project, learned, trainFinished, trainEdits, trainLook, teachFromRatings, teachFromDelivered, resetTraining, setView, notify } = useStore()
+  const { training, teaching, taste, project, learned, trainFinished, trainLook, teachFromRatings, teachFromDelivered, resetTraining, setView, notify } = useStore()
   const [stars, setStars] = useState(1)
   const summary = trainingSummary(training)
-  const habits = habitsFrom(training)
   const limits = limitsFrom(training)
   const pct = (v: number): string => `${Math.round(v * 100)}%`
 
@@ -136,46 +135,7 @@ export function TrainingView(): React.JSX.Element {
         </section>
 
         <section className="card">
-          <h2 style={{ marginTop: 0 }}>3. Edit coach: how you edit</h2>
-          <p className="small">
-            <b>Give it:</b> a folder of RAW files you edited in Lightroom, with their XMP sidecars (Catalog Settings →
-            Metadata → Automatically write changes into XMP, or select the photos and press Ctrl+S). It learns the range
-            you normally use for each slider. Tips then point out when you leave your own range, and stop flagging
-            values that are simply your style.
-          </p>
-          <p className="small muted">{summary.habits}</p>
-          {Object.keys(habits).length > 0 && (
-            <p className="small muted">
-              Your usual ranges:{' '}
-              {['Exposure2012', 'Contrast2012', 'Clarity2012', 'Vibrance', 'Saturation', 'Sharpness']
-                .filter((k) => habits[k])
-                .map((k) => `${k.replace('2012', '')} ${habits[k].lo.toFixed(k === 'Exposure2012' ? 2 : 0)} to ${habits[k].hi.toFixed(k === 'Exposure2012' ? 2 : 0)}`)
-                .join(' · ')}
-            </p>
-          )}
-          <div className="row">
-            <button
-              className="primary"
-              disabled={teaching.running}
-              onClick={() =>
-                void run(async () => {
-                  const f = await folder()
-                  if (f) await trainEdits(f)
-                })
-              }
-            >
-              Train on an edited shoot…
-            </button>
-            {Object.keys(training.habits).length > 0 && (
-              <button className="link small" onClick={() => resetTraining('habits')}>
-                Forget these habits
-              </button>
-            )}
-          </div>
-        </section>
-
-        <section className="card">
-          <h2 style={{ marginTop: 0 }}>4. Look: your own colour</h2>
+          <h2 style={{ marginTop: 0 }}>3. Look: your own colour</h2>
           <p className="small">
             <b>Give it:</b> two folders: unedited frames (RAW or JPEG), and the finished versions with the same file
             names. It measures the change in each pair and averages them into your house look, which you can save as a
@@ -209,7 +169,7 @@ export function TrainingView(): React.JSX.Element {
         </section>
 
         <section className="card">
-          <h2 style={{ marginTop: 0 }}>5. Culling profiles: a feeling to cull for</h2>
+          <h2 style={{ marginTop: 0 }}>4. Shoot styles</h2>
           <p className="small">
             <b>Give it:</b> a folder of photographs that share a feeling (a photographer you admire, or your own best
             work of one kind). Each profile keeps what it learns and steers the cull when you choose it.

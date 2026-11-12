@@ -4,7 +4,7 @@ import { bodyOf } from '../analysis/grouping'
 import { useStore } from '../store'
 
 export function Import(): React.JSX.Element {
-  const { project, ingest, importFolder, cancelIngest, regroup, setView, notify, setClockOffset } = useStore()
+  const { project, ingest, importFolder, cancelIngest, regroup, setView, notify, setClockOffset, setFastImport, deep } = useStore()
   const [faces, setFaces] = useState<boolean | null>(null)
   useEffect(() => void facesAvailable().then(setFaces), [])
   if (!project) return <></>
@@ -51,6 +51,12 @@ export function Import(): React.JSX.Element {
         )}
         {project.folder && <span className="muted small">{project.folder}</span>}
       </div>
+
+      <label style={{ fontWeight: 400, marginTop: 12 }} className="row">
+        <input type="checkbox" style={{ width: 'auto' }} checked={!!project.fastImport} onChange={(e) => setFastImport(e.target.checked)} disabled={ingest.running} />
+        Fast import for very large shoots
+        <span className="hint">about twice as quick; focus is judged on a smaller image and small faces in wide shots are not searched for</span>
+      </label>
 
       {project.shots.length === 0 && !ingest.running && (
         <p className="muted small" style={{ marginTop: 10, maxWidth: 680 }}>
@@ -117,6 +123,12 @@ export function Import(): React.JSX.Element {
             </div>
           </div>
 
+          {deep.running && (
+            <p className="muted small">
+              Now reading the composition of the strongest frames ({deep.done} of {deep.total}): whether the subject stands
+              clear of the background and holds the eye. You can cull meanwhile.
+            </p>
+          )}
           <div className="note teach">
             <p>
               <b>{analysed.length} frames are really {stacks} moments.</b> Bursts and repeated takes are stacked

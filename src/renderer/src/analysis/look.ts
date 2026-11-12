@@ -338,3 +338,38 @@ export function describeLook(look: Look): string[] {
   if (!out.length) out.push('Very little was changed in tone or colour: the look is close to neutral.')
   return out
 }
+
+/** Builds a look from the handful of controls it is made of (as Claude's atmosphere advice gives them). */
+export function lookFromParams(p: {
+  blackLift: number; whiteHold: number; contrast: number; shadowHue: number; shadowStrength: number; midHue: number; midStrength: number
+  highlightHue: number; highlightStrength: number; saturation: number
+}): Look {
+  const curve = new Float32Array(256)
+  for (let i = 0; i < 256; i++) {
+    const x = i / 255
+    // An S through the middle: darker below, brighter above, the ends left where they are.
+    const shaped = clamp(x + p.contrast * 0.16 * Math.sin(2 * Math.PI * (x - 0.5)))
+    curve[i] = p.blackLift + (p.whiteHold - p.blackLift) * shaped
+  }
+  // The inverse of shiftToHueSat: a hue and strength back to a colour shift.
+  const shift = (hue: number, strength: number): [number, number] => {
+    const h = ((hue % 360) + 360) % 360
+    const f = (n: number): number => {
+      const k = (n + h / 60) % 6
+      return 1 - Math.max(0, Math.min(k, 4 - k, 1))
+    }
+    const [r, g, b] = [f(5), f(3), f(1)]
+    const y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    const cb = (b - y) / 1.8556
+    const cr = (r - y) / 1.5748
+    const size = Math.hypot(cb, cr) || 1
+    const magnitude = strength / 800
+    return [(cb / size) * magnitude, (cr / size) * magnitude]
+  }
+  return {
+    curve,
+    shift: [shift(p.shadowHue, p.shadowStrength), shift(p.midHue, p.midStrength), shift(p.highlightHue, p.highlightStrength)],
+    saturation: p.saturation,
+    estimated: false
+  }
+}

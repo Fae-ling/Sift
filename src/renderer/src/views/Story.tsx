@@ -285,8 +285,8 @@ export function Story(): React.JSX.Element {
       )}
 
       <div className="row" style={{ marginTop: 24 }}>
-        <button className="primary" onClick={() => setView('coach')}>
-          Next: plan the edit
+        <button className="primary" onClick={() => setView('export')}>
+          Next: hand off
         </button>
       </div>
     </div>

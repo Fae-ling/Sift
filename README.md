@@ -1,12 +1,11 @@
 # Atelier
 
-A local-first project studio for a photographer who also shoots video and designs.
-It helps you cull faster, sequence a story, and plan an edit — and it teaches the
-reasoning as it goes. It does not edit your photos for you.
-
-**Status: stage 1 of 3.** Culling, story and the edit coach are built. Inspiration
-(moodboards, palettes, type, music, poses) and Planning (deadlines, locations, sun
-and shadow times, gear, pricing) come next; see [Roadmap](#roadmap).
+A culling tool for professional photographers. It takes the RAW files of a shoot,
+small or very large, and helps choose the frames worth keeping: technically sound,
+but also the ones that hold the emotion and the moments a shoot of that kind must
+not come back without. It learns from every decision, and the photographer, with
+Claude's help when wanted, teaches it what they see. See
+[docs/CONCEPT.md](docs/CONCEPT.md).
 
 ## What it does today
 
@@ -15,17 +14,17 @@ and shadow times, gear, pricing) come next; see [Roadmap](#roadmap).
 | **Brief** | The kind of shoot, client ask, your intention, mood words, references, target count, and an editable **story plan**: the chapters this shoot should contain and what makes a frame from each worth keeping. | free |
 | **Import** | Reads the JPEG preview your camera embeds in each RAW (Sony `.ARW`, Fujifilm `.RAF`, also CR2/CR3/NEF/DNG/ORF/RW2 and JPEG). Measures focus, closed eyes, smiles, exposure, colour; groups the shoot into scenes and stacks of near-identical frames. | free, on your machine |
 | **Cull** | One decision per *moment* instead of per frame. Every frame has a **craft** score and a **moment** score; a slider sets how much each counts. Laughter, closeness and the peak of a burst are recognised, closed eyes in a laugh or embrace are not treated as blinks, and flawed frames that hold a moment are surfaced as **hidden gems** instead of rejected. | free |
+| **Ultrafast cull** | One step that rejects misfires, frames blurred beyond use, and flawed takes of a moment that has a clean one. Never a hidden gem, a frame you decided, or the only frame of a must-have chapter. One undo restores everything. Fast import mode for very large shoots. | free |
+| **Emotions** | Reads the emotion on every face: 14 to start (joy, laughter, tenderness, sadness, crying, anger, fury, surprise, fear, awe, disgust, contempt, concentration, pout), and any you teach it. Click a face in Cull to name what it shows; strong expressions it cannot name are collected for you or Claude to name. Each style says how much it values each emotion, and an emotion that is rare in the shoot counts for more. | free; Claude naming optional |
+| **Shoot styles** | Your kinds of work (wedding, LARP battle, boudoir, birthday, fantasy...). Each holds its chapters and which must not be missed, the emotions it looks for, what to look for and what to forgive, and its balance of craft against moment. Create one from a sentence; Claude can develop it and later refine it from what you kept. Styles also learn from gallery folders and from your decisions. | free; Claude development optional |
 | **Cull, working tools** | Keepers-first filters with counts; **Second look** (the best frame of every moment you kept nothing from, to catch a missed shot-list moment); side-by-side compare (C); undo and redo; a chapter filter once frames are read. | free |
 | **Editor's read** | Optional. Claude looks at one to three thumbnails per moment with your brief and story plan, and says for each which chapter it belongs to, how much it carries and why. Runs in batches; can be paused and resumed. | optional; shows an estimate first |
-| **Learns your eye** | Every pick and reject becomes an example. A small model of your taste is retrained as you cull and tested on bursts it was never shown; it only influences suggestions to the extent it beats the built-in rules there. About one burst in ten is shown without a suggestion, so your unprompted choices can be learned from. See Culling profiles → Your eye. | free |
-| **Training** | One screen to teach every part with your own photographs: culling from past shoots (Lightroom ratings or a folder of delivered files), diagnosis norms from finished photographs, editing habits from Lightroom sidecars, a house look from before/after pairs. Each run adds to what is known; each area can be forgotten. See [docs/TRAINING.md](docs/TRAINING.md). | free |
-| **Culling profiles** | A profile is a feeling to cull for: a name, atmosphere words ("intimate", "documentary", "editorial") and a description. The words change what the cull rewards. Each profile keeps learning from **gallery folders** (photographs you admire) and from **your own picks**; Claude can optionally distil a gallery into selection principles. Five starter profiles are included. | learning free; distilling optional |
+| **Learns your eye** | Every pick and reject becomes an example. A small model of your taste is retrained as you cull and tested on bursts it was never shown; it only influences suggestions to the extent it beats the built-in rules there. About one burst in ten is shown without a suggestion, so your unprompted choices can be learned from. See Shoot styles → Your eye. | free |
+| **Training** | One screen to teach with your own photographs: culling from past shoots (Lightroom ratings or a folder of delivered files), diagnosis norms from finished photographs, a house look from before/after pairs. Each run adds to what is known; each area can be forgotten. See [docs/TRAINING.md](docs/TRAINING.md). | free |
 | **Cull with Claude** | The editor's read, now aware of the chosen profile as well as the brief and story plan. | optional |
 | **Story** | Your picks as a sequence: coverage by chapter and shot type, gaps, reordering. **Your eye** compares your decisions with the suggestions and can tune the balance to your taste. Optionally asks Claude for a picture editor's sequence. | optional, cents |
-| **Edit coach** | Histogram, vectorscope with skin line, palette, and plain-language notes on tone, white balance, skin, harmony and consistency. Optionally asks Claude for a grading plan aimed at your brief, in Lightroom terms with a Resolve note. | notes free; plan optional, ~2¢ |
-| **Edit coach, live** | Reads the develop settings Lightroom writes into the XMP sidecar and comments on the edit in progress (flattened light, orange skin, unmasked sharpening, moves that fight the brief). Refreshes every few seconds. Needs "Automatically write changes into XMP" in Lightroom. | free |
 | **Diagnose a photo** | Open any photo, or a pick. Eight panels show what a retoucher looks for: subject and faces; skin, eyes and lips; where the eye goes and what distracts it; the picture as three masses; where the outline merges with the background; skin evenness; sky and vegetation; the silhouette. Findings are written out with the adjustment and its reason. A try-it preview sketches the fix on a small copy, and the masks can be saved as PNG. Optionally Claude writes a description, diagnosis and ordered adjustments. | free; Claude read optional |
-| **Look extractor** | Open a finished photo in almost any format; get its tone curve, shadow/midtone/highlight tints and saturation as a `.cube` LUT or a Lightroom preset, with an explanation of what the look is made of. Add one of your unedited frames for a measured match and a before/after preview. | free |
+| **Look extractor** | Open a finished photo in almost any format; get its tone curve, shadow/midtone/highlight tints and saturation as a `.cube` LUT or a Lightroom preset. Add one of your unedited frames for a measured match and a preview. Claude can then shape the look so its atmosphere carries the concept of the shoot. | free; shaping optional |
 | **Hand off** | Writes star ratings and colour labels to XMP sidecars that Lightroom Classic reads. | free |
 | **Learn** | 27 short articles on culling, photo editing, colour, graphic design and video, each with further reading. | free |
 
@@ -113,8 +112,14 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the suite is put togeth
 - "Eyes closed" also fires for a deliberate downward glance. It is a flag, not a verdict.
 - Group shots: up to 14 people per frame are examined. Very small or turned-away faces
   can still be missed.
-- The local moment score sees joy and closeness. It cannot see intensity, tension or
-  tenderness in a quiet face; the editor's read and your own eye cover that.
+- Emotion is read from the face only, through 51 expression measurements from a general
+  face model. Some of them (nose wrinkle, cheek raise, brow movements) are weak in that
+  model, so anger, disgust and similar emotions will be confused until taught with your
+  own examples. Body language, context and what a moment means are not read locally;
+  Claude's read covers some of that.
+- The starting emotions and starter styles are descriptions, not measurements of real
+  shoots. Nothing in the emotion or style system has been tried on real photographs yet.
+- Composition is read only for the two strongest frames of each moment that contain a face.
 - Diagnose a photo: masks come from a 256-pixel model and have soft edges. The skin
   evenness scale was set on a single test portrait and needs real photos to calibrate.
   There is no depth map and no real scene segmentation (sky and vegetation are guessed

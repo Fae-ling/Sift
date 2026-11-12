@@ -1,13 +1,14 @@
 # Atelier: map of the app
 
 What exists today, where it lives, and how the parts talk to each other. For what
-comes next and why, see `DEVELOPMENT_PLAN.md`.
+the app is and how its learning parts fit together, see `CONCEPT.md`; for what
+comes next, `DEVELOPMENT_PLAN.md`.
 
 ## Principles
 
 1. **Local first, free by default.** Anything that can be measured runs on the user's
    machine. Paid AI is opt-in, per action, with an estimate before and the cost after.
-2. **Teach, don't decide.** Every suggestion carries its reason. The app never changes
+2. **Suggest, don't decide.** Every suggestion carries its reason. The app never changes
    a photograph and never makes a final choice.
 3. **One project, several phases**, all reading and writing the same project.
 4. **Originals are untouchable.** The app reads source files and writes only its own
@@ -20,12 +21,12 @@ comes next and why, see `DEVELOPMENT_PLAN.md`.
 | Projects | `views/Projects.tsx` | Create, open, delete projects |
 | 1 Brief | `views/Brief.tsx` | Kind of shoot, client ask, intention, mood, story plan |
 | 2 Import | `views/Import.tsx` | Point at a folder; analysis; scene gap; camera clocks |
-| 3 Cull | `views/Cull.tsx` | Decide per moment: filters, compare, undo, profile, balance, Cull with Claude |
+| 3 Cull | `views/Cull.tsx` | Decide per moment: ultrafast cull, filters, compare, undo, style, balance, teaching emotions on faces, scene chapters, Cull with Claude |
 | 4 Story | `views/Story.tsx` | Sequence picks, chapter coverage, "Your eye", picture editor's opinion |
-| 5 Edit coach | `views/Coach.tsx` | Scopes, notes, live tips from Lightroom's sidecar, grading plan |
-| 6 Hand off | `views/Export.tsx` | Ratings and labels to XMP; copy picks |
+| 5 Hand off | `views/Export.tsx` | Ratings and labels to XMP; copy picks |
 | Training | `views/Training.tsx` | Teach each part with your own photographs; training log |
-| Culling profiles | `views/Profiles.tsx` | Feelings to cull for; galleries; the learned taste and its self-check |
+| Shoot styles | `views/Profiles.tsx` | Kinds of work: chapters, must-haves, emotion weights, markers; Claude development; the learned taste and its self-check |
+| Emotions | `views/Emotions.tsx` | What the app reads on faces; naming expressions it could not name |
 | Diagnose a photo | `views/Diagnose.tsx` | What is wrong with one picture before retouching; try-it preview; masks |
 | Look extractor | `views/Look.tsx` | A reference photo's look as LUT or Lightroom preset |
 | Learn | `views/Learn.tsx` | Articles (`knowledge/index.ts`) |
@@ -58,12 +59,12 @@ comes next and why, see `DEVELOPMENT_PLAN.md`.
 | `faces.ts` | Faces: eyes, smile, laugh, head turn, eye sharpness, cheek colour; eye and lip outlines; people boxes for small faces | MediaPipe Face Landmarker, EfficientDet-Lite0 |
 | `segment.ts` | Person, skin (face / body), hair, clothes masks | MediaPipe selfie multiclass |
 | `grouping.ts` | Scenes, stacks, camera clock correction | none |
-| `scoring.ts` | Craft and moment scores, suggestions, hidden gems | none |
-| `style.ts` | Culling profiles: measured profile, atmosphere words | none |
+| `scoring.ts` | Craft (with composition), emotion weighed by style, rarity, must-have chapters, suggestions, hidden gems, misfires, ultrafast cull | none |
+| `emotion.ts` | The emotion machine: concepts over 51 face measurements, teaching, pointers for unnamed expressions | prototypes, taught locally |
+| `style.ts` | Shoot styles: chapters, emotion weights and how decisions shift them, measured profile, atmosphere words | none |
 | `learner.ts` | The photographer's taste: examples, training, held-back self-check | linear model, trained locally |
 | `training.ts` | Personal norms, editing habits, house look, feedback; turns them into limits | none |
 | `reading.ts` | Runs the whole diagnosis on one preview (shared by Diagnose and Training) | uses the above |
-| `coach.ts` | Editing notes from measurements and from Lightroom settings | none |
 | `look.ts` | Look extraction: curve, zone tints, saturation; LUT and preset writers | none |
 | `diagnose.ts` | Attention, distractions, three masses, outline separation, skin evenness and colour, background clutter and colour families, findings | none |
 | `pipeline.ts` | Import of one photo: preview, thumbnail, measurements | uses the above |
@@ -75,11 +76,13 @@ the app in `out/renderer/mediapipe`.
 
 | Path | Holds |
 | --- | --- |
-| `projects/<id>/project.json` (+ `.bak.json`) | Brief, story plan, shots with measurements and decisions, advice |
+| `projects/<id>/project.json` (+ `.bak.json`) | Brief, story plan, decisions, advice. Small, rewritten often; scores are recomputed on open |
 | `projects/<id>/cache/` | Preview (1600 px) and thumbnail per shot |
-| `projects/style-<id>/cache/` | Sample thumbnails of a culling profile |
+| `projects/<id>/analysis.json` | Measurements of every frame, rewritten only when they change |
+| `projects/style-<id>/cache/` | Sample thumbnails of a shoot style |
 | `projects/look/`, `projects/diagnose/` | Scratch previews for the two single-photo tools |
-| `learned.json` | Culling profiles; learned balance per kind of shoot |
+| `learned.json` | Shoot styles and what each has learned |
+| `emotions.json` | Emotion concepts, their examples, unnamed expressions waiting for a name |
 | `learning.json` | Examples of the photographer's decisions, per project |
 | `training.json` | Norms of finished photographs, editing habits, house look, feedback, log |
 | `spend.json` | What Claude has cost, by month |
@@ -89,9 +92,11 @@ the app in `out/renderer/mediapipe`.
 
 | Call | Sends | Returns |
 | --- | --- | --- |
-| `read` (Cull with Claude) | Thumbnails of 1 to 3 frames per moment, brief, story plan, profile | Chapter, moment score, gem flag, note per frame |
+| `read` (Cull with Claude) | Thumbnails of 1 to 3 frames per moment, brief, story plan, style, known emotions | Chapter, emotion, moment score, gem flag, note per frame |
 | `story` | Thumbnails of picks, brief | Sequence, cuts, gaps, a lesson |
-| `grade` | One preview, measurements, current Lightroom settings, brief | Read, direction, steps, risks |
+| `nameFaces` | Small crops of faces the app could not name, the known emotions | An emotion per face, new ones with a description |
+| `developStyle` | A style as it stands, evidence from the photographer's culling, optionally kept frames | Chapters, emotion weights, markers, balance, notes |
+| `atmosphere` | One photo, the measured look, the concept | How to shape the look, as words and as numbers |
 | `essence` | Up to 36 thumbnails of a gallery, measured facts | How that photographer chooses |
 | `diagnose` | One preview, the diagnosis findings, brief | Description, diagnosis, ordered adjustments, what stays the photographer's |
 

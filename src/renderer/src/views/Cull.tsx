@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FaceInfo, Shot } from '@shared/types'
 import { previewUrl } from '../analysis/pipeline'
 import { BLINK_LIMIT } from '../analysis/scoring'
 import { Thumb } from '../components/Thumb'
 import { estimateCost, formatCost } from '../components/AiCost'
-import { isHidden, READ_TOKENS, readCandidates, useStore, visibleShots, type Filter } from '../store'
+import { isHidden, READ_TOKENS, readCandidates, triage, useStore, visibleShots, type Filter, type TriageKind } from '../store'
 
 const FILTERS: { id: Filter; label: string; hint: string }[] = [
   { id: 'suggested', label: 'Keepers', hint: 'The frames the cull would keep, plus your own picks' },
   { id: 'gems', label: 'Hidden gems', hint: 'Flawed frames that may hold a moment' },
+  { id: 'must', label: 'Must-haves', hint: 'Frames from chapters your style says must not be missed' },
   { id: 'unkept', label: 'Second look', hint: 'The strongest frame of every moment you kept nothing from: check here for a missed shot-list moment before you finish' },
   { id: 'undecided', label: 'Undecided', hint: 'Frames you have not picked or rejected' },
   { id: 'picks', label: 'Picks', hint: 'Frames you picked' },
@@ -20,14 +21,15 @@ const FILTERS: { id: Filter; label: string; hint: string }[] = [
 const time = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 export function Cull(): React.JSX.Element {
-  const { project, selectedId, select, filter, setFilter, decide, acceptSuggestions, setView, setBalance, learned, chooseStyle, chapter, setChapter, setRating, undo, redo, tasteData } = useStore()
+  const { project, selectedId, select, filter, setFilter, decide, acceptSuggestions, setView, setBalance, learned, chooseStyle, chapter, setChapter, setRating, undo, redo, tasteData, setSceneChapter, deep, cancelDeepRead } = useStore()
+  const [showTriage, setShowTriage] = useState(false)
   const [compare, setCompare] = useState(false)
   const [zoom, setZoom] = useState(false)
   const [showRead, setShowRead] = useState(false)
   const stripRef = useRef<HTMLDivElement>(null)
 
   const shots = useMemo(() => project?.shots.filter((s) => s.analysis) ?? [], [project?.shots])
-  const chapters = useMemo(() => [...new Set(shots.flatMap((s) => (s.read ? [s.read.beat] : [])))], [shots])
+  const chapters = useMemo(() => [...new Set(shots.flatMap((s) => (s.chapter ?? s.read?.beat ? [(s.chapter ?? s.read?.beat)!] : [])))], [shots])
   // Bursts shown without a suggestion, so the choice made in them is the photographer's alone.
   const hidden = useMemo(() => {
     const ids = new Set<string>()
@@ -40,7 +42,7 @@ export function Cull(): React.JSX.Element {
     // Keepers shows all of its frames, and the flaw filters show none.
     if (filter === 'suggested' || filter === 'unkept') for (const id of hidden) shown.add(id)
     if (filter === 'gems' || filter === 'warnings') for (const id of hidden) shown.delete(id)
-    return shots.filter((s) => shown.has(s.id) && (!chapter || s.read?.beat === chapter))
+    return shots.filter((s) => shown.has(s.id) && (!chapter || (s.chapter ?? s.read?.beat) === chapter))
   }, [shots, filter, chapter, hidden])
   const current = list.find((s) => s.id === selectedId) ?? list[0]
   const stack = useMemo(() => (current ? shots.filter((s) => s.stackId === current.stackId) : []), [shots, current])
@@ -55,6 +57,11 @@ export function Cull(): React.JSX.Element {
   const sceneBeat = useMemo(() => {
     const votes = new Map<number, Map<string, number>>()
     for (const s of shots) {
+      // What the photographer said about a scene outranks any number of guesses.
+      if (s.chapter) {
+        votes.set(s.sceneId ?? 0, new Map([[s.chapter, 1e6]]))
+        continue
+      }
       if (!s.read || s.read.beat === 'Other') continue
       const m = votes.get(s.sceneId ?? 0) ?? new Map<string, number>()
       m.set(s.read.beat, (m.get(s.read.beat) ?? 0) + 1)
@@ -75,6 +82,8 @@ export function Cull(): React.JSX.Element {
     }
     return out
   }, [list])
+
+  const planNames = useMemo(() => project?.storyPlan.map((c) => c.name) ?? [], [project?.storyPlan])
 
   useEffect(() => {
     if (current) stripRef.current?.querySelector(`[data-shot="${current.id}"]`)?.scrollIntoView({ block: 'nearest' })
@@ -157,7 +166,7 @@ export function Cull(): React.JSX.Element {
   const target = project.brief.targetCount
 
   return (
-    <div className={`cull ${showRead ? 'with-read' : ''}`}>
+    <div className={`cull ${showRead || showTriage ? 'with-read' : ''}`}>
       <div className="cull-bar">
         <div className="tabs" role="tablist">
           {FILTERS.map((f) => (
@@ -182,14 +191,22 @@ export function Cull(): React.JSX.Element {
           {target > 0 && <span className="muted"> / {target} target</span>} · <span style={{ color: 'var(--reject)' }}>{rejects} rejected</span> ·{' '}
           <span className="muted">{undecided} to decide</span>
         </span>
+        {deep.running && (
+          <span className="muted small" title="Reading how the strongest frames of each moment are composed: separation from the background, what holds the eye">
+            Reading composition {deep.done}/{deep.total}{' '}
+            <button className="link small" onClick={cancelDeepRead}>
+              stop
+            </button>
+          </span>
+        )}
         <div className="spacer" />
         <select
           value={project.styleIds[0] ?? ''}
           onChange={(e) => chooseStyle(e.target.value || null)}
-          aria-label="Culling profile"
-          title="The feeling this shoot is culled for. Manage profiles under Culling profiles."
+          aria-label="Shoot style"
+          title="The style this shoot is culled in: its chapters, the emotions it looks for, its balance. Manage styles under Shoot styles."
         >
-          <option value="">No profile</option>
+          <option value="">No style</option>
           {learned.styles.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
@@ -201,7 +218,10 @@ export function Cull(): React.JSX.Element {
           <input type="range" min={0} max={1} step={0.05} value={project.balance} onChange={(e) => setBalance(Number(e.target.value))} aria-label="Balance between craft and moment" />
           <span className="muted small">Moment</span>
         </label>
-        <button className={showRead ? 'on' : ''} onClick={() => setShowRead((v) => !v)}>
+        <button className={showTriage ? 'on' : ''} onClick={() => (setShowTriage((v) => !v), setShowRead(false))} title="Reject misfires and unusable frames in one step">
+          Ultrafast cull
+        </button>
+        <button className={showRead ? 'on' : ''} onClick={() => (setShowRead((v) => !v), setShowTriage(false))}>
           Cull with Claude
         </button>
         <button onClick={() => acceptSuggestions()} disabled={undecided === 0} title="Applies every suggestion to frames you have not decided yourself">
@@ -213,28 +233,23 @@ export function Cull(): React.JSX.Element {
       </div>
 
       {showRead && <ReadPanel />}
+      {showTriage && <TriagePanel onDone={() => setShowTriage(false)} />}
 
       <div className="strip" ref={stripRef}>
         {list.length === 0 && <p className="muted small" style={{ padding: 8 }}>Nothing matches this filter.</p>}
         {scenes.map((scene) => (
-          <div className="scene" key={scene.id}>
-            <div className="scene-head">
-              <span>
-                Scene {scene.id} · {time(scene.stacks[0][0].time)}
-                {sceneBeat.has(scene.id) && <b style={{ color: 'var(--text)' }}> · {sceneBeat.get(scene.id)}</b>}
-              </span>
-              <span>
-                {scene.stacks.length} moment{scene.stacks.length === 1 ? '' : 's'}
-              </span>
-            </div>
-            {scene.stacks.map((st) => (
-              <div className={`stack ${st.length > 1 ? 'multi' : ''}`} key={st[0].id}>
-                {st.map((s) => (
-                  <Thumb key={s.id} projectId={project.id} shot={s} selected={s.id === current?.id} onSelect={select} hide={hidden.has(s.id)} />
-                ))}
-              </div>
-            ))}
-          </div>
+          <SceneBlock
+            key={scene.id}
+            projectId={project.id}
+            scene={scene}
+            chapter={sceneBeat.get(scene.id) ?? ''}
+            plan={planNames}
+            // Only the scene holding the selection is given it, so moving through a large shoot redraws one scene, not all.
+            selectedId={current && scene.stacks.some((st) => st.some((x) => x.id === current.id)) ? current.id : null}
+            hidden={hidden}
+            onSelect={select}
+            onChapter={setSceneChapter}
+          />
         ))}
       </div>
 
@@ -325,7 +340,7 @@ function Meter({ label, value }: { label: string; value: number | null }): React
   )
 }
 
-const TAG_TEXT = { laugh: 'laughter', joy: 'joy', connection: 'connection', embrace: 'embrace', peak: 'peak of the burst' }
+const TAG_TEXT = { laugh: 'laughter', joy: 'joy', connection: 'connection', embrace: 'embrace', peak: 'peak of the burst', rare: 'rare in this shoot' }
 
 const SUGGESTION_TEXT = {
   pick: 'Suggested keeper: the strongest frame of this moment.',
@@ -388,12 +403,14 @@ function Inspector({ shot, projectId, hide }: { shot: Shot; projectId: string; h
           )}
           <div style={{ margin: '8px 0' }}>
             {score.gem && <span className="chip gem">hidden gem</span>}
+            {score.must && <span className="chip pick">must-have chapter</span>}
+            {score.emotion && <span className="chip">{score.emotion.name} {Math.round(score.emotion.intensity * 100)}%</span>}
             {score.tags.map((t) => (
               <span className="chip" key={t}>
                 {TAG_TEXT[t]}
               </span>
             ))}
-            {shot.read && <span className="chip">{shot.read.beat}</span>}
+            {(shot.chapter ?? shot.read?.beat) && <span className="chip">{shot.chapter ?? shot.read?.beat}</span>}
           </div>
           {shot.read && (
             <div className="note teach">
@@ -426,7 +443,7 @@ function Inspector({ shot, projectId, hide }: { shot: Shot; projectId: string; h
       {a.faces.length > 0 && (
         <>
           <h3>Faces</h3>
-          <FaceCrops src={previewUrl(projectId, shot.id)} faces={a.faces} />
+          <FaceCrops src={previewUrl(projectId, shot.id)} faces={a.faces} emotions={hide ? undefined : score?.faceEmotions} teachable />
         </>
       )}
 
@@ -457,12 +474,17 @@ function Inspector({ shot, projectId, hide }: { shot: Shot; projectId: string; h
 }
 
 /** Enlarged crops of each face, so expression and focus can be judged without zooming. */
-function FaceCrops({ src, faces }: { src: string; faces: FaceInfo[] }): React.JSX.Element {
+function FaceCrops({ src, faces, emotions, teachable }: { src: string; faces: FaceInfo[]; emotions?: (string | null)[]; teachable?: boolean }): React.JSX.Element {
+  const { teachEmotion, emotions: store } = useStore()
   const refs = useRef<(HTMLCanvasElement | null)[]>([])
+  const [teaching, setTeaching] = useState<number | null>(null)
+  const [name, setName] = useState('')
   useEffect(() => {
     let live = true
-    const img = new Image()
-    img.onload = () => {
+    setTeaching(null)
+    // Fetched rather than loaded through an <img>, so a crop can be kept as a teaching example.
+    void (async () => {
+      const img = await createImageBitmap(await (await fetch(src)).blob())
       if (!live) return
       faces.forEach((f, i) => {
         const c = refs.current[i]
@@ -473,20 +495,157 @@ function FaceCrops({ src, faces }: { src: string; faces: FaceInfo[] }): React.JS
         c.width = c.height = 168
         c.getContext('2d')!.drawImage(img, cx - size / 2, cy - size / 2, size, size, 0, 0, 168, 168)
       })
-    }
-    img.src = src
+      img.close()
+    })()
     return () => {
       live = false
     }
   }, [src, faces])
+
+  /** Teaches the emotion machine what this face shows, with a small picture of it as the example. */
+  const teachFace = (i: number, emotion: string): void => {
+    const f = faces[i]
+    const canvas = refs.current[i]
+    if (!f.shapes || !emotion.trim()) return
+    const small = document.createElement('canvas')
+    small.width = small.height = 88
+    if (canvas) small.getContext('2d')!.drawImage(canvas, 0, 0, 88, 88)
+    teachEmotion(emotion, f.shapes, canvas ? small.toDataURL('image/jpeg', 0.72) : undefined)
+    setTeaching(null)
+    setName('')
+  }
+
   return (
-    <div className="closeups">
-      {faces.map((f, i) => (
-        <div key={i} className={`closeup ${f.blink > BLINK_LIMIT ? 'bad' : ''}`}>
-          <canvas ref={(el) => void (refs.current[i] = el)} />
-          <div>{f.blink > BLINK_LIMIT ? 'eyes closed' : f.smile > 0.5 ? 'smiling' : 'eyes open'}</div>
+    <>
+      <div className="closeups">
+        {faces.map((f, i) => {
+          const emotion = emotions?.[i]
+          return (
+            <div key={i} className={`closeup ${f.blink > BLINK_LIMIT ? 'bad' : ''}`}>
+              <canvas ref={(el) => void (refs.current[i] = el)} />
+              {emotions && f.shapes ? (
+                teachable ? (
+                  <button className="link" style={{ fontSize: 10, display: 'block', width: '100%' }} title="Click to confirm or correct: this teaches the app" onClick={() => (setTeaching(teaching === i ? null : i), setName(emotion && emotion !== 'unnamed' ? emotion : ''))}>
+                    {emotion ?? 'calm'}
+                  </button>
+                ) : (
+                  <div>{emotion ?? 'calm'}</div>
+                )
+              ) : (
+                <div>{f.blink > BLINK_LIMIT ? 'eyes closed' : f.smile > 0.5 ? 'smiling' : 'eyes open'}</div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      {teaching !== null && (
+        <form
+          className="row"
+          style={{ marginTop: 6 }}
+          onSubmit={(e) => {
+            e.preventDefault()
+            teachFace(teaching, name)
+          }}
+        >
+          <input list="cull-emotions" style={{ flex: 1 }} autoFocus placeholder="What does this face show?" value={name} onChange={(e) => setName(e.target.value)} aria-label="Emotion on this face" />
+          <datalist id="cull-emotions">
+            {store.concepts.map((c) => (
+              <option key={c.name} value={c.name} />
+            ))}
+          </datalist>
+          <button className="primary" disabled={!name.trim()}>
+            Teach
+          </button>
+        </form>
+      )}
+    </>
+  )
+}
+
+interface SceneData {
+  id: number
+  stacks: Shot[][]
+}
+
+/** One scene of the strip. Memoised so that a shoot of many thousand frames stays quick to move through. */
+const SceneBlock = memo(function SceneBlock(props: {
+  projectId: string
+  scene: SceneData
+  chapter: string
+  plan: string[]
+  selectedId: string | null
+  hidden: Set<string>
+  onSelect: (id: string) => void
+  onChapter: (sceneId: number, chapter: string | null) => void
+}): React.JSX.Element {
+  const { scene, chapter, plan } = props
+  return (
+    <div className="scene">
+      <div className="scene-head">
+        <span>
+          Scene {scene.id} · {time(scene.stacks[0][0].time)}
+        </span>
+        <select
+          className="scene-chapter"
+          value={plan.includes(chapter) ? chapter : ''}
+          onChange={(e) => props.onChapter(scene.id, e.target.value || null)}
+          aria-label={`Chapter of scene ${scene.id}`}
+          title="Which chapter of the story this scene belongs to. Saying so lets the cull protect must-have chapters."
+        >
+          <option value="">{chapter && !plan.includes(chapter) ? chapter : 'chapter…'}</option>
+          {plan.map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+      </div>
+      {scene.stacks.map((st) => (
+        <div className={`stack ${st.length > 1 ? 'multi' : ''}`} key={st[0].id}>
+          {st.map((x) => (
+            <Thumb key={x.id} projectId={props.projectId} shot={x} selected={x.id === props.selectedId} onSelect={props.onSelect} hide={props.hidden.has(x.id)} />
+          ))}
         </div>
       ))}
+    </div>
+  )
+})
+
+const TRIAGE: { kind: TriageKind; label: string; hint: string; on: boolean }[] = [
+  { kind: 'misfire', label: 'Misfires', hint: 'Black, white or blank frames', on: true },
+  { kind: 'blurred', label: 'Blurred beyond use', hint: 'Far softer than everything around them, with no moment to excuse it', on: true },
+  { kind: 'flawedTwin', label: 'Closed eyes or soft, with a better take', hint: 'A flawed frame of a moment that has a clean one', on: true },
+  { kind: 'spare', label: 'Spare takes', hint: 'Clean frames of a moment whose best frame is already suggested. Leave off to choose between takes yourself.', on: false }
+]
+
+/** Rejects the frames that are certainly not keepers in one step, so attention goes to the rest. */
+function TriagePanel({ onDone }: { onDone: () => void }): React.JSX.Element {
+  const { project, applyTriage, notify } = useStore()
+  const [chosen, setChosen] = useState<Record<TriageKind, boolean>>(() => Object.fromEntries(TRIAGE.map((t) => [t.kind, t.on])) as Record<TriageKind, boolean>)
+  const found = useMemo(() => triage(project?.shots ?? []), [project?.shots])
+  const total = TRIAGE.reduce((n, t) => n + (chosen[t.kind] ? found[t.kind].length : 0), 0)
+  return (
+    <div className="triage">
+      <b>Ultrafast cull.</b>
+      {TRIAGE.map((t) => (
+        <label key={t.kind} title={t.hint}>
+          <input type="checkbox" checked={chosen[t.kind]} onChange={(e) => setChosen({ ...chosen, [t.kind]: e.target.checked })} />
+          {t.label} <span className="muted">{found[t.kind].length}</span>
+        </label>
+      ))}
+      <div className="spacer" />
+      <span className="muted small">Never a hidden gem, a frame you decided, or the only frame of a must-have chapter. One Ctrl+Z undoes it.</span>
+      <button
+        className="primary"
+        disabled={total === 0}
+        onClick={() => {
+          const n = applyTriage(TRIAGE.filter((t) => chosen[t.kind]).map((t) => t.kind))
+          notify(`${n} frames rejected. Ctrl+Z brings them back.`)
+          onDone()
+        }}
+      >
+        Reject {total} frames
+      </button>
     </div>
   )
 }
@@ -510,9 +669,9 @@ function ReadPanel(): React.JSX.Element {
         <b>Cull with Claude.</b>{' '}
         <span className="muted">
           Claude looks at one to three small thumbnails of each moment, knowing your brief, your story plan
-          {profile ? <> and the profile “{profile.name}”</> : ', and your culling profile if you choose one'}. For every
-          frame it says which chapter it belongs to, how much it carries for this feeling, and why, and it points out
-          hidden gems. Its read is folded into the Keepers; you still make every decision.
+          {profile ? <> and the style “{profile.name}”</> : ', and your shoot style if you choose one'}. For every
+          frame it says which chapter it belongs to, how much it carries, what emotion it shows and why, and it
+          points out hidden gems. What it sees on faces also teaches the app's own emotion reading. Its read is folded into the Keepers; you still make every decision.
         </span>
         {read > 0 && (
           <span className="muted">

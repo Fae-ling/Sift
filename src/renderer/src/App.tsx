@@ -1,8 +1,8 @@
 import { useEffect } from 'react'
 import { useStore, type View } from './store'
 import { Brief } from './views/Brief'
-import { Coach } from './views/Coach'
 import { Diagnose } from './views/Diagnose'
+import { Emotions } from './views/Emotions'
 import { Cull } from './views/Cull'
 import { Export } from './views/Export'
 import { Import } from './views/Import'
@@ -19,12 +19,11 @@ const PROJECT_NAV: { view: View; label: string; hint: string }[] = [
   { view: 'import', label: 'Import', hint: 'Read and analyse the shoot' },
   { view: 'cull', label: 'Cull', hint: 'Choose the keepers' },
   { view: 'story', label: 'Story', hint: 'Sequence the selects' },
-  { view: 'coach', label: 'Edit coach', hint: 'Plan the grade' },
   { view: 'export', label: 'Hand off', hint: 'Send to Lightroom' }
 ]
 
 export function App(): React.JSX.Element {
-  const { view, project, setView, closeProject, refreshProjects, loadSettings, loadLearned, loadLearning, loadTraining, toast } = useStore()
+  const { view, project, setView, closeProject, refreshProjects, loadSettings, loadLearned, loadLearning, loadTraining, loadEmotions, toast, emotions } = useStore()
 
   useEffect(() => {
     void refreshProjects()
@@ -32,7 +31,8 @@ export function App(): React.JSX.Element {
     void loadLearned()
     void loadLearning()
     void loadTraining()
-  }, [refreshProjects, loadSettings, loadLearned, loadLearning, loadTraining])
+    void loadEmotions()
+  }, [refreshProjects, loadSettings, loadLearned, loadLearning, loadTraining, loadEmotions])
 
   const picks = project?.shots.filter((s) => s.decision === 'pick').length ?? 0
 
@@ -58,8 +58,12 @@ export function App(): React.JSX.Element {
           </>
         )}
         <div className="spacer" />
-        <button className={`nav ${view === 'profiles' ? 'active' : ''}`} onClick={() => setView('profiles')} title="The feelings you cull for, and what each has learned">
-          Culling profiles
+        <button className={`nav ${view === 'profiles' ? 'active' : ''}`} onClick={() => setView('profiles')} title="The kinds of work you do, and what the cull looks for in each">
+          Shoot styles
+        </button>
+        <button className={`nav ${view === 'emotions' ? 'active' : ''}`} onClick={() => setView('emotions')} title="What the app can read on a face, and teaching it more">
+          Emotions
+          {emotions.pointers.length > 0 && <span className="count" style={{ color: 'var(--gem)' }}>{emotions.pointers.length}</span>}
         </button>
         <button className={`nav ${view === 'training' ? 'active' : ''}`} onClick={() => setView('training')} title="Teach Atelier with your own photographs">
           Training
@@ -80,6 +84,7 @@ export function App(): React.JSX.Element {
       <main className="main">
         {view === 'projects' && <Projects />}
         {view === 'profiles' && <Profiles />}
+        {view === 'emotions' && <Emotions />}
         {view === 'training' && <TrainingView />}
         {view === 'diagnose' && <Diagnose />}
         {view === 'look' && <Look />}
@@ -89,7 +94,6 @@ export function App(): React.JSX.Element {
         {project && view === 'import' && <Import />}
         {project && view === 'cull' && <Cull />}
         {project && view === 'story' && <Story />}
-        {project && view === 'coach' && <Coach />}
         {project && view === 'export' && <Export />}
       </main>
       {toast && <div className="toast">{toast}</div>}

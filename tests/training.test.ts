@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { Shot } from '@shared/types'
-import { developTips } from '../src/renderer/src/analysis/coach'
 import { DEFAULT_LIMITS, findings, type Reading } from '../src/renderer/src/analysis/diagnose'
 import { deriveLook, lookStats } from '../src/renderer/src/analysis/look'
-import { addSamples, addToHouseLook, emptyTraining, habitsFrom, houseLookAsLook, leniency, limitsFrom, MIN_NORM, quantile, trainingSummary } from '../src/renderer/src/analysis/training'
+import { addSamples, addToHouseLook, emptyTraining, houseLookAsLook, leniency, limitsFrom, MIN_NORM, quantile, trainingSummary } from '../src/renderer/src/analysis/training'
 
 const many = (value: (i: number) => number, n = 40): number[] => Array.from({ length: n }, (_, i) => value(i))
 
@@ -64,29 +62,6 @@ describe('feedback', () => {
     // "Where the eye goes" is a lower bound: lenient means lower.
     const eye = limitsFrom({ ...emptyTraining(), feedback: { 'Where the eye goes': { agree: 0, dismiss: 4 } } })
     expect(eye.attentionLow).toBeLessThan(DEFAULT_LIMITS.attentionLow)
-  })
-})
-
-describe('editing habits', () => {
-  const shot = { analysis: { faces: [{ x: 0.4, y: 0.2, w: 0.2, h: 0.3 }] } } as unknown as Shot
-  const brief = { moodWords: '', intention: '', clientAsk: '' } as never
-
-  it('learns the usual range of each slider', () => {
-    const h = habitsFrom({ ...emptyTraining(), habits: { Clarity2012: many((i) => 20 + (i % 11)), Saturation: many(() => 0, 5) } })
-    expect(h.Clarity2012.lo).toBeGreaterThanOrEqual(20)
-    expect(h.Clarity2012.hi).toBeLessThanOrEqual(30)
-    expect(h.Saturation).toBeUndefined() // too few edits to call it a habit
-  })
-
-  it('stops flagging a value that is this photographer\'s style, and flags a departure from it', () => {
-    const habits = habitsFrom({ ...emptyTraining(), habits: { Clarity2012: many((i) => 20 + (i % 11)), Contrast2012: many((i) => i % 6) } })
-    const general = developTips({ Clarity2012: 26 }, shot, brief).find((t) => t.topic === 'Clarity')!
-    const personal = developTips({ Clarity2012: 26 }, shot, brief, habits).find((t) => t.topic === 'Clarity')!
-    expect(general.level).toBe('attention')
-    expect(personal.level).toBe('info')
-    expect(personal.finding).toMatch(/within your usual range/)
-    const unusual = developTips({ Clarity2012: 26, Contrast2012: 35 }, shot, brief, habits).find((t) => t.topic === 'Outside your own habits')!
-    expect(unusual.finding).toMatch(/Contrast 35/)
   })
 })
 

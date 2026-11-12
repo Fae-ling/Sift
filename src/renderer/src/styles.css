@@ -138,16 +138,11 @@ kbd { font: 11px ui-monospace, Consolas, monospace; background: #171717; border:
 .plan-row { display: grid; grid-template-columns: 220px 1fr auto; gap: 8px; margin-bottom: 6px; align-items: start; }
 .plan-row textarea { min-height: 38px; }
 
-/* Story + coach */
+/* Story */
 .film { display: flex; gap: 6px; flex-wrap: wrap; }
 .film .thumb { width: 120px; height: 80px; }
 .seq { display: grid; grid-template-columns: 132px 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .seq img { width: 132px; height: 88px; object-fit: cover; border-radius: 4px; display: block; }
-.coach { display: grid; grid-template-columns: 1fr 380px; height: 100%; }
-.coach-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #161616; }
-.coach-main .view { flex: 1; min-height: 0; display: grid; place-items: center; padding: 16px; }
-.coach-main .view img { max-width: 100%; max-height: calc(100vh - 150px); }
-.coach-side { overflow-y: auto; border-left: 1px solid var(--line); padding: 14px 16px 40px; background: var(--panel); }
 .scopes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .scopes canvas { width: 100%; background: #0e0e0e; border-radius: 4px; display: block; }
 .swatches { display: flex; height: 34px; border-radius: 4px; overflow: hidden; }
@@ -187,3 +182,16 @@ kbd { font: 11px ui-monospace, Consolas, monospace; background: #171717; border:
 .diag-grid figcaption b { color: var(--text); }
 .trial { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(280px, 380px); gap: 20px; align-items: start; }
 .trial canvas { width: 100%; border-radius: 4px; display: block; }
+
+/* Styles and emotions */
+.emo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2px 20px; }
+.emo-row { display: grid; grid-template-columns: 110px 1fr 44px; gap: 8px; align-items: center; font-size: 13px; }
+.emo-row input { padding: 0; border: 0; background: none; }
+.faces { display: flex; flex-wrap: wrap; gap: 6px; }
+.faces img { width: 64px; height: 64px; border-radius: 4px; object-fit: cover; display: block; }
+.triage { grid-column: 1 / -1; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; padding: 10px 14px; background: var(--panel-2); border-bottom: 1px solid var(--line); font-size: 13px; }
+.triage label { margin: 0; font-weight: 400; display: flex; gap: 6px; align-items: center; }
+.triage input { width: auto; }
+.cull.with-read { grid-template-rows: auto auto 1fr; }
+.scene-chapter { width: auto; max-width: 150px; padding: 1px 4px; font-size: 11px; background: transparent; border-color: transparent; color: var(--muted); }
+.scene-chapter:hover, .scene-chapter:focus { border-color: var(--line); color: var(--text); }

@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import { basename, extname, join } from 'node:path'
-import type { DevelopSettings, ExportResult, XmpItem } from '@shared/types'
+import type { ExportResult, XmpItem } from '@shared/types'
 import { exiftool, isRaw } from './ingest'
 
 const sidecarPath = (path: string): string => path.slice(0, path.length - extname(path).length) + '.xmp'
@@ -75,43 +75,6 @@ export async function copySelects(paths: string[], dest: string): Promise<Export
     }
   }
   return result
-}
-
-/** The develop settings the edit coach knows how to comment on. */
-const DEVELOP_TAGS = [
-  'ProcessVersion', 'WhiteBalance', 'Temperature', 'Tint', 'Exposure2012', 'Contrast2012', 'Highlights2012', 'Shadows2012',
-  'Whites2012', 'Blacks2012', 'Texture', 'Clarity2012', 'Dehaze', 'Vibrance', 'Saturation', 'ToneCurveName2012',
-  'ParametricShadows', 'ParametricDarks', 'ParametricLights', 'ParametricHighlights',
-  'HueAdjustmentRed', 'HueAdjustmentOrange', 'HueAdjustmentYellow', 'HueAdjustmentGreen',
-  'SaturationAdjustmentRed', 'SaturationAdjustmentOrange', 'SaturationAdjustmentYellow', 'SaturationAdjustmentGreen', 'SaturationAdjustmentBlue',
-  'LuminanceAdjustmentOrange', 'LuminanceAdjustmentBlue',
-  'ColorGradeShadowSat', 'ColorGradeMidtoneSat', 'ColorGradeHighlightSat', 'SplitToningShadowHue', 'SplitToningShadowSaturation',
-  'SplitToningHighlightHue', 'SplitToningHighlightSaturation', 'ColorGradeMidtoneHue',
-  'Sharpness', 'SharpenEdgeMasking', 'LuminanceSmoothing', 'ColorNoiseReduction', 'GrainAmount', 'PostCropVignetteAmount',
-  'HasCrop', 'LensProfileEnable', 'CameraProfile', 'Look'
-]
-
-/**
- * Reads what Lightroom has written into the sidecar next to a RAW. Lightroom
- * only does that when "Automatically write changes into XMP" is on (or after
- * Ctrl+S), so the coach can follow an edit in progress without touching it.
- */
-export async function readDevelop(path: string): Promise<DevelopSettings | null> {
-  const sidecar = sidecarPath(path)
-  let modified: number
-  try {
-    modified = (await fs.stat(sidecar)).mtimeMs
-  } catch {
-    return null
-  }
-  const tags = (await exiftool.read(sidecar)) as unknown as Record<string, unknown>
-  const values: DevelopSettings['values'] = {}
-  for (const name of DEVELOP_TAGS) {
-    const v = tags[name]
-    if (typeof v === 'number' || typeof v === 'string') values[name] = v
-    else if (typeof v === 'boolean') values[name] = v ? 1 : 0
-  }
-  return { modified, values }
 }
 
 /** Writes several files into a folder the user chose. Names are reduced to a safe base name; existing files are kept. */

@@ -93,13 +93,14 @@ function margin(subject: Uint8Array, plane: Plane): Uint8Array {
   return m
 }
 
-export async function analyse(preview: HTMLCanvasElement, known?: FaceInfo[], limits: Limits = DEFAULT_LIMITS): Promise<Analysis> {
+/** `light` skips the eye and lip outlines, for reading many frames quickly during a cull. */
+export async function analyse(preview: HTMLCanvasElement, known?: FaceInfo[], limits: Limits = DEFAULT_LIMITS, light = false): Promise<Analysis> {
   const small = resized(preview, WORK_EDGE)
   const plane = { w: small.width, h: small.height }
   const pixels = rgba(small)
   const n = plane.w * plane.h
   const faces = known ?? (await analyseFaces(preview, rgba(preview), toGray(rgba(preview))))
-  const parts = await faceParts(preview, faces)
+  const parts = light ? [] : await faceParts(preview, faces)
   const masks = await segmentPeople(preview, plane.w, plane.h)
   const { luma } = channels(pixels.data, n)
 

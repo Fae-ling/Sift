@@ -1,4 +1,5 @@
 import type { Analysis, FaceInfo, Genre, MomentTag, NarrativeRead, Score, Shot, ShotType, StyleProfile, Suggestion, Warning } from '@shared/types'
+import { centroid, DEFAULT_EMOTION_VALUE, FAMILY_EMOTIONS, readEmotion, toCues, UNNAMED_EMOTION_VALUE, type EmotionRead, type EmotionStore } from './emotion'
 import { featuresOf, predict, reasonsFor, type Model } from './learner'
 import { styleBonus, type Feel } from './style'
 
@@ -145,19 +146,59 @@ export interface ScoreOptions {
   style?: StyleProfile
   /** What the profile's atmosphere words ask for. */
   feel?: Feel
+  /** The emotion machine, and how much the style in use values each emotion (-1..1). */
+  emotions?: { store: EmotionStore; weights: Record<string, number>; centroids?: number[][] }
+  /** Chapters the style says must not be missed. */
+  must?: Set<string>
   /** The model of the photographer's own taste, and how much say it has earned (0..0.8). */
   learned?: { model: Model; trust: number }
 }
 
-const FATAL: Warning[] = ['blink', 'soft', 'soft-face']
+const FATAL: Warning[] = ['blink', 'soft', 'soft-face', 'misfire', 'blurred']
+/** Emotions in which closed eyes are part of the expression, not a blink. */
+const EYES_CLOSE_IN = ['laughter', 'tenderness', 'crying', 'pout', 'joy']
 /** A moment this strong can outweigh a technical flaw. */
 const GEM_MOMENT = 72
 
 /** The balance after the profile's atmosphere words have nudged it. */
 const effectiveBalance = (o: ScoreOptions): number => clamp(o.balance + (o.feel?.balance ?? 0))
 
-export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?: NarrativeRead): Score {
+/** The emotion on every face of a frame, and the one that leads it. */
+export function readFaces(a: Analysis, options: ScoreOptions): { reads: (EmotionRead | null)[]; lead: { name: string; intensity: number } | null } {
+  const e = options.emotions
+  if (!e) return { reads: a.faces.map(() => null), lead: null }
+  const centroids = e.centroids ?? e.store.concepts.map(centroid)
+  const reads = a.faces.map((f) => (f.shapes ? readEmotion(toCues(f.shapes), e.store, centroids) : null))
+  let lead: { name: string; intensity: number } | null = null
+  let strongest = 0
+  a.faces.forEach((f, i) => {
+    const r = reads[i]
+    if (!r || r.name === 'calm' || f.h < MIN_FACE) return
+    const pull = r.intensity * Math.sqrt(f.w * f.h)
+    if (pull > strongest) {
+      strongest = pull
+      lead = { name: r.name ?? 'unnamed', intensity: r.intensity }
+    }
+  })
+  return { reads, lead }
+}
+
+/** What a style thinks of an emotion: its own weight, else the family's, else a general regard for strong feeling. */
+export function emotionWeight(weights: Record<string, number>, genre: Genre, name: string | null): number {
+  if (name === null) return UNNAMED_EMOTION_VALUE
+  return weights[name] ?? FAMILY_EMOTIONS[genre]?.[name] ?? DEFAULT_EMOTION_VALUE
+}
+
+export interface FrameContext {
+  /** This frame's leading emotion is rare in the shoot. */
+  rare?: boolean
+  /** The frame belongs to a chapter that must not be missed. */
+  must?: boolean
+}
+
+export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?: NarrativeRead, ctx: FrameContext = {}): Score {
   const balance = effectiveBalance(options)
+  const { reads, lead } = readFaces(a, options)
   const notes: string[] = []
   const momentNotes: string[] = []
   const warnings: Warning[] = []
@@ -176,7 +217,8 @@ export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?:
     let softFaces = 0
     main.forEach((f, i) => {
       const w = f.w * f.h
-      const explained = moment?.eyesExplained.has(i) ?? false
+      const emotion = reads[a.faces.indexOf(f)]
+      const explained = (moment?.eyesExplained.has(i) ?? false) || (!!emotion?.name && EYES_CLOSE_IN.includes(emotion.name) && emotion.intensity > 0.3)
       const eyes = explained ? 1 : 1 - smooth(0.35, 0.7, f.blink)
       const faceFocus = relativeFocus(f.sharpness, refs.face) / 100
       total += w * (0.55 * eyes + 0.45 * faceFocus)
@@ -192,8 +234,8 @@ export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?:
           ? 'Eyes closed, or looking down. A downward glance can be the best frame of a quiet moment, so judge it yourself.'
           : `${blinks} of ${main.length} faces have closed or lowered eyes.`
       )
-    } else if (moment?.eyesExplained.size) {
-      momentNotes.push('Eyes are closed inside a laugh or an embrace. That is the moment, not a blink.')
+    } else if (main.some((f) => f.blink > BLINK_LIMIT)) {
+      momentNotes.push('Eyes are closed inside the expression (a laugh, an embrace, tears). That is the moment, not a blink.')
     } else {
       notes.push(main.length === 1 ? 'Eyes open.' : `All ${main.length} faces have open eyes.`)
     }
@@ -214,7 +256,32 @@ export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?:
   } else if (focus > 85 && !main.length) {
     notes.push('Crisp where it counts.')
   }
-  const craft = faces === null ? 0.75 * focus + 0.25 * exposure : 0.45 * faces + 0.4 * focus + 0.15 * exposure
+  // A frame with nothing in it, or blurred beyond any use, is not a candidate at all.
+  const c = a.color
+  if (c.p95 < 0.06 || c.p95 - c.p5 < 0.035) {
+    warnings.push('misfire')
+    notes.unshift('A misfire: the frame is almost entirely black, white or blank.')
+  } else if (focus < 18 && !main.length) {
+    warnings.push('blurred')
+    notes.unshift('Blurred throughout, far beyond the frames around it.')
+  }
+  let craft = faces === null ? 0.75 * focus + 0.25 * exposure : 0.45 * faces + 0.4 * focus + 0.15 * exposure
+  // Composition, where the photo diagnosis has looked at this frame: does the subject
+  // stand clear of the background, hold the eye, and is anything pulling it away?
+  if (a.diag) {
+    const d = a.diag
+    const parts: number[] = []
+    if (d.merged !== undefined) parts.push(1 - smooth(0.1, 0.6, d.merged))
+    if (d.attention !== undefined) parts.push(smooth(0.15, 0.6, d.attention))
+    if (d.pull !== undefined) parts.push(1 - smooth(0.04, 0.2, d.pull))
+    if (parts.length) {
+      const composition = (100 * parts.reduce((x, y) => x + y, 0)) / parts.length
+      craft = 0.82 * craft + 0.18 * composition
+      if (d.merged !== undefined && d.merged > 0.35) notes.push(`The subject merges with the background along ${Math.round(d.merged * 100)}% of its outline.`)
+      if (d.pull !== undefined && d.pull > 0.1) notes.push('Something other than the subject pulls the eye strongly.')
+      if (d.attention !== undefined && d.attention > 0.6 && (d.merged ?? 0) < 0.15) notes.push('The subject stands clear and holds the eye.')
+    }
+  }
 
   // The moment: what the faces show, and what the editor's read saw if there is one.
   let local: number | null = null
@@ -250,6 +317,38 @@ export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?:
   } else if (!read) {
     momentNotes.push('No faces to read. Whether this frame matters to the story is yours to judge.')
   }
+  // Emotion: what each face is showing, weighed by what this style of shoot is looking for.
+  let emotionValue: number | undefined
+  if (moment && options.emotions && main.some((f) => f.shapes)) {
+    let total = 0
+    let weight = 0
+    for (const f of main) {
+      const r = reads[a.faces.indexOf(f)]
+      if (!r) continue
+      const w = f.w * f.h
+      weight += w
+      if (r.name !== 'calm') total += w * r.intensity * emotionWeight(options.emotions.weights, options.genre, r.name)
+    }
+    emotionValue = weight ? total / weight : 0
+    const g = MOMENT_WEIGHTS[options.genre]
+    const base = g.base + (options.feel?.quiet ?? 0)
+    const connection = Math.max(0, g.connection + (options.feel?.connection ?? 0))
+    // Replaces the simpler joy-only reading above: every emotion counts, for or against.
+    local = 100 * clamp(base + 0.55 * emotionValue + connection * moment.connection)
+    if (lead) {
+      const value = emotionWeight(options.emotions.weights, options.genre, lead.name === 'unnamed' ? null : lead.name)
+      momentNotes.unshift(
+        lead.name === 'unnamed'
+          ? `A strong expression (${Math.round(lead.intensity * 100)}%) the app has not been taught a name for yet. Teach it under Emotions.`
+          : `Reads as ${lead.name}, at ${Math.round(lead.intensity * 100)}% strength. ${value >= 0.6 ? 'This style is looking for it.' : value <= -0.2 ? 'This style usually works against it.' : 'This style is neutral about it.'}`
+      )
+    }
+    if (ctx.rare && lead) {
+      local = Math.min(100, local + 10 * lead.intensity)
+      tags.push('rare')
+      momentNotes.push(`Rare in this shoot: few frames show ${lead.name === 'unnamed' ? 'an expression like this' : lead.name}. Uncommon moments are the ones a set is remembered for.`)
+    }
+  }
   if (options.style) {
     const bonus = styleBonus(options.style, moment, a.shotType)
     if (local !== null) local = Math.max(0, Math.min(100, local + bonus.points))
@@ -260,7 +359,8 @@ export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?:
   const flawed = warnings.some((w) => FATAL.includes(w))
   // A reference whose photographer keeps closed-eye frames lowers the bar for a gem.
   const gemBar = GEM_MOMENT - (options.style && options.style.closedEyesShare > 0.08 ? 8 : 0) - (options.feel?.forgiving ? 8 : 0)
-  const gem = flawed && (read?.gem === true || (momentScore !== null && momentScore >= gemBar && balance >= 0.4))
+  // A frame with nothing in it is never a gem, whatever anyone says about it.
+  const gem = flawed && !warnings.includes('misfire') && (read?.gem === true || (momentScore !== null && momentScore >= gemBar && balance >= 0.4))
   if (gem) {
     momentNotes.unshift(
       'Possible hidden gem: technically imperfect, but the moment may be worth more than the flaw. Look at it at the size it will be seen.'
@@ -268,7 +368,14 @@ export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?:
   }
 
   const overall = momentScore === null ? craft : (1 - balance) * craft + balance * momentScore
-  return { overall, craft, moment: momentScore, focus, exposure, faces, notes, momentNotes, tags, warnings, gem }
+  if (ctx.must) momentNotes.push('Belongs to a chapter this style says must not be missed.')
+  return {
+    overall, craft, moment: momentScore, focus, exposure, faces, notes, momentNotes, tags, warnings, gem,
+    emotion: lead ?? undefined,
+    faceEmotions: options.emotions ? reads.map((r) => (r ? (r.name === 'calm' ? null : (r.name ?? 'unnamed')) : null)) : undefined,
+    emotionValue,
+    must: ctx.must || undefined
+  }
 }
 
 const isFlawed = (s: Score): boolean => s.warnings.some((w) => FATAL.includes(w))
@@ -295,8 +402,25 @@ export function scoreAndSuggest(shots: Shot[], options: ScoreOptions): Shot[] {
     })
   }
 
+  // Work out where each emotion concept sits once, not once per face.
+  if (options.emotions && !options.emotions.centroids) options = { ...options, emotions: { ...options.emotions, centroids: options.emotions.store.concepts.map(centroid) } }
+  // How common each emotion is in this shoot: an emotion shown in a handful of frames is special.
+  const leads = new Map<string, string>()
+  const seen = new Map<string, number>()
+  for (const s of analysed) {
+    const lead = readFaces(s.analysis!, options).lead
+    if (!lead || lead.intensity < 0.35) continue
+    leads.set(s.id, lead.name)
+    seen.set(lead.name, (seen.get(lead.name) ?? 0) + 1)
+  }
+  const rare = (id: string): boolean => {
+    const name = leads.get(id)
+    return !!name && analysed.length >= 40 && seen.get(name)! / analysed.length < 0.04
+  }
+  const mustChapter = (s: Shot): boolean => !!options.must?.has(s.chapter ?? s.read?.beat ?? '')
+
   const scores = new Map<string, Score>()
-  for (const s of analysed) scores.set(s.id, scoreShot(s.analysis!, refs.get(s.sceneId ?? 0)!, options, s.read))
+  for (const s of analysed) scores.set(s.id, scoreShot(s.analysis!, refs.get(s.sceneId ?? 0)!, options, s.read, { rare: rare(s.id), must: mustChapter(s) }))
 
   const stacks = new Map<number, Shot[]>()
   for (const s of analysed) stacks.set(s.stackId ?? 0, [...(stacks.get(s.stackId ?? 0) ?? []), s])
@@ -344,6 +468,8 @@ export function scoreAndSuggest(shots: Shot[], options: ScoreOptions): Shot[] {
       if (s === best) suggestion.set(s.id, 'pick')
       // A gem is never thrown out on the app's say-so; it is put in front of the photographer.
       else if (score.gem) suggestion.set(s.id, 'alternate')
+      // Nor is the only frame of a moment from a chapter that must not be missed, unless it is a misfire.
+      else if (score.must && !best && s === ranked[0] && !score.warnings.includes('misfire')) suggestion.set(s.id, 'alternate')
       else if (isFlawed(score)) suggestion.set(s.id, 'reject')
       // A clean frame nearly as good as the best is worth a second look.
       else if (best && scores.get(best.id)!.overall - score.overall < 6) suggestion.set(s.id, 'alternate')
@@ -410,3 +536,28 @@ export function tasteOf(shots: Shot[]): Taste {
     fittedBalance
   }
 }
+
+// --- the ultrafast cull ----------------------------------------------------------
+
+/** The kinds of frame the ultrafast cull can reject. */
+export type TriageKind = 'misfire' | 'blurred' | 'flawedTwin' | 'spare'
+
+/**
+ * What the ultrafast cull would reject, by kind. Only frames nobody has decided,
+ * never a hidden gem, never the only frame of a chapter that must not be missed.
+ */
+export function triage(shots: Shot[]): Record<TriageKind, Shot[]> {
+  const out: Record<TriageKind, Shot[]> = { misfire: [], blurred: [], flawedTwin: [], spare: [] }
+  const hasKeeper = new Set(shots.filter((x) => x.suggestion === 'pick' || x.decision === 'pick').map((x) => x.stackId))
+  for (const x of shots) {
+    if (x.decision !== null || !x.score) continue
+    const w = x.score.warnings
+    if (w.includes('misfire')) out.misfire.push(x)
+    else if (x.score.gem || x.suggestion !== 'reject') continue
+    else if (w.includes('blurred') || (w.includes('soft') && x.score.focus < 25)) out.blurred.push(x)
+    else if (hasKeeper.has(x.stackId) && w.some((k) => k === 'blink' || k === 'soft' || k === 'soft-face')) out.flawedTwin.push(x)
+    else if (hasKeeper.has(x.stackId)) out.spare.push(x)
+  }
+  return out
+}
+

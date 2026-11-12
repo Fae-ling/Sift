@@ -1,5 +1,5 @@
 import { STORY_PLANS } from '@shared/storyPlans'
-import type { Beat, Brief as BriefType, Genre } from '@shared/types'
+import type { Beat, Brief as BriefType } from '@shared/types'
 import { useStore } from '../store'
 
 const FIELDS: { key: keyof BriefType; label: string; hint: string; long?: boolean; placeholder: string }[] = [
@@ -13,7 +13,7 @@ const FIELDS: { key: keyof BriefType; label: string; hint: string; long?: boolea
 ]
 
 export function Brief(): React.JSX.Element {
-  const { project, update, setView, setGenre } = useStore()
+  const { project, update, setView, learned, chooseStyle } = useStore()
   if (!project) return <></>
   const set = (patch: Partial<BriefType>): void => update((p) => ({ ...p, brief: { ...p.brief, ...patch } }))
   const setPlan = (storyPlan: Beat[]): void => update((p) => ({ ...p, storyPlan }))
@@ -31,16 +31,20 @@ export function Brief(): React.JSX.Element {
         </p>
       </div>
 
-      <label htmlFor="genre">
-        What kind of shoot is this?<span className="hint">sets what the cull looks for</span>
+      <label htmlFor="style">
+        Shoot style<span className="hint">sets the chapters, the emotions looked for and the balance</span>
       </label>
-      <select id="genre" style={{ width: 220 }} value={project.genre} onChange={(e) => setGenre(e.target.value as Genre)}>
-        <option value="wedding">Wedding</option>
-        <option value="event">Event</option>
-        <option value="portrait">Portrait</option>
-        <option value="fashion">Fashion</option>
-        <option value="other">Other</option>
+      <select id="style" style={{ width: 280 }} value={project.styleIds[0] ?? ''} onChange={(e) => chooseStyle(e.target.value || null)}>
+        <option value="">No style</option>
+        {learned.styles.map((x) => (
+          <option key={x.id} value={x.id}>
+            {x.name}
+          </option>
+        ))}
       </select>
+      <button className="link small" style={{ marginLeft: 10 }} onClick={() => setView('profiles')}>
+        Edit styles
+      </button>
 
       <div className="grid-2">
         {FIELDS.filter((f) => !f.long && f.key !== 'deliverables' && f.key !== 'moodWords').map((f) => (
@@ -85,12 +89,14 @@ export function Brief(): React.JSX.Element {
       </div>
       <h2>Story plan</h2>
       <p className="muted" style={{ maxWidth: 680 }}>
-        The chapters this shoot should contain, and what makes a frame from each one worth keeping. The cull uses it to
+        The chapters this shoot should contain, and what makes a frame from each one worth keeping. Tick the ones you
+        must not come back without: the cull protects their frames and tells you when one has no pick. The cull uses it to
         tell you which chapters are covered, and the editor's read sorts frames into it. Rewrite it for this job: an
         elopement has no speeches; a brand shoot has a product chapter.
       </p>
       {project.storyPlan.map((beat, i) => (
-        <div className="plan-row" key={i}>
+        <div className="plan-row" key={i} style={{ gridTemplateColumns: '24px 220px 1fr auto' }}>
+          <input type="checkbox" style={{ width: 'auto', marginTop: 10 }} checked={!!beat.must} title="Must not be missed" aria-label={`${beat.name} must not be missed`} onChange={(e) => setPlan(project.storyPlan.map((b, j) => (j === i ? { ...b, must: e.target.checked } : b)))} />
           <input value={beat.name} aria-label={`Chapter ${i + 1} name`} onChange={(e) => setPlan(project.storyPlan.map((b, j) => (j === i ? { ...b, name: e.target.value } : b)))} />
           <textarea value={beat.look} aria-label={`What to look for in ${beat.name}`} rows={2} onChange={(e) => setPlan(project.storyPlan.map((b, j) => (j === i ? { ...b, look: e.target.value } : b)))} />
           <button className="link small" onClick={() => setPlan(project.storyPlan.filter((_, j) => j !== i))}>

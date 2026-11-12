@@ -11,11 +11,11 @@ whenever you have new finished work. Each area can be forgotten separately.
 
 | Part of the app | Give it | Minimum before it takes effect | Where you see the result |
 | --- | --- | --- | --- |
-| Culling suggestions | Past shoots you culled; every decision you make here | about 30 set-aside comparisons, in practice a few hundred decisions in bursts | Culling profiles → Your eye |
+| Culling suggestions | Past shoots you culled; every decision you make here | about 30 set-aside comparisons, in practice a few hundred decisions in bursts | Shoot styles → Your eye |
 | Diagnose a photo | Finished photographs you are happy with | 12 photographs with a person in them | "Judged against your N finished photographs" in Diagnose |
-| Edit coach tips | RAW files you edited, with Lightroom's XMP sidecars | 12 edited photographs | "within your usual range" and "Outside your own habits" tips |
+| Emotion reading | Faces you name in Cull; unnamed expressions you or Claude name | one example creates an emotion; a dozen make it dependable | Emotions |
 | Your look | Unedited frames and their finished versions, same file names | 1 pair; 10 or more gives a stable average | Look extractor → Your house look |
-| Culling profiles | A folder of photographs sharing a feeling | any | Culling profiles |
+| Shoot styles | Your culling in the style; a folder of photographs in it; Claude's development | about 30 decisions for emotion weights to shift | Shoot styles |
 
 ## 1. Culling: what you keep
 
@@ -43,7 +43,7 @@ Decisions made before Atelier count double: you made them with no suggestion fro
 this app in front of you. Decisions you have already made in the project are never
 overwritten by an import.
 
-*How to tell it has learned:* Culling profiles → Your eye shows how often the
+*How to tell it has learned:* Shoot styles → Your eye shows how often the
 built-in rules agree with you, how often the trained suggestions do, and how much say
 your learned taste has earned. It stays at zero until it demonstrably does better.
 
@@ -72,19 +72,29 @@ problem for me**. Each "not a problem" makes that check 8% more lenient for you;
 *How much:* 50 to 200 photographs gives stable norms. Train separately when your
 style changes; old samples are dropped once 3,000 are stored.
 
-## 3. Edit coach: how you edit
+## 3. Emotions: what a face is showing
 
-1. In Lightroom Classic, make sure settings are written beside the RAW files
-   (Automatically write changes into XMP, or Ctrl+S on the selection).
-2. Training → **Train on an edited shoot** and choose the folder of RAW files.
+The app reads 51 measurements of each face and matches them to emotions it
+knows. It starts with fourteen, described in general terms. It becomes yours in
+three ways:
 
-It records the value of each main slider in each photo. From 12 edited photographs,
-the middle 90% of your values for a slider is your usual range. Tips then behave
-differently: a value a general rule would flag, but which is normal for you, is
-mentioned as your style rather than as a problem; and a value outside your own range
-is pointed out even if no general rule objects.
+- **Name a face.** In Cull, the emotion read on each face is shown under its
+  close-up. Click it to confirm it, correct it, or type a new emotion ("grief",
+  "battle fury", "mischief"). The face becomes an example, and every frame in the
+  project is read again at once.
+- **Answer "What is this?"** During import, strong expressions the app cannot name
+  are collected under Emotions, with similar ones grouped. Naming a group teaches
+  it about all of them. "Not an emotion" discards a yawn or a face mid-word.
+- **Let Claude name them.** With an API key, "Ask Claude to name" sends small face
+  crops and gets names back, including new ones. Claude's read of a shoot also
+  teaches it: the emotion Claude names on a frame with one main face becomes an
+  example. Your own examples count twice as much as Claude's.
 
-*How much:* a few hundred edited frames from different shoots.
+*How to tell it has learned:* Emotions shows each emotion with its examples and
+what it now looks for on a face.
+
+*How much:* correct it whenever it is wrong; a dozen examples of an emotion from
+your own work is where it starts to follow your subjects rather than a textbook.
 
 ## 4. Look: your own colour
 
@@ -99,15 +109,24 @@ as a LUT or a Lightroom preset from the Look extractor. Use pairs from the same 
 of light for a clean result; mixing daylight and tungsten work averages two looks
 into one that is neither.
 
-## 5. Culling profiles
+## 5. Shoot styles
 
-Described in the app under Culling profiles: add a gallery folder to a profile, or
-your picks from a project, and optionally let Claude put its essence into words.
+A style holds what the cull looks for in one kind of work. It learns in four ways:
+
+- **From your culling in it.** After about 30 decisions in a project, the app works
+  out which emotions you kept more often than average in that style, and shifts
+  the style's emotion weights toward them. This happens by itself.
+- **From photographs.** Add a folder of work in that style (yours or someone's you
+  admire), or your picks from a project.
+- **From Claude.** "Develop with Claude" builds a style from its name and a
+  sentence. Once you have culled in it, "Refine with Claude from my culling" sends
+  what your decisions showed and proposes changes. Nothing changes until you accept.
+- **From you.** Every chapter, emotion weight and marker can be edited by hand.
 
 ## What training cannot do
 
-- It adjusts thresholds, weights and ranges. It does not retrain the face, person or
-  segmentation models, so it cannot make the app see something it cannot see now
+- It adjusts thresholds, weights, ranges and where each emotion sits among the face
+  measurements. It does not retrain the face, person or segmentation models, so it cannot make the app see something it cannot see now
   (a face turned away, a very small face, a silhouette the mask gets wrong).
 - It learns from what you provide. Finished photographs teach what your good work
   looks like, not what you would have rejected; only culling decisions teach that.
@@ -118,5 +137,5 @@ your picks from a project, and optionally let Claude put its essence into words.
 ## Where it is stored
 
 In the app's data folder: `learning.json` (culling decisions), `training.json`
-(norms, habits, house look, feedback, log), `learned.json` (profiles). Copy these
-three files to move what Atelier has learned to another computer.
+(norms, house look, feedback, log), `learned.json` (styles), `emotions.json`
+(emotions and their examples). Copy these four files to move what Atelier has learned to another computer.

@@ -3,8 +3,6 @@
 //
 //  - norms:     how their finished photographs measure, so the diagnosis judges a
 //               new photo against their own work rather than a general standard
-//  - habits:    which Lightroom settings they normally use, so editing tips flag
-//               departures from their own practice
 //  - houseLook: the average change from their unedited frames to their finished ones
 //  - feedback:  which findings they agree with and which they wave away
 //
@@ -22,7 +20,7 @@ export const MIN_NORM = 12
 
 export interface TrainingEvent {
   at: number
-  kind: 'finished' | 'edits' | 'look' | 'decisions'
+  kind: 'finished' | 'look' | 'decisions'
   name: string
   count: number
 }
@@ -31,8 +29,6 @@ export interface Training {
   version: number
   /** Diagnosis measurements of finished photographs: metric name to samples. */
   norms: Record<string, number[]>
-  /** Lightroom settings from edited photographs: setting name to samples. */
-  habits: Record<string, number[]>
   /** The learned look, and how many before/after pairs it is the average of. */
   houseLook: { curve: number[]; shift: [number, number][]; saturation: number; pairs: number } | null
   /** Per finding topic: how often the photographer agreed, and how often they said it is not a problem. */
@@ -40,7 +36,7 @@ export interface Training {
   log: TrainingEvent[]
 }
 
-export const emptyTraining = (): Training => ({ version: TRAINING_VERSION, norms: {}, habits: {}, houseLook: null, feedback: {}, log: [] })
+export const emptyTraining = (): Training => ({ version: TRAINING_VERSION, norms: {}, houseLook: null, feedback: {}, log: [] })
 
 /** Adds one photograph's measurements to a store of samples. */
 export function addSamples(store: Record<string, number[]>, values: Record<string, number>): Record<string, number[]> {
@@ -131,30 +127,6 @@ export function limitsFrom(t: Training): Limits {
   return L
 }
 
-export interface Habit {
-  lo: number
-  hi: number
-  median: number
-  count: number
-}
-
-/** The Lightroom settings worth learning a habit for. */
-export const HABIT_KEYS = [
-  'Exposure2012', 'Contrast2012', 'Highlights2012', 'Shadows2012', 'Whites2012', 'Blacks2012', 'Texture', 'Clarity2012', 'Dehaze', 'Vibrance',
-  'Saturation', 'Temperature', 'Tint', 'SaturationAdjustmentOrange', 'HueAdjustmentOrange', 'LuminanceAdjustmentOrange', 'Sharpness',
-  'SharpenEdgeMasking', 'LuminanceSmoothing', 'PostCropVignetteAmount', 'SplitToningShadowSaturation', 'SplitToningHighlightSaturation', 'ColorGradeMidtoneSat', 'GrainAmount'
-]
-
-/** The photographer's usual range for each setting: the middle 90% of their edits. */
-export function habitsFrom(t: Training): Record<string, Habit> {
-  const out: Record<string, Habit> = {}
-  for (const [key, samples] of Object.entries(t.habits)) {
-    if (samples.length < MIN_NORM) continue
-    out[key] = { lo: quantile(samples, 0.05), hi: quantile(samples, 0.95), median: quantile(samples, 0.5), count: samples.length }
-  }
-  return out
-}
-
 /** Folds one more before/after look into the running average. */
 export function addToHouseLook(house: Training['houseLook'], look: Look): NonNullable<Training['houseLook']> {
   const n = house?.pairs ?? 0
@@ -175,9 +147,8 @@ export const houseLookAsLook = (h: NonNullable<Training['houseLook']>): Look => 
 })
 
 /** A plain-language account of what has been learned, for the Training screen. */
-export function trainingSummary(t: Training): { diagnosis: string; habits: string; look: string } {
+export function trainingSummary(t: Training): { diagnosis: string; look: string } {
   const photos = Math.max(0, ...Object.values(t.norms).map((s) => s.length))
-  const edits = Math.max(0, ...Object.values(t.habits).map((s) => s.length))
   const med = (key: string): string => quantile(t.norms[key] ?? [], 0.5).toFixed(key === 'skinHue' ? 0 : 2)
   return {
     diagnosis:
@@ -186,12 +157,6 @@ export function trainingSummary(t: Training): { diagnosis: string; habits: strin
         : photos < MIN_NORM
           ? `${photos} finished photographs so far; ${MIN_NORM} are needed before your own norms replace the general limits.`
           : `Learned from ${photos} finished photographs. In your work the subject typically holds ${Math.round(Number(med('attention')) * 100)}% of the attention and loses ${Math.round(Number(med('merged')) * 100)}% of its outline${t.norms.skinHue?.length >= MIN_NORM ? `; skin hue sits around ${med('skinHue')}°` : ''}. A new photo is flagged when it is worse than 85% of these.`,
-    habits:
-      edits === 0
-        ? 'Nothing yet. Editing tips use general limits.'
-        : edits < MIN_NORM
-          ? `${edits} edited photographs so far; ${MIN_NORM} are needed before tips follow your own habits.`
-          : `Learned from ${edits} edited photographs. Tips now tell you when a setting is outside your own usual range, and stop nagging about values that are normal for you.`,
     look: t.houseLook ? `Averaged from ${t.houseLook.pairs} before/after pair${t.houseLook.pairs === 1 ? '' : 's'}. Save it as a LUT or preset from the Look extractor.` : 'Nothing yet.'
   }
 }

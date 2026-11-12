@@ -1,6 +1,7 @@
 import { FaceLandmarker, FilesetResolver, ObjectDetector, type FaceLandmarkerResult } from '@mediapipe/tasks-vision'
 import type { FaceInfo } from '@shared/types'
 import { rgbToHsv } from './color'
+import { SHAPES } from './emotion'
 import { laplacianVariance, type Gray } from './image'
 
 type Delegate = 'GPU' | 'CPU'
@@ -121,7 +122,7 @@ const EDGE_B = 454
  * `preview` is what the model looks at; `gray` (possibly larger) is where
  * eye sharpness is measured.
  */
-export async function analyseFaces(preview: HTMLCanvasElement, pixels: ImageData, gray: Gray): Promise<FaceInfo[]> {
+export async function analyseFaces(preview: HTMLCanvasElement, pixels: ImageData, gray: Gray, secondLook = true): Promise<FaceInfo[]> {
   const result = await detect(preview)
   if (!result) return []
   const faces: FaceInfo[] = []
@@ -193,6 +194,7 @@ export async function analyseFaces(preview: HTMLCanvasElement, pixels: ImageData
       jawOpen: shape('jawOpen'),
       squint: (shape('cheekSquintLeft') + shape('cheekSquintRight') + shape('eyeSquintLeft') + shape('eyeSquintRight')) / 4,
       // Where the nose sits between the two edges of the face tells which way the head is turned.
+      shapes: SHAPES.map((name) => Math.round(100 * shape(name))),
       yaw: Math.max(-1, Math.min(1, ((marks[NOSE].x - (marks[EDGE_A].x + marks[EDGE_B].x) / 2) / Math.max(1e-6, Math.abs(marks[EDGE_B].x - marks[EDGE_A].x))) * 2)),
       sharpness,
       skinHue: skin ? skin[0] : null,
@@ -206,7 +208,7 @@ export async function analyseFaces(preview: HTMLCanvasElement, pixels: ImageData
   // far from the camera vanish: exactly the ones that matter in a group portrait or a
   // wide shot of the ceremony. When the first look finds nobody, several people, or only
   // small faces, find the people instead, and look at each person's head up close.
-  const worthASecondLook = faces.length === 0 || faces.length >= 2 || faces.some((f) => f.h < 0.16)
+  const worthASecondLook = secondLook && (faces.length === 0 || faces.length >= 2 || faces.some((f) => f.h < 0.16))
   const people = worthASecondLook ? await findPeople(preview) : []
   if (people.length) {
     const crop = document.createElement('canvas')

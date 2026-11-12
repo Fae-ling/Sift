@@ -16,18 +16,20 @@ import {
 import { DEFAULT_BALANCE, STORY_PLANS } from '@shared/storyPlans'
 import { groupShots } from './analysis/grouping'
 import { emptyLearning, examplesOf, FEATURE_VERSION, isBlindBurst, learn as learnTaste, trimmed, type Learned as Taste, type LearningData } from './analysis/learner'
-import { ingestShot } from './analysis/pipeline'
+import { ingestShot, previewUrl } from './analysis/pipeline'
 import { deriveLook, lookStats } from './analysis/look'
 import { loadOriented, PREVIEW_EDGE, resized, rgba } from './analysis/image'
 import { metricsOf } from './analysis/diagnose'
 import { analyse } from './analysis/reading'
-import { scoreAndSuggest, tasteOf, type ScoreOptions } from './analysis/scoring'
-import { addSamples, addToHouseLook, emptyTraining, HABIT_KEYS, limitsFrom, TRAINING_VERSION, type Training, type TrainingEvent } from './analysis/training'
-import { buildProfile, feelOf, mergeProfiles, profileFacts, STARTER_PROFILES, styleNotes } from './analysis/style'
+import { scoreAndSuggest, tasteOf, triage, type ScoreOptions, type TriageKind } from './analysis/scoring'
+export { triage, type TriageKind }
+import { addSamples, addToHouseLook, emptyTraining, limitsFrom, TRAINING_VERSION, type Training, type TrainingEvent } from './analysis/training'
+import { emptyEmotions, EMOTION_VERSION, dismissPointer, forgetEmotion, namePointer, notice, readEmotion, teach as teachFace, toCues, centroid, type EmotionStore } from './analysis/emotion'
+import { buildProfile, emotionLifts, emotionWeights, feelOf, mergeLifts, mergeProfiles, newStyle, profileFacts, STARTER_STYLES, styleNotes, upgradeStyle } from './analysis/style'
 import type { StyleProfile } from '@shared/types'
 
-export type View = 'projects' | 'profiles' | 'training' | 'look' | 'diagnose' | 'brief' | 'import' | 'cull' | 'story' | 'coach' | 'export' | 'learn' | 'settings'
-export type Filter = 'all' | 'suggested' | 'undecided' | 'picks' | 'rejects' | 'warnings' | 'gems' | 'unkept'
+export type View = 'projects' | 'profiles' | 'emotions' | 'training' | 'look' | 'diagnose' | 'brief' | 'import' | 'cull' | 'story' | 'export' | 'learn' | 'settings'
+export type Filter = 'all' | 'suggested' | 'undecided' | 'picks' | 'rejects' | 'warnings' | 'gems' | 'unkept' | 'must'
 
 interface IngestState {
   running: boolean
@@ -110,7 +112,7 @@ interface State {
   select(id: string | null): void
   notify(message: string | null): void
   refreshProjects(): Promise<void>
-  createProject(name: string, genre: Genre): Promise<void>
+  createProject(name: string, styleId: string): Promise<void>
   openProject(id: string): Promise<void>
   closeProject(): void
   deleteProject(id: string): Promise<void>
@@ -127,11 +129,26 @@ interface State {
   undo(): void
   redo(): void
   loadLearning(): Promise<void>
+  /** What the app knows about emotions: concepts, their examples, and unnamed expressions waiting for a name. */
+  emotions: EmotionStore
+  loadEmotions(): Promise<void>
+  /** Teaches that a face shows a named emotion (creating the emotion if new), then rescoring the open project. */
+  teachEmotion(name: string, shapes: number[], thumb?: string, source?: 'you' | 'claude', about?: { description?: string; valence?: number; arousal?: number }): void
+  namePointerAs(pointerId: string, name: string, source?: 'you' | 'claude', about?: { description?: string; valence?: number; arousal?: number }): void
+  dropPointer(pointerId: string): void
+  forgetEmotionNamed(name: string): void
+  /** Says which chapter of the story a whole scene belongs to. */
+  setSceneChapter(sceneId: number, chapter: string | null): void
+  /** Rejects, in one undoable step, the kinds of frame chosen. Returns how many. */
+  applyTriage(kinds: TriageKind[]): number
+  /** Reads the composition of the strongest frames of each moment, in the background. */
+  deepRead(): Promise<void>
+  cancelDeepRead(): void
+  deep: { running: boolean; done: number; total: number }
+  setFastImport(on: boolean): void
   loadTraining(): Promise<void>
   /** Learns the photographer's own norms from a folder of finished photographs. */
   trainFinished(folder: string): Promise<void>
-  /** Learns their editing habits from a folder of RAW files with Lightroom sidecars. */
-  trainEdits(folder: string): Promise<void>
   /** Learns their look from unedited frames and the finished versions with the same file names. */
   trainLook(beforeFolder: string, afterFolder: string): Promise<void>
   /** Takes the open project's decisions from ratings given in Lightroom. Returns how many frames were decided. */
@@ -139,7 +156,7 @@ interface State {
   /** Takes the open project's decisions from a folder of delivered files (matched by name). */
   teachFromDelivered(folder: string): Promise<number>
   giveFeedback(topic: string, agree: boolean): void
-  resetTraining(area: 'norms' | 'habits' | 'houseLook' | 'feedback'): void
+  resetTraining(area: 'norms' | 'houseLook' | 'feedback'): void
   /** Retrains the taste model from every stored decision plus the open project's. */
   relearn(): void
   setBlindBursts(on: boolean): void
@@ -147,8 +164,8 @@ interface State {
   setBalance(balance: number): void
   setGenre(genre: Genre): void
   loadLearned(): Promise<void>
-  createProfile(name: string, tags: string[], feeling: string): Promise<void>
-  editProfile(styleId: string, patch: Partial<Pick<Style, 'name' | 'tags' | 'feeling'>>): Promise<void>
+  createProfile(name: string, family: Genre, feeling: string, tags: string[]): Promise<string>
+  editProfile(styleId: string, patch: Partial<Style>): Promise<void>
   addGallery(styleId: string, sourceName: string, folder: string): Promise<void>
   rememberPicks(styleId: string): Promise<void>
   distil(styleId: string): Promise<void>
@@ -166,18 +183,27 @@ let saveTimer: ReturnType<typeof setTimeout> | undefined
 let cancelRequested = false
 let cancelRead = false
 
+/** True when measurements changed since the last save, so the large analysis file must be rewritten too. */
+let analysisDirty = false
+
 function scheduleSave(project: Project): void {
   clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => void window.studio.projects.save(project), 600)
+  saveTimer = setTimeout(() => {
+    const dirty = analysisDirty
+    analysisDirty = false
+    void window.studio.projects.save(project, dirty)
+  }, 600)
 }
 
 /** At most this many frames of a gallery are kept as samples and shown to Claude for the essence. */
 const MAX_SAMPLES = 36
 
 /** Everything the scoring needs to know about a project, including its culling profile. */
-function scoring(p: Pick<Project, 'genre' | 'balance' | 'styleIds'>, learned: Learned): ScoreOptions {
+function scoring(p: Pick<Project, 'genre' | 'balance' | 'styleIds' | 'storyPlan'>, learned: Learned): ScoreOptions {
   const active = learned.styles.filter((s) => p.styleIds.includes(s.id))
   return {
+    emotions: { store: currentEmotions, weights: emotionWeights(active[0]) },
+    must: new Set(p.storyPlan.filter((c) => c.must).map((c) => c.name)),
     genre: p.genre,
     balance: p.balance,
     style: mergeProfiles(active.flatMap((s) => (s.profile ? [s.profile] : []))),
@@ -185,6 +211,10 @@ function scoring(p: Pick<Project, 'genre' | 'balance' | 'styleIds'>, learned: Le
     learned: currentTaste ? { model: currentTaste.model, trust: currentTaste.trust } : undefined
   }
 }
+
+/** The emotion machine in use. Kept beside the store so the scoring helper can reach it. */
+let currentEmotions: EmotionStore = emptyEmotions()
+let cancelDeep = false
 
 /** The taste model in use. Kept beside the store so the scoring helper can reach it. */
 let currentTaste: Taste | null = null
@@ -290,6 +320,19 @@ function applyPastDecisions(get: () => State, keptOf: (s: Shot) => boolean | nul
 /** The diagnosis limits as trained so far. */
 export const currentLimits = (training: Training) => limitsFrom(training)
 
+/** Where each emotion concept sits, worked out once per change to the machine. */
+let centroidCache: { store: EmotionStore; list: number[][] } | null = null
+function emotionCentroids(): number[][] {
+  if (centroidCache?.store !== currentEmotions) centroidCache = { store: currentEmotions, list: currentEmotions.concepts.map(centroid) }
+  return centroidCache.list
+}
+
+function setEmotions(set: (p: Partial<State>) => void, store: EmotionStore, save = true): void {
+  currentEmotions = store
+  set({ emotions: store })
+  if (save) void window.studio.data.save('emotions', store)
+}
+
 type Get = () => State
 type Set = (partial: Partial<State>) => void
 
@@ -332,6 +375,8 @@ export const useStore = create<State>((set, get) => ({
   toast: null,
   tasteData: emptyLearning(),
   taste: null,
+  emotions: emptyEmotions(),
+  deep: { running: false, done: 0, total: 0 },
   training: emptyTraining(),
   teaching: { running: false, done: 0, total: 0, label: '' },
   chapter: null,
@@ -348,7 +393,9 @@ export const useStore = create<State>((set, get) => ({
 
   refreshProjects: async () => set({ summaries: await window.studio.projects.list() }),
 
-  createProject: async (name, genre) => {
+  createProject: async (name, styleId) => {
+    const style = get().learned.styles.find((x) => x.id === styleId)
+    const genre = style?.family ?? 'other'
     const now = Date.now()
     const project: Project = {
       id: newId(),
@@ -360,14 +407,12 @@ export const useStore = create<State>((set, get) => ({
       folder: null,
       shots: [],
       sceneGapSec: genre === 'wedding' || genre === 'event' ? 300 : 120,
-      // Start from what earlier projects of this kind taught, if anything.
-      balance: get().learned.balance[genre]?.value ?? DEFAULT_BALANCE[genre],
-      storyPlan: STORY_PLANS[genre],
+      balance: style?.balance ?? DEFAULT_BALANCE[genre],
+      storyPlan: style?.chapters ?? STORY_PLANS[genre],
       readCostUsd: 0,
-      styleIds: [],
+      styleIds: style ? [style.id] : [],
       clockOffsets: {},
-      storyOrder: [],
-      gradeAdvice: {}
+      storyOrder: []
     }
     await window.studio.projects.save(project)
     set({ project, view: 'brief', selectedId: null, filter: 'all' })
@@ -522,7 +567,21 @@ export const useStore = create<State>((set, get) => ({
         // Only the measured fields are written back, so a decision made meanwhile survives.
         let result: Partial<Shot>
         try {
-          result = await ingestShot(projectId, shot)
+          const ingested = await ingestShot(projectId, shot, {
+            fast: get().project?.fastImport,
+            // Keep a picture of faces whose strong expression the app cannot name, to ask about later.
+            wantFace: (shapes) => {
+              const r = readEmotion(toCues(shapes), currentEmotions, emotionCentroids())
+              return r.name === null && r.intensity >= 0.35
+            }
+          })
+          result = ingested.patch
+          analysisDirty = true
+          if (ingested.faces.length) {
+            let store = get().emotions
+            for (const f of ingested.faces) store = notice(store, toCues(f.shapes), f.thumb)
+            setEmotions(set, store, false)
+          }
         } catch (err) {
           result = { error: (err as Error).message }
         }
@@ -541,6 +600,9 @@ export const useStore = create<State>((set, get) => ({
     if (get().project?.id === projectId) {
       get().regroup()
       set((s) => ({ ingest: { ...s.ingest, running: false }, selectedId: s.selectedId ?? s.project?.shots[0]?.id ?? null }))
+      void window.studio.data.save('emotions', get().emotions)
+      // With everything measured, look more closely at the frames most likely to be kept.
+      void get().deepRead()
     }
   },
 
@@ -568,17 +630,20 @@ export const useStore = create<State>((set, get) => ({
 
   loadLearned: async () => {
     let learned = await window.studio.learned.get()
-    if (!learned.seeded) {
-      const starters: Style[] = STARTER_PROFILES.map((p) => ({ ...p, id: newId(), createdAt: Date.now(), sources: [], profile: null, samples: [] }))
-      learned = { ...learned, styles: [...learned.styles, ...starters], seeded: true }
+    learned = { ...learned, styles: learned.styles.map(upgradeStyle) }
+    if (!learned.seededStyles) {
+      const have = new Set(learned.styles.map((x) => x.name))
+      const starters: Style[] = STARTER_STYLES.filter((p) => !have.has(p.name)).map((p) => ({ ...p, id: newId(), createdAt: Date.now(), sources: [], profile: null, samples: [] }))
+      learned = { ...learned, styles: [...starters, ...learned.styles], seeded: true, seededStyles: true }
       await window.studio.learned.save(learned)
     }
     set({ learned })
   },
 
-  createProfile: async (name, tags, feeling) => {
-    const style: Style = { id: newId(), name, tags, feeling, createdAt: Date.now(), sources: [], profile: null, samples: [] }
+  createProfile: async (name, family, feeling, tags) => {
+    const style = newStyle(newId(), name, family, feeling, tags)
     await saveStyles(get, set, [...get().learned.styles, style])
+    return style.id
   },
 
   editProfile: async (styleId, patch) => {
@@ -606,7 +671,7 @@ export const useStore = create<State>((set, get) => ({
       for (const [i, file] of files.entries()) {
         const shotId = `${batch}_${i}`
         try {
-          const patch = await ingestShot(cache, { id: shotId, path: file.path, name: file.name, time: 0, width: 0, height: 0, decision: null, rating: 0 })
+          const { patch } = await ingestShot(cache, { id: shotId, path: file.path, name: file.name, time: 0, width: 0, height: 0, decision: null, rating: 0 })
           if (patch.analysis) {
             analyses.push(patch.analysis)
             if (i % every === 0 && samples.length < room) samples.push(shotId)
@@ -653,10 +718,14 @@ export const useStore = create<State>((set, get) => ({
     if (get().project?.styleIds.includes(styleId)) get().chooseStyle(null)
   },
 
+  // Choosing a style sets what the cull looks for: its chapters, its balance, the emotions it values.
   chooseStyle: (styleId) =>
     get().update((p) => {
-      const styleIds = styleId ? [styleId] : []
-      return { ...p, styleIds, shots: scoreAndSuggest(p.shots, scoring({ ...p, styleIds }, get().learned)) }
+      const style = get().learned.styles.find((x) => x.id === styleId)
+      const next = style
+        ? { ...p, styleIds: [style.id], genre: style.family, balance: style.balance, storyPlan: style.chapters }
+        : { ...p, styleIds: [] }
+      return { ...next, shots: scoreAndSuggest(p.shots, scoring(next, get().learned)) }
     }),
 
   readShoot: async () => {
@@ -677,6 +746,7 @@ export const useStore = create<State>((set, get) => ({
           brief: project.brief,
           beats: project.storyPlan,
           styleNotes: styleNotes(activeStyles(project, get().learned)),
+          emotions: get().emotions.concepts.map((c) => c.name),
           frames: chunk.map((s) => ({
             shotId: s.id,
             scene: s.sceneId ?? 0,
@@ -686,6 +756,15 @@ export const useStore = create<State>((set, get) => ({
           }))
         })
         if (get().project?.id !== start.id) return
+        // What Claude saw in a frame teaches the emotion machine about the face that led it.
+        let store = get().emotions
+        for (const shot of chunk) {
+          const named = result.reads[shot.id]?.emotion?.trim().toLowerCase()
+          const face = shot.analysis!.faces.find((f) => f.shapes && f.h >= 0.08)
+          if (!named || ['calm', 'neutral', 'none', ''].includes(named) || !face || shot.analysis!.faces.filter((f) => f.h >= 0.08).length !== 1) continue
+          if (readEmotion(toCues(face.shapes!), store).intensity >= 0.25) store = teachFace(store, named, toCues(face.shapes!), 'claude')
+        }
+        if (store !== get().emotions) setEmotions(set, store)
         // Each chunk is saved as it arrives, so a pause or an error keeps what was paid for.
         get().update((p) => {
           const shots = p.shots.map((s) => (result.reads[s.id] ? { ...s, read: result.reads[s.id] } : s))
@@ -722,6 +801,17 @@ export const useStore = create<State>((set, get) => ({
       if (examples.length) projects[project.id] = { genre: project.genre, updatedAt: Date.now(), examples }
       else delete projects[project.id]
       learning = trimmed({ ...learning, projects })
+    }
+    // What this project's decisions say about each emotion is folded into its style.
+    const styleId = project?.styleIds[0]
+    if (project && styleId) {
+      const fresh = emotionLifts(project.shots)
+      const learned = get().learned
+      const lifts = { ...(learned.lifts ?? {}), [styleId]: { ...(learned.lifts?.[styleId] ?? {}), [project.id]: fresh } }
+      const merged = Object.values(lifts[styleId]).reduce((acc, l) => mergeLifts(acc, l), {} as Record<string, { w: number; n: number }>)
+      const updated = { ...learned, lifts, styles: learned.styles.map((x) => (x.id === styleId ? { ...x, emotionLift: merged } : x)) }
+      set({ learned: updated })
+      void window.studio.learned.save(updated)
     }
     const total = Object.values(learning.projects).reduce((n, p) => n + p.examples.length, 0)
     const taste = total ? learnTaste(learning, project?.genre ?? 'other') : null
@@ -765,23 +855,6 @@ export const useStore = create<State>((set, get) => ({
     })
     if (!count) throw new Error('No people were found in those photographs, so there was nothing to learn norms from.')
     saveTraining(set, get, { norms }, { kind: 'finished', name: baseName(folder), count })
-  },
-
-  trainEdits: async (folder) => {
-    const files = (await window.studio.scan(folder)).filter((f) => !/\.jpe?g$/i.test(f.name))
-    if (!files.length) throw new Error(`No RAW files found in ${folder}.`)
-    let habits = get().training.habits
-    let count = 0
-    await teach(set, get, 'Reading Lightroom settings', files.length, async (i) => {
-      const develop = await window.studio.readDevelop(files[i].path)
-      if (!develop || Object.keys(develop.values).length < 4) return
-      const values: Record<string, number> = {}
-      for (const key of HABIT_KEYS) if (typeof develop.values[key] === 'number') values[key] = develop.values[key] as number
-      habits = addSamples(habits, values)
-      count++
-    })
-    if (!count) throw new Error('None of those files has Lightroom settings beside it. Turn on "Automatically write changes into XMP" in Lightroom, or select the photos and press Ctrl+S, then try again.')
-    saveTraining(set, get, { habits }, { kind: 'edits', name: baseName(folder), count })
   },
 
   trainLook: async (beforeFolder, afterFolder) => {
@@ -832,6 +905,92 @@ export const useStore = create<State>((set, get) => ({
 
   resetTraining: (area) => saveTraining(set, get, { [area]: emptyTraining()[area] } as Partial<Training>),
 
+  loadEmotions: async () => {
+    const stored = (await window.studio.data.get('emotions')) as EmotionStore | null
+    setEmotions(set, stored && stored.version === EMOTION_VERSION ? stored : emptyEmotions(), false)
+  },
+
+  teachEmotion: (name, shapes, thumb, source = 'you', about) => {
+    setEmotions(set, teachFace(get().emotions, name, toCues(shapes), source, thumb, about))
+    rescore(get)
+  },
+
+  namePointerAs: (pointerId, name, source = 'you', about) => {
+    setEmotions(set, namePointer(get().emotions, pointerId, name, source, about))
+    rescore(get)
+  },
+
+  dropPointer: (pointerId) => setEmotions(set, dismissPointer(get().emotions, pointerId)),
+
+  forgetEmotionNamed: (name) => {
+    setEmotions(set, forgetEmotion(get().emotions, name))
+    rescore(get)
+  },
+
+  setSceneChapter: (sceneId, chapter) =>
+    get().update((p) => {
+      const shots = p.shots.map((x) => (x.sceneId === sceneId ? { ...x, chapter: chapter ?? undefined } : x))
+      return { ...p, shots: scoreAndSuggest(shots, scoring(p, get().learned)) }
+    }),
+
+  applyTriage: (kinds) => {
+    const project = get().project
+    if (!project) return 0
+    const ids = new Set(kinds.flatMap((k) => triage(project.shots)[k].map((x) => x.id)))
+    if (!ids.size) return 0
+    remember(get, set, (x) => ids.has(x.id))
+    get().update((p) => ({
+      ...p,
+      shots: p.shots.map((x) => (ids.has(x.id) ? { ...x, decision: 'reject' as const, decidedBy: 'accepted' as const, suggestedThen: x.suggestion, blind: undefined } : x))
+    }))
+    return ids.size
+  },
+
+  deepRead: async () => {
+    const start = get().project
+    if (!start || get().deep.running) return
+    // The two strongest frames of every moment: the ones a decision will be made between.
+    const stacks = new Map<number, Shot[]>()
+    for (const x of start.shots) if (x.analysis && x.score) stacks.set(x.stackId ?? 0, [...(stacks.get(x.stackId ?? 0) ?? []), x])
+    const todo = [...stacks.values()].flatMap((stack) =>
+      [...stack].sort((a, b) => b.score!.overall - a.score!.overall).slice(0, 2).filter((x) => !x.analysis!.diag && x.analysis!.faces.length > 0 && !x.score!.warnings.includes('misfire'))
+    )
+    if (!todo.length) return
+    cancelDeep = false
+    set({ deep: { running: true, done: 0, total: todo.length } })
+    try {
+      for (const [i, shot] of todo.entries()) {
+        if (cancelDeep || get().project?.id !== start.id) break
+        try {
+          const blob = await (await fetch(previewUrl(start.id, shot.id))).blob()
+          const preview = await loadOriented(blob, 1, PREVIEW_EDGE)
+          const a = await analyse(preview, shot.analysis!.faces, undefined, true)
+          if (get().project?.id !== start.id) break
+          const diag = {
+            merged: a.reading.separation?.mergedShare,
+            attention: a.reading.hasSubject ? a.reading.attentionOnSubject : undefined,
+            pull: a.reading.distractions.reduce((m, d) => Math.max(m, d.pull), 0)
+          }
+          analysisDirty = true
+          get().updateShot(shot.id, { analysis: { ...get().project!.shots.find((x) => x.id === shot.id)!.analysis!, diag } })
+        } catch {
+          // A frame that cannot be read more closely keeps its first reading.
+        }
+        set({ deep: { running: true, done: i + 1, total: todo.length } })
+        if ((i + 1) % 25 === 0) rescore(get)
+      }
+    } finally {
+      set((x) => ({ deep: { ...x.deep, running: false } }))
+      if (get().project?.id === start.id) rescore(get)
+    }
+  },
+
+  cancelDeepRead: () => {
+    cancelDeep = true
+  },
+
+  setFastImport: (on) => get().update((p) => ({ ...p, fastImport: on })),
+
   loadSettings: async () => set({ settings: await window.studio.settings.get() }),
   saveSettings: async (patch) => set({ settings: await window.studio.settings.set(patch) })
 }))
@@ -851,6 +1010,8 @@ export function visibleShots(shots: Shot[], filter: Filter): Shot[] {
       return shots.filter((s) => (s.score?.warnings.length ?? 0) > 0)
     case 'gems':
       return shots.filter((s) => s.score?.gem)
+    case 'must':
+      return shots.filter((s) => s.score?.must)
     case 'unkept': {
       // A second look: for every moment you kept nothing from, its strongest frame.
       const stacks = new Map<number, Shot[]>()

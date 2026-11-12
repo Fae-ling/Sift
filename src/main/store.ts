@@ -44,14 +44,31 @@ export async function listProjects(): Promise<ProjectSummary[]> {
   return out.sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
-export async function loadProject(id: string): Promise<Project> {
-  const file = join(projectDir(id), 'project.json')
+/**
+ * A project is stored in two files. `project.json` holds the decisions and is
+ * rewritten often; `analysis.json` holds the measurements of every frame,
+ * which are large and change only during import. Scores are not stored at all:
+ * they are worked out again when the project opens.
+ */
+async function readProject(dir: string, file: string): Promise<Project> {
+  const project = JSON.parse(await fs.readFile(join(dir, file), 'utf8')) as Project
   try {
-    return JSON.parse(await fs.readFile(file, 'utf8'))
+    const analysis = JSON.parse(await fs.readFile(join(dir, 'analysis.json'), 'utf8')) as Record<string, Project['shots'][0]['analysis']>
+    for (const shot of project.shots) if (!shot.analysis && analysis[shot.id]) shot.analysis = analysis[shot.id]
+  } catch {
+    // An older project keeps its measurements inside project.json.
+  }
+  return project
+}
+
+export async function loadProject(id: string): Promise<Project> {
+  const dir = projectDir(id)
+  try {
+    return await readProject(dir, 'project.json')
   } catch (err) {
     // A damaged project file: fall back to the last backup rather than lose the cull.
     try {
-      return JSON.parse(await fs.readFile(join(projectDir(id), 'project.bak.json'), 'utf8'))
+      return await readProject(dir, 'project.bak.json')
     } catch {
       throw err
     }
@@ -60,7 +77,12 @@ export async function loadProject(id: string): Promise<Project> {
 
 const BACKUP_EVERY_MS = 10 * 60 * 1000
 
-export async function saveProject(project: Project): Promise<void> {
+async function writeAtomic(file: string, text: string): Promise<void> {
+  await fs.writeFile(file + '.tmp', text)
+  await fs.rename(file + '.tmp', file)
+}
+
+export async function saveProject(project: Project, analysisChanged = true): Promise<void> {
   const dir = projectDir(project.id)
   await fs.mkdir(dir, { recursive: true })
   const file = join(dir, 'project.json')
@@ -71,10 +93,16 @@ export async function saveProject(project: Project): Promise<void> {
     () => Infinity
   )
   if (age > BACKUP_EVERY_MS) await fs.copyFile(file, backup).catch(() => {})
-  // Write then rename, so a crash mid-save cannot leave a half-written project.
-  const tmp = join(dir, 'project.json.tmp')
-  await fs.writeFile(tmp, JSON.stringify(project))
-  await fs.rename(tmp, file)
+  const analysisFile = join(dir, 'analysis.json')
+  const haveAnalysis = await fs.access(analysisFile).then(
+    () => true,
+    () => false
+  )
+  if (analysisChanged || !haveAnalysis) {
+    await writeAtomic(analysisFile, JSON.stringify(Object.fromEntries(project.shots.flatMap((s) => (s.analysis ? [[s.id, s.analysis]] : [])))))
+  }
+  const light = { ...project, shots: project.shots.map(({ analysis: _a, score: _s, ...rest }) => rest) }
+  await writeAtomic(file, JSON.stringify(light))
 }
 
 /** Removes the project record and its preview cache. Original photos are never touched. */
@@ -101,6 +129,24 @@ export async function saveLearned(learned: Learned): Promise<void> {
 }
 
 export const removeStyleSamples = (styleId: string): Promise<void> => removeProject(styleCacheId(styleId))
+
+// --- named stores of what the app has learned ---
+
+const DATA_NAMES = ['emotions']
+
+export async function getData(name: string): Promise<unknown> {
+  if (!DATA_NAMES.includes(name)) throw new Error(`Unknown store: ${name}`)
+  try {
+    return JSON.parse(await fs.readFile(join(app.getPath('userData'), `${name}.json`), 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+export async function saveData(name: string, value: unknown): Promise<void> {
+  if (!DATA_NAMES.includes(name)) throw new Error(`Unknown store: ${name}`)
+  await writeAtomic(join(app.getPath('userData'), `${name}.json`), JSON.stringify(value))
+}
 
 // --- examples the taste model learns from ---
 

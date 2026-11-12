@@ -1,12 +1,14 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import type { DiagnoseRequest, EssenceRequest, GradeRequest, Learned, Project, ReadRequest, StoryRequest, XmpItem } from '@shared/types'
-import { diagnose, gradeAdvice, narrativeRead, storyAdvice, styleEssence } from './ai'
+import type { AtmosphereRequest, DevelopStyleRequest, DiagnoseRequest, NameFacesRequest, EssenceRequest, Learned, Project, ReadRequest, StoryRequest, XmpItem } from '@shared/types'
+import { atmosphere, developStyle, diagnose, nameFaces, narrativeRead, storyAdvice, styleEssence } from './ai'
 import { promises as fs } from 'node:fs'
-import { copySelects, exportXmp, readDevelop, readRatings, saveFiles } from './exporter'
+import { copySelects, exportXmp, readRatings, saveFiles } from './exporter'
 import { exiftool, extractPreview, savePreview, scanFolder } from './ingest'
 import {
+  getData,
+  saveData,
   getLearned,
   getLearning,
   getTraining,
@@ -58,7 +60,7 @@ function registerIpc(): void {
   }
   handle('projects:list', listProjects)
   handle('projects:load', (id: string) => loadProject(id))
-  handle('projects:save', (project: Project) => saveProject(project))
+  handle('projects:save', (project: Project, analysisChanged?: boolean) => saveProject(project, analysisChanged))
   handle('projects:remove', (id: string) => removeProject(id))
   handle('pickFolder', async () => {
     // A folder picker lists folders only, so a folder full of photos looks empty in it.
@@ -80,7 +82,6 @@ function registerIpc(): void {
     return result.filePath
   })
   handle('saveFiles', (folder: string, files: { name: string; data: ArrayBuffer }[]) => saveFiles(folder, files))
-  handle('readDevelop', (path: string) => readDevelop(path))
   handle('scan', (folder: string, anyImage?: boolean) => scanFolder(folder, anyImage))
   handle('learned:get', getLearned)
   handle('learned:save', (learned: Learned) => saveLearned(learned))
@@ -92,6 +93,8 @@ function registerIpc(): void {
   handle('exportXmp', (items: XmpItem[]) => exportXmp(items))
   handle('copySelects', (paths: string[], dest: string) => copySelects(paths, dest))
   handle('reveal', (path: string) => shell.showItemInFolder(path))
+  handle('data:get', (name: string) => getData(name))
+  handle('data:save', (name: string, value: unknown) => saveData(name, value))
   handle('learning:get', getLearning)
   handle('learning:save', (data: unknown) => saveLearning(data))
   handle('training:get', getTraining)
@@ -101,8 +104,10 @@ function registerIpc(): void {
   handle('settings:get', getSettings)
   handle('settings:set', (patch: { apiKey?: string; model?: string }) => setSettings(patch))
   handle('ai:story', (req: StoryRequest) => storyAdvice(req))
-  handle('ai:grade', (req: GradeRequest) => gradeAdvice(req))
   handle('ai:read', (req: ReadRequest) => narrativeRead(req))
+  handle('ai:nameFaces', (req: NameFacesRequest) => nameFaces(req))
+  handle('ai:developStyle', (req: DevelopStyleRequest) => developStyle(req))
+  handle('ai:atmosphere', (req: AtmosphereRequest) => atmosphere(req))
   handle('ai:diagnose', (req: DiagnoseRequest) => diagnose(req))
   handle('ai:essence', (req: EssenceRequest) => styleEssence(req))
 }

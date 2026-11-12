@@ -22,7 +22,7 @@ import type { Genre, Shot } from '@shared/types'
 import { readMoment } from './scoring'
 
 /** Bump when the feature list changes: older stored examples are then set aside. */
-export const FEATURE_VERSION = 1
+export const FEATURE_VERSION = 2
 
 interface Feature {
   key: string
@@ -57,7 +57,12 @@ export const FEATURES: Feature[] = [
   { key: 'exprVsBest', more: 'the most expressive take of a moment', less: 'you do not insist on the most expressive take' },
   { key: 'bright', more: 'brighter frames', less: 'darker frames' },
   { key: 'contrast', more: 'contrasty frames', less: 'softer, flatter frames' },
-  { key: 'saturation', more: 'colourful frames', less: 'muted frames' }
+  { key: 'saturation', more: 'colourful frames', less: 'muted frames' },
+  { key: 'emotionValue', more: 'the emotions your style looks for', less: 'frames whose emotion your style does not look for' },
+  { key: 'intensity', more: 'strong expressions', less: 'quiet faces' },
+  { key: 'rare', more: 'emotions that are rare in the shoot', less: 'you pass over rare emotions' },
+  { key: 'separation', more: 'subjects that stand clear of the background', less: 'you do not mind a subject merging with the background' },
+  { key: 'holdsEye', more: 'frames where the subject holds the eye', less: 'frames where the eye wanders' }
 ]
 
 const index = Object.fromEntries(FEATURES.map((f, i) => [f.key, i])) as Record<string, number>
@@ -100,6 +105,12 @@ export function featuresOf(shot: Shot, stack: Shot[]): number[] {
   set('bright', a.color.meanLuma)
   set('contrast', a.color.p95 - a.color.p5)
   set('saturation', a.color.meanSat)
+  set('emotionValue', score.emotionValue ?? 0)
+  set('intensity', score.emotion?.intensity ?? 0)
+  set('rare', score.tags.includes('rare') ? 1 : 0)
+  // Unknown composition is neutral, not bad.
+  set('separation', a.diag?.merged !== undefined ? 1 - a.diag.merged : 0.7)
+  set('holdsEye', a.diag?.attention ?? 0.5)
   return x
 }
 

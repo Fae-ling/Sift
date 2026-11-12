@@ -6,14 +6,18 @@ import { z } from 'zod'
 import {
   MODELS,
   styleCacheId,
+  type AtmosphereAdvice,
+  type AtmosphereRequest,
+  type DevelopStyleRequest,
   type DiagnoseRequest,
+  type NameFacesRequest,
+  type NameFacesResult,
+  type StyleProposal,
   type DiagnosisAdvice,
   type EssenceRequest,
   type StyleEssence,
   type Brief,
   type Genre,
-  type GradeAdvice,
-  type GradeRequest,
   type NarrativeRead,
   type ReadRequest,
   type ReadResult,
@@ -153,41 +157,12 @@ export async function storyAdvice(req: StoryRequest): Promise<StoryAdvice> {
   }
 }
 
-const GradeSchema = z.object({
-  read: z.string().describe('What the image is doing now: where the light comes from, the tonal structure, the existing colour relationships, where the eye goes.'),
-  direction: z.string().describe('The grade to aim for and how it serves the brief and mood words, including the colour harmony to build.'),
-  steps: z
-    .array(
-      z.object({
-        panel: z.string().describe('Lightroom Classic panel or tool, in the order to work: Profile, White Balance, Tone, Tone Curve, HSL / Color Mixer, Color Grading, Masking, Detail, Crop...'),
-        move: z.string().describe('The direction and rough size of the adjustment.'),
-        why: z.string().describe('The principle behind it.')
-      })
-    )
-    .describe('Ordered editing plan: correct first, then shape, then style.'),
-  watchOut: z.array(z.string()).describe('Specific risks in this image, e.g. skin going orange, banding in the sky, a distracting bright edge.'),
-  resolveNote: z.string().describe('How the same look would be approached for matching video in DaVinci Resolve (nodes, scopes), in two or three sentences.'),
-  lesson: z.string().describe('One transferable principle about colour or light that this image teaches.')
-})
-
-/** Sends one preview plus its measured statistics and asks for a grading plan. */
-export async function gradeAdvice(req: GradeRequest): Promise<GradeAdvice> {
-  const { value, usage } = await ask(GradeSchema, [
-    { type: 'text', text: briefText(req.genre, req.brief) },
-    await image(req.projectId, `${safeId(req.shotId)}.jpg`),
-    {
-      type: 'text',
-      text: `This is the camera's unedited embedded preview of one selected frame. Measurements taken from it:\n${req.measurements}\n\n${req.develop ? `The photographer has already started editing it in Lightroom. Current settings:\n${req.develop}\nComment on these moves specifically: which help, which fight the brief, what to try next.\n\n` : ''}Coach me through grading it for this brief. The measurements are from the preview, so treat them as a guide to what the RAW holds, not as exact values.`
-    }
-  ])
-  return { ...value, usage }
-}
-
 const ReadSchema = z.object({
   frames: z.array(
     z.object({
       frame: z.number().describe('Frame number as labelled.'),
       beat: z.string().describe('The chapter of the story plan this frame belongs to, by its exact name, or "Other".'),
+      emotion: z.string().describe('The dominant emotion of the main person in one or two lowercase words. Use a name from the known list where it fits, a new precise one where none does ("grief", "battle fury", "mischief"), and "calm" when the face is at rest.'),
       moment: z.number().describe('0 to 10: how much this frame carries emotionally and for the story. 5 is a competent, unremarkable frame.'),
       gem: z.boolean().describe('True only if the frame has a listed technical flaw and is still worth keeping for what it holds.'),
       note: z.string().describe('One short sentence: what is happening between or within the people, and why it matters or does not.')
@@ -204,7 +179,7 @@ export async function narrativeRead(req: ReadRequest): Promise<ReadResult> {
   const content: Anthropic.ContentBlockParam[] = [
     {
       type: 'text',
-      text: `${briefText(req.genre, req.brief)}\n\nStory plan for this shoot:\n${plan}${req.styleNotes ? `\n\nThe photographer is culling for a particular feeling. Let it shape what you value, without overriding the brief:\n${req.styleNotes}` : ''}\n\nBelow are ${req.frames.length} frames in capture order, each labelled with a number, scene, time, shot type and any technical flaws already measured.`
+      text: `${briefText(req.genre, req.brief)}\n\nStory plan for this shoot:\n${plan}\n\nEmotions the app already knows by name: ${req.emotions.join(', ')}.${req.styleNotes ? `\n\nThe photographer is culling for a particular feeling. Let it shape what you value, without overriding the brief:\n${req.styleNotes}` : ''}\n\nBelow are ${req.frames.length} frames in capture order, each labelled with a number, scene, time, shot type and any technical flaws already measured.`
     }
   ]
   for (const [i, f] of req.frames.entries()) {
@@ -221,7 +196,7 @@ export async function narrativeRead(req: ReadRequest): Promise<ReadResult> {
   for (const f of value.frames) {
     const shot = req.frames[f.frame - 1]
     if (!shot) continue
-    reads[shot.shotId] = { beat: f.beat, moment: Math.min(10, Math.max(0, f.moment)), gem: f.gem && !!shot.flaws, note: f.note }
+    reads[shot.shotId] = { beat: f.beat, emotion: f.emotion, moment: Math.min(10, Math.max(0, f.moment)), gem: f.gem && !!shot.flaws, note: f.note }
   }
   return { reads, usage }
 }
@@ -284,4 +259,127 @@ export async function diagnose(req: DiagnoseRequest): Promise<DiagnosisAdvice> {
     }
   ])
   return { ...value, usage }
+}
+
+const jpeg = (data: string): Anthropic.ImageBlockParam => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } })
+
+const NamesSchema = z.object({
+  faces: z.array(
+    z.object({
+      face: z.number().describe('Face number as labelled.'),
+      emotion: z.string().describe('The emotion in one or two lowercase words. Reuse a known name where it fits; coin a precise new one where none does; "unclear" if the face cannot be read.'),
+      description: z.string().describe('For a new emotion: one sentence on what it looks like on a face. Empty for a known one.'),
+      valence: z.number().describe('-1 (painful) to 1 (pleasant).'),
+      arousal: z.number().describe('0 (still) to 1 (intense).')
+    })
+  )
+})
+
+/** Names the emotion on each of a set of face crops, to teach the app's own emotion reading. */
+export async function nameFaces(req: NameFacesRequest): Promise<NameFacesResult> {
+  const content: Anthropic.ContentBlockParam[] = [
+    {
+      type: 'text',
+      text: `These are ${req.faces.length} faces cropped from a photographer's work (${req.context || 'various shoots'}). Their software reads facial expressions but could not name these. Emotions it already knows:\n${req.vocabulary.map((v) => `- ${v.name}: ${v.description}`).join('\n')}`
+    }
+  ]
+  req.faces.forEach((f, i) => {
+    content.push({ type: 'text', text: `Face ${i + 1}` })
+    content.push(jpeg(f.jpeg))
+  })
+  content.push({
+    type: 'text',
+    text: 'Name the emotion each face shows. Judge only what the face shows; do not guess who the person is. Prefer a known name when it fits well. Where it does not, give the precise word a photographer would use, and describe it, so the software can learn it as a new emotion. Small crops can be ambiguous: say "unclear" rather than guess.'
+  })
+  const { value, usage } = await ask(NamesSchema, content)
+  return {
+    names: value.faces.flatMap((f) => {
+      const face = req.faces[f.face - 1]
+      const emotion = f.emotion.trim().toLowerCase()
+      return face && emotion && emotion !== 'unclear' ? [{ id: face.id, emotion, description: f.description, valence: f.valence, arousal: f.arousal }] : []
+    }),
+    usage
+  }
+}
+
+const StyleSchema = z.object({
+  feeling: z.string().describe('Two sentences: what pictures in this style are for and what they should feel like.'),
+  tags: z.array(z.string()).describe('Three to six atmosphere words.'),
+  chapters: z
+    .array(z.object({ name: z.string(), look: z.string().describe('What makes a frame from this chapter worth keeping.'), must: z.boolean().describe('True if a shoot in this style must not come back without it.') }))
+    .describe('Five to nine chapters a shoot in this style contains, in the order they usually happen.'),
+  emotions: z
+    .array(z.object({ name: z.string().describe('Lowercase; from the known list where possible.'), weight: z.number().describe('-1 (works against the picture) to 1 (what the picture is for).'), why: z.string() }))
+    .describe('How much this style values each emotion that matters to it. Include the ones it works against.'),
+  lookFor: z.array(z.string()).describe('Four to eight concrete markers of a keeper in this style.'),
+  forgive: z.array(z.string()).describe('Technical imperfections this style accepts when the picture is right.'),
+  balance: z.number().describe('0 to 1: how much the moment counts against technical craft when choosing (0.35 for product-like work, 0.6 for documentary).'),
+  notes: z.string().describe('Three or four sentences for the photographer: what you set or changed, and on what evidence.')
+})
+
+/**
+ * Develops a shoot style from its name and description, or refines an existing
+ * one from what the photographer's own decisions in it have shown.
+ */
+export async function developStyle(req: DevelopStyleRequest): Promise<StyleProposal> {
+  const content: Anthropic.ContentBlockParam[] = [
+    {
+      type: 'text',
+      text: `A photographer is defining a style of shoot for their culling software, so that it knows what to look for. Style: "${req.name}" (closest general kind: ${req.family}).\n\nThe style as it stands:\n${req.current}\n\nEmotions the software can already recognise on faces: ${req.vocabulary.join(', ')}.${req.evidence ? `\n\nWhat the photographer's own culling in this style has shown:\n${req.evidence}` : ''}`
+    }
+  ]
+  for (const id of req.samples?.shotIds ?? []) content.push(await image(safeId(req.samples!.cacheId), `${safeId(id)}_t.jpg`))
+  content.push({
+    type: 'text',
+    text: `${req.samples?.shotIds.length ? 'The images above are frames the photographer kept in this style. ' : ''}${req.evidence ? 'Refine the style: keep what the evidence supports, change what it contradicts, and say which is which.' : 'Develop the style from what such shoots are and what their clients and audiences value.'} Be specific to this kind of work rather than generic: name the moments that cannot be repeated, the emotions that carry it, and the flaws nobody minds. You may name emotions the software does not know yet if the style needs them.`
+  })
+  const { value, usage } = await ask(StyleSchema, content)
+  return {
+    ...value,
+    balance: Math.min(0.85, Math.max(0.15, value.balance)),
+    emotions: value.emotions.map((e) => ({ ...e, name: e.name.trim().toLowerCase(), weight: Math.min(1, Math.max(-1, e.weight)) })),
+    usage
+  }
+}
+
+const AtmosphereSchema = z.object({
+  reading: z.string().describe('Two or three sentences: what atmosphere the look has now, and how far it is from the concept.'),
+  moves: z.array(z.object({ what: z.string(), why: z.string() })).describe('Three to six changes to the look, each with the reason it serves the concept.'),
+  look: z.object({
+    blackLift: z.number().describe('0 (true black) to 0.15 (faded, matte shadows).'),
+    whiteHold: z.number().describe('0.85 (highlights held back, soft) to 1 (full white).'),
+    contrast: z.number().describe('-0.4 (flat, gentle) to 0.4 (steep, punchy).'),
+    shadowHue: z.number().describe('0 to 360, as on a colour wheel: 0 red, 60 yellow, 120 green, 180 cyan, 240 blue, 300 magenta.'),
+    shadowStrength: z.number().describe('0 (no tint) to 40 (strong).'),
+    midHue: z.number(),
+    midStrength: z.number(),
+    highlightHue: z.number(),
+    highlightStrength: z.number(),
+    saturation: z.number().describe('0.5 (muted) to 1.5 (vivid); 1 leaves colour as it is.')
+  })
+})
+
+/** Suggests how a look should be shaped so that its atmosphere carries the concept of the shoot. */
+export async function atmosphere(req: AtmosphereRequest): Promise<AtmosphereAdvice> {
+  const { value, usage } = await ask(AtmosphereSchema, [
+    jpeg(req.jpeg),
+    {
+      type: 'text',
+      text: `The concept of this shoot: ${req.concept}\n\nA colour look has been measured for it:\n${req.measured}\n\nSuggest how to shape the look so that its atmosphere serves the concept: tone (how deep the blacks, how soft the highlights, how much contrast), the tint of shadows, midtones and highlights, and how much colour. Keep skin believable unless the concept plainly calls for otherwise, and prefer restraint: tint strengths above 20 are rarely right. Give the look as numbers as well as words, so it can be turned into a preset.`
+    }
+  ])
+  const k = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
+  const l = value.look
+  return {
+    reading: value.reading,
+    moves: value.moves,
+    look: {
+      blackLift: k(l.blackLift, 0, 0.15), whiteHold: k(l.whiteHold, 0.85, 1), contrast: k(l.contrast, -0.4, 0.4),
+      shadowHue: ((l.shadowHue % 360) + 360) % 360, shadowStrength: k(l.shadowStrength, 0, 40),
+      midHue: ((l.midHue % 360) + 360) % 360, midStrength: k(l.midStrength, 0, 40),
+      highlightHue: ((l.highlightHue % 360) + 360) % 360, highlightStrength: k(l.highlightStrength, 0, 40),
+      saturation: k(l.saturation, 0.5, 1.5)
+    },
+    usage
+  }
 }

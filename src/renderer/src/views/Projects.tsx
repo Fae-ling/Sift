@@ -1,19 +1,11 @@
 import { useState } from 'react'
-import type { Genre } from '@shared/types'
 import { useStore } from '../store'
 
-const GENRES: { id: Genre; label: string }[] = [
-  { id: 'portrait', label: 'Portrait' },
-  { id: 'fashion', label: 'Fashion' },
-  { id: 'wedding', label: 'Wedding' },
-  { id: 'event', label: 'Event' },
-  { id: 'other', label: 'Other' }
-]
-
 export function Projects(): React.JSX.Element {
-  const { summaries, createProject, openProject, deleteProject } = useStore()
+  const { summaries, createProject, openProject, deleteProject, learned, setView } = useStore()
   const [name, setName] = useState('')
-  const [genre, setGenre] = useState<Genre>('portrait')
+  const [styleId, setStyleId] = useState('')
+  const chosen = styleId || learned.styles[0]?.id || ''
   const [confirm, setConfirm] = useState<string | null>(null)
 
   return (
@@ -28,14 +20,14 @@ export function Projects(): React.JSX.Element {
         className="card row"
         onSubmit={(e) => {
           e.preventDefault()
-          if (name.trim()) void createProject(name.trim(), genre)
+          if (name.trim()) void createProject(name.trim(), chosen)
         }}
       >
         <input style={{ flex: 1, minWidth: 220 }} placeholder="New project name, e.g. Lena & Tom — wedding" value={name} onChange={(e) => setName(e.target.value)} aria-label="Project name" />
-        <select style={{ width: 140 }} value={genre} onChange={(e) => setGenre(e.target.value as Genre)} aria-label="Genre">
-          {GENRES.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.label}
+        <select style={{ width: 240 }} value={chosen} onChange={(e) => setStyleId(e.target.value)} aria-label="Shoot style">
+          {learned.styles.map((x) => (
+            <option key={x.id} value={x.id}>
+              {x.name}
             </option>
           ))}
         </select>
@@ -43,6 +35,14 @@ export function Projects(): React.JSX.Element {
           Create project
         </button>
       </form>
+
+      <p className="muted small" style={{ marginTop: 8 }}>
+        The style tells the cull what to look for. Not in the list?{' '}
+        <button className="link" onClick={() => setView('profiles')}>
+          Create a style
+        </button>{' '}
+        for the kind of work you do.
+      </p>
 
       <h2>Recent</h2>
       {summaries.length === 0 && <p className="muted">No projects yet. Name one above to begin.</p>}

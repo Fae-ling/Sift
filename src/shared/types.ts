@@ -35,6 +35,8 @@ export interface FaceInfo {
   squint?: number
   /** Head turn, about -1 (facing image-left) to 1 (facing image-right). */
   yaw?: number
+  /** The face model's 51 expression measurements, 0..100 each, in the order of SHAPES in emotion.ts. */
+  shapes?: number[]
   /** Mean skin hue (degrees) and saturation (0..1) sampled on the cheeks. */
   skinHue: number | null
   skinSat: number | null
@@ -68,12 +70,14 @@ export interface Analysis {
   color: ColorStats
   faces: FaceInfo[]
   shotType: ShotType
+  /** Composition readings from the photo diagnosis, taken for the strongest frames of each moment. */
+  diag?: { merged?: number; attention?: number; pull?: number }
 }
 
 export type Decision = 'pick' | 'reject' | null
 export type Suggestion = 'pick' | 'alternate' | 'reject'
 
-export type MomentTag = 'laugh' | 'joy' | 'connection' | 'embrace' | 'peak'
+export type MomentTag = 'laugh' | 'joy' | 'connection' | 'embrace' | 'peak' | 'rare'
 
 export interface Score {
   /** Craft and moment combined by the project's balance, 0..100. */
@@ -94,6 +98,14 @@ export interface Score {
   warnings: Warning[]
   /** Technically imperfect, but the moment may be worth more than the flaw. */
   gem: boolean
+  /** The strongest emotion read in the frame, and how strongly it shows (0..1). */
+  emotion?: { name: string; intensity: number }
+  /** The emotion read on each face, in the order of the analysis' faces; null for a face at rest. */
+  faceEmotions?: (string | null)[]
+  /** How much the style values the emotions shown, -1..1. */
+  emotionValue?: number
+  /** Belongs to a chapter the style says must not be missed. */
+  must?: boolean
   /** The overall score from the built-in rules alone, before the learned taste is mixed in. */
   rules?: number
   /** How likely the photographer is to keep it, 0..100, learned from their own decisions. */
@@ -105,6 +117,8 @@ export interface Score {
 /** One chapter of the story a shoot of this kind is expected to tell. */
 export interface Beat {
   name: string
+  /** A chapter the shoot must not come back without. */
+  must?: boolean
   /** What makes a frame from this chapter worth keeping. */
   look: string
 }
@@ -160,6 +174,19 @@ export interface Style {
   tags: string[]
   /** The feeling in a sentence or two, in the photographer's words. */
   feeling: string
+  /** The broad kind of work it belongs to, which sets sensible starting weights. */
+  family: Genre
+  /** The chapters a shoot in this style should contain; some are marked as not to be missed. */
+  chapters: Beat[]
+  /** How much this style values each emotion, -1..1. Emotions not listed take the family's default. */
+  emotions: Record<string, number>
+  /** What the photographer's own decisions in this style say about each emotion: lift -1..1 over n frames. */
+  emotionLift?: Record<string, { w: number; n: number }>
+  /** How much the moment counts against craft in this style, 0..1. */
+  balance: number
+  /** Markers: what to look for, and what to forgive, in this style. */
+  lookFor: string[]
+  forgive: string[]
   createdAt: number
   sources: StyleSource[]
   /** What the added photographs have in common. null until something is added. */
@@ -178,26 +205,24 @@ export interface Learned {
   balance: Partial<Record<Genre, { value: number; projects: number }>>
   /** True once the starter profiles have been created (so deleting them sticks). */
   seeded?: boolean
-}
-
-/** Lightroom develop settings read from a photo's XMP sidecar. */
-export interface DevelopSettings {
-  /** When the sidecar was last written, ms since epoch. */
-  modified: number
-  /** Setting name (as Lightroom's XMP calls it) to value. Only settings that are present. */
-  values: Record<string, number | string>
+  /** True once the starter shoot styles of the second generation have been created. */
+  seededStyles?: boolean
+  /** Per style, per project: what that project's decisions said about each emotion. */
+  lifts?: Record<string, Record<string, Record<string, { w: number; n: number }>>>
 }
 
 /** A picture editor's reading of one frame (from the optional AI read). */
 export interface NarrativeRead {
   beat: string
+  /** The emotion Claude saw in the frame, in a word or two. */
+  emotion?: string
   /** 0..10: how much the frame carries emotionally and for the story. */
   moment: number
   gem: boolean
   note: string
 }
 
-export type Warning = 'blink' | 'soft' | 'soft-face' | 'clipped' | 'dark'
+export type Warning = 'blink' | 'soft' | 'soft-face' | 'clipped' | 'dark' | 'misfire' | 'blurred'
 
 export interface Shot {
   id: string
@@ -222,6 +247,8 @@ export interface Shot {
   stackId?: number
   suggestion?: Suggestion
   read?: NarrativeRead
+  /** The chapter of the story this frame belongs to, when the photographer has said so. */
+  chapter?: string
   decision: Decision
   /** How the decision was made: by hand, or by accepting a suggestion. */
   decidedBy?: 'manual' | 'accepted'
@@ -239,16 +266,6 @@ export interface StoryAdvice {
   sequence: { shotId: string; role: string; why: string }[]
   cut: { shotId: string; why: string }[]
   gaps: string[]
-  lesson: string
-  usage?: Usage
-}
-
-export interface GradeAdvice {
-  read: string
-  direction: string
-  steps: { panel: string; move: string; why: string }[]
-  watchOut: string[]
-  resolveNote: string
   lesson: string
   usage?: Usage
 }
@@ -279,11 +296,12 @@ export interface Project {
   readCostUsd: number
   /** Seconds to add to each camera body's clock so that two cameras line up. */
   clockOffsets: Record<string, number>
-  /** The culling profile(s) this project is culled with. */
+  /** The shoot style this project is culled with. */
   styleIds: string[]
+  /** Faster analysis for very large shoots: smaller focus measurement, no second look for small faces. */
+  fastImport?: boolean
   storyOrder: string[]
   storyAdvice?: StoryAdvice
-  gradeAdvice: Record<string, GradeAdvice>
 }
 
 export interface ProjectSummary {
@@ -330,7 +348,8 @@ export interface StudioApi {
   projects: {
     list(): Promise<ProjectSummary[]>
     load(id: string): Promise<Project>
-    save(project: Project): Promise<void>
+    /** `analysisChanged` says the measurements changed too, so the (large) analysis file is rewritten. */
+    save(project: Project, analysisChanged?: boolean): Promise<void>
     remove(id: string): Promise<void>
   }
   pickFolder(): Promise<string | null>
@@ -340,8 +359,6 @@ export interface StudioApi {
   saveText(defaultName: string, content: string): Promise<string | null>
   /** Writes several files (masks) into a folder. Files that already exist are left alone. */
   saveFiles(folder: string, files: { name: string; data: ArrayBuffer }[]): Promise<ExportResult>
-  /** Reads the develop settings Lightroom wrote next to a RAW, or null if there are none. */
-  readDevelop(path: string): Promise<DevelopSettings | null>
   /** `anyImage` also lists PNG and WebP, for reference galleries saved from the web. */
   scan(folder: string, anyImage?: boolean): Promise<ScannedFile[]>
   learned: {
@@ -355,6 +372,11 @@ export interface StudioApi {
   exportXmp(items: XmpItem[]): Promise<ExportResult>
   copySelects(paths: string[], dest: string): Promise<ExportResult>
   reveal(path: string): Promise<void>
+  /** Named stores of what the app has learned (emotions, ...), opaque to the main process. */
+  data: {
+    get(name: string): Promise<unknown>
+    save(name: string, value: unknown): Promise<void>
+  }
   /** The stored examples the taste model is trained on (opaque to the main process). */
   learning: {
     get(): Promise<unknown>
@@ -375,10 +397,12 @@ export interface StudioApi {
   }
   ai: {
     story(req: StoryRequest): Promise<StoryAdvice>
-    grade(req: GradeRequest): Promise<GradeAdvice>
     read(req: ReadRequest): Promise<ReadResult>
     essence(req: EssenceRequest): Promise<StyleEssence>
     diagnose(req: DiagnoseRequest): Promise<DiagnosisAdvice>
+    nameFaces(req: NameFacesRequest): Promise<NameFacesResult>
+    developStyle(req: DevelopStyleRequest): Promise<StyleProposal>
+    atmosphere(req: AtmosphereRequest): Promise<AtmosphereAdvice>
   }
 }
 
@@ -387,6 +411,81 @@ export interface StoryRequest {
   genre: Genre
   brief: Brief
   frames: { shotId: string; scene: number; time: string; shotType: ShotType; faces: number; picked: boolean }[]
+}
+
+/** Asks Claude what emotion each of a set of faces shows. */
+export interface NameFacesRequest {
+  /** Small JPEGs of faces, as base64 without the data-URL prefix. */
+  faces: { id: string; jpeg: string }[]
+  /** Emotions the app already knows, to be reused where they fit. */
+  vocabulary: { name: string; description: string }[]
+  /** What kind of work these faces come from, so that names fit it. */
+  context: string
+}
+
+export interface NameFacesResult {
+  names: { id: string; emotion: string; description: string; valence: number; arousal: number }[]
+  usage: Usage
+}
+
+/** Asks Claude to develop or refine a shoot style. */
+export interface DevelopStyleRequest {
+  name: string
+  family: Genre
+  /** The style as it stands, in plain text. */
+  current: string
+  /** What the photographer's own work in this style shows, in plain text; empty for a new style. */
+  evidence: string
+  vocabulary: string[]
+  /** Frames the photographer kept in this style, to look at. */
+  samples?: { cacheId: string; shotIds: string[] }
+}
+
+export interface StyleProposal {
+  feeling: string
+  tags: string[]
+  chapters: Beat[]
+  emotions: { name: string; weight: number; why: string }[]
+  lookFor: string[]
+  forgive: string[]
+  balance: number
+  /** What changed and why, for the photographer to read before accepting. */
+  notes: string
+  usage?: Usage
+}
+
+/** Asks Claude how a look could be shaped to carry a shoot's concept. */
+export interface AtmosphereRequest {
+  concept: string
+  /** The look as measured, in plain sentences. */
+  measured: string
+  /** A JPEG of the photo the look is for, as base64 without the data-URL prefix. */
+  jpeg: string
+}
+
+/** A look described by the handful of controls it is made of. */
+export interface LookParams {
+  /** Black point 0..0.15 and white point 0.85..1. */
+  blackLift: number
+  whiteHold: number
+  /** Midtone contrast, -0.4 (flatter) .. 0.4 (steeper). */
+  contrast: number
+  /** Tint of shadows, midtones and highlights: hue 0..360 and strength 0..40. */
+  shadowHue: number
+  shadowStrength: number
+  midHue: number
+  midStrength: number
+  highlightHue: number
+  highlightStrength: number
+  /** Colourfulness, 0.5 (muted) .. 1.5 (vivid). */
+  saturation: number
+}
+
+export interface AtmosphereAdvice {
+  reading: string
+  moves: { what: string; why: string }[]
+  look: LookParams
+  usage?: Usage
 }
 
 export interface DiagnoseRequest {
@@ -424,22 +523,14 @@ export interface ReadRequest {
   beats: Beat[]
   /** The feeling being culled for and what the active profile has learned, if any. */
   styleNotes: string
+  /** Emotions the app already knows by name, so that Claude reuses them where they fit. */
+  emotions: string[]
   frames: { shotId: string; scene: number; time: string; shotType: ShotType; flaws: string }[]
 }
 
 export interface ReadResult {
   reads: Record<string, NarrativeRead>
   usage: Usage
-}
-
-export interface GradeRequest {
-  projectId: string
-  genre: Genre
-  brief: Brief
-  shotId: string
-  measurements: string
-  /** The current Lightroom settings for this photo, if a sidecar exists. */
-  develop: string
 }
 
 export const RAW_EXTENSIONS = ['arw', 'raf', 'cr2', 'cr3', 'nef', 'dng', 'orf', 'rw2', 'pef', 'srw']

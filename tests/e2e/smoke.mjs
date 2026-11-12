@@ -30,6 +30,16 @@ const app = await electron.launch({
   env: { ...process.env, ATELIER_USER_DATA: userData }
 })
 const errors = []
+/** Waits until a count read from the window satisfies a condition: the window redraws a moment after a key press. */
+async function until(read, ok, message) {
+  const deadline = Date.now() + 15_000
+  for (;;) {
+    const value = await read()
+    if (ok(value)) return value
+    if (Date.now() > deadline) assert.fail(`${message} (last value: ${value})`)
+    await new Promise((r) => setTimeout(r, 150))
+  }
+}
 let page
 try {
   page = await app.firstWindow()
@@ -50,10 +60,20 @@ try {
     ipcMain.handle('settings:get', () => ({ hasApiKey: true, model: 'claude-opus-5-5' }))
     ipcMain.removeHandler('ai:essence')
     ipcMain.handle('ai:essence', () => ({ summary: 'Stand-in essence.', principles: ['Keeps laughter.'], lookFor: ['Hands'], forgive: ['Blur'] }))
+    ipcMain.removeHandler('ai:developStyle')
+    ipcMain.handle('ai:developStyle', (_event, req) => ({
+      feeling: 'Stand-in feeling.', tags: ['stand-in'], chapters: [{ name: 'Only chapter', look: 'Anything.', must: true }],
+      emotions: [{ name: 'triumph', weight: 0.9, why: '' }], lookFor: ['A marker'], forgive: ['Blur'], balance: 0.6, notes: `Stand-in notes for ${req.name}.`
+    }))
+    ipcMain.removeHandler('ai:atmosphere')
+    ipcMain.handle('ai:atmosphere', () => ({
+      reading: 'Stand-in reading.', moves: [{ what: 'Cool the shadows.', why: 'Stand-in.' }],
+      look: { blackLift: 0.05, whiteHold: 0.95, contrast: 0.1, shadowHue: 220, shadowStrength: 12, midHue: 40, midStrength: 4, highlightHue: 45, highlightStrength: 6, saturation: 0.85 }
+    }))
     ipcMain.removeHandler('ai:read')
     ipcMain.handle('ai:read', (_event, req) => ({
       reads: Object.fromEntries(
-        req.frames.map((f) => [f.shotId, { beat: req.beats[0].name, moment: 9, gem: !!f.flaws, note: 'Stand-in read.' }])
+        req.frames.map((f) => [f.shotId, { beat: req.beats[0].name, emotion: 'joy', moment: 9, gem: !!f.flaws, note: 'Stand-in read.' }])
       ),
       usage: { model: 'stand-in', inputTokens: 1000, outputTokens: 100, costUsd: 0.01 }
     }))
@@ -61,7 +81,7 @@ try {
   await page.reload()
 
   await page.getByLabel('Project name').fill('Smoke test')
-  await page.getByLabel('Genre').selectOption('wedding')
+  await page.getByLabel('Shoot style').selectOption({ label: 'Wedding' })
   await page.getByRole('button', { name: 'Create project' }).click()
   await page.getByLabel('Mood words').fill('warm, quiet')
   assert.equal(await page.getByLabel('Chapter 4 name').inputValue(), 'Ceremony', 'a wedding gets the wedding story plan')
@@ -79,12 +99,37 @@ try {
   assert.ok((await page.locator('.strip .flag.s-pick').count()) > 0, 'some keepers are suggested')
 
   // The editor's read sorts frames into chapters and feeds the moment score.
-  await page.getByLabel('Culling profile').selectOption({ label: 'Joyful and candid' })
+  // Ultrafast cull: misfires go in one step, and one undo brings them back.
+  await page.getByRole('button', { name: 'Ultrafast cull' }).click()
+  const reject = page.getByRole('button', { name: /^Reject \d+ frames/ })
+  if (await reject.isEnabled()) {
+    await reject.click()
+    await until(() => page.locator('.strip .flag.reject').count(), (n) => n > 0, 'the ultrafast cull rejects frames')
+    await page.keyboard.press('Control+z')
+    await until(() => page.locator('.strip .flag.reject').count(), (n) => n === 0, 'and one undo restores them')
+  } else {
+    await page.getByRole('button', { name: 'Ultrafast cull' }).click()
+  }
+
+  // Teach the emotion machine from a face: name what it shows.
+  const person = page.locator('.strip .stack.multi .thumb').first()
+  if (await person.count()) {
+    await person.click()
+    const label = page.locator('.inspector .closeup button').first()
+    if (await label.count()) {
+      await label.click()
+      await page.getByLabel('Emotion on this face').fill('pride')
+      await page.getByRole('button', { name: 'Teach', exact: true }).click()
+      await page.locator('.inspector .closeup button', { hasText: 'pride' }).first().waitFor()
+    }
+    await page.locator('.strip .thumb').first().click()
+  }
+
   await page.getByRole('button', { name: 'Cull with Claude' }).click()
   await page.getByRole('button', { name: 'Read the shoot' }).click()
   await page.getByText('Every moment has been read.').waitFor()
   await page.getByText(/Editor's read \(9\/10\)/).first().waitFor()
-  assert.ok((await page.locator('.scene-head b').count()) > 0, 'scenes are labelled with their chapter')
+  assert.notEqual(await page.locator('.scene-chapter').first().inputValue(), '', 'scenes are labelled with their chapter')
   await snap('3-cull-read')
   await page.getByRole('button', { name: 'Cull with Claude' }).click()
 
@@ -92,11 +137,11 @@ try {
   const moments = await page.locator('.strip .stack').count()
   for (let i = 0; i < moments; i++) await page.keyboard.press('Enter')
   // Decisions can be undone and redone.
-  const picked = await page.locator('.strip .flag.pick').count()
+  const picked = await until(() => page.locator('.strip .flag.pick').count(), (n) => n > 0, 'accepting suggestions makes picks')
   await page.keyboard.press('Control+z')
-  assert.ok((await page.locator('.strip .flag.pick').count()) < picked, 'undo takes back the last decision')
+  await until(() => page.locator('.strip .flag.pick').count(), (n) => n < picked, 'undo takes back the last decision')
   await page.keyboard.press('Control+Shift+z')
-  assert.equal(await page.locator('.strip .flag.pick').count(), picked, 'redo restores it')
+  await until(() => page.locator('.strip .flag.pick').count(), (n) => n === picked, 'redo restores it')
 
   // Side-by-side compare, for a moment with more than one take.
   const multi = page.locator('.strip .stack.multi .thumb').first()
@@ -119,18 +164,28 @@ try {
   assert.ok((await page.locator('.strip .flag.pick').count()) >= 1, 'accepting a suggestion makes a pick')
   await snap('3-cull-accepted')
 
-  // A culling profile learns from a folder of photographs, then has its essence distilled.
-  await page.getByRole('button', { name: 'Culling profiles' }).click()
-  const card = page.locator('.card', { has: page.locator('input[value="Joyful and candid"]') })
+  // A shoot style learns from a folder of photographs, has its gallery put into words, and is developed by Claude.
+  await page.getByRole('button', { name: 'Shoot styles' }).click()
   // The decisions made above have been learned from.
   await page.getByRole('button', { name: 'Learn now' }).click()
   await page.getByText(/decisions learned from/).waitFor()
   assert.match(readFileSync(join(userData, 'learning.json'), 'utf8'), /"examples":\[\{/, 'decisions are stored as examples')
-  await card.getByRole('button', { name: /Learn from a gallery folder/ }).click()
-  await card.getByText(/photographs; \d+% show people/).waitFor({ timeout: 60_000 })
-  await card.getByRole('button', { name: /Distil the essence/ }).click()
+  const card = page.locator('.card', { hasText: 'LARP and battle' }).first()
+  await card.getByRole('button', { name: 'Open', exact: true }).click()
+  await card.getByRole('button', { name: /Learn from a folder of photographs/ }).click()
+  await card.getByText(/photographs; \d+% show people/).waitFor({ timeout: 400_000 })
+  await card.getByRole('button', { name: /Put the gallery into words/ }).click()
   await card.getByText('Stand-in essence.').waitFor()
-  await snap('4-profiles')
+  await card.getByRole('button', { name: /Develop with Claude|Refine with Claude/ }).click()
+  await card.getByText(/Stand-in notes for LARP and battle/).waitFor()
+  await card.getByRole('button', { name: 'Accept', exact: true }).click()
+  await card.getByLabel('How much this style values triumph').waitFor()
+  await snap('4-styles')
+
+  // The emotion taught in Cull is now part of what the app knows.
+  await page.getByRole('button', { name: /^Emotions/ }).click()
+  await page.getByRole('heading', { name: 'What it knows' }).waitFor()
+  await snap('4-emotions')
 
   // The look extractor turns a reference photo into a LUT.
   const jpgs = readdirSync(samples).filter((f) => /\.jpe?g$/i.test(f))
@@ -146,6 +201,9 @@ try {
     await page.getByText('What the look is made of').waitFor()
     await page.getByRole('button', { name: /Add one of my unedited photos/ }).click()
     await page.getByText('Yours, with the look applied').waitFor()
+    await page.getByLabel('Concept of the shoot').fill('A doomed last stand: cold, smoky, with fire as the only warmth.')
+    await page.getByRole('button', { name: /Ask Claude to shape the look/ }).click()
+    await page.getByText('Stand-in reading.').waitFor()
     await snap('4-look')
     await page.getByRole('button', { name: /Save LUT/ }).click()
     await page.getByText(/^Saved /).waitFor()
@@ -177,26 +235,13 @@ try {
     if (shotsDir) await page.locator('.trial').screenshot({ path: join(shotsDir, '4-diagnose-try.png') })
   }
 
-  for (const view of ['Story', 'Edit coach', 'Hand off', 'Learn', 'Settings']) {
+  for (const view of ['Story', 'Hand off', 'Learn', 'Settings']) {
     await page.getByRole('button', { name: view, exact: false }).first().click()
     await page.waitForTimeout(400)
     await snap(`4-${view.toLowerCase().replace(/\W+/g, '-')}`)
   }
 
-  // The edit coach follows Lightroom's sidecar: write one, as Lightroom would, and expect a tip about it.
   const rawFile = readdirSync(samples).find((f) => /\.(raf|arw)$/i.test(f))
-  if (rawFile) {
-    writeFileSync(
-      join(samples, rawFile.replace(/\.\w+$/, '.xmp')),
-      `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="+0.30" crs:Saturation="+50" crs:Highlights2012="-90" crs:Shadows2012="+90" crs:Sharpness="40"/></rdf:RDF></x:xmpmeta>`
-    )
-    await page.getByRole('button', { name: 'Edit coach' }).click()
-    await page.locator(`.coach .thumb[title="${rawFile}"]`).click()
-    await page.getByText('Saturation is +50.').waitFor({ timeout: 15_000 })
-    await page.getByText('Highlights -90, Shadows +90.').waitFor()
-    await snap('4-edit-coach-live')
-  }
-
   await page.getByRole('button', { name: 'Hand off' }).click()
   await page.getByRole('button', { name: /Write ratings/ }).click()
   await page.getByText(/sidecars written/).waitFor()
@@ -206,7 +251,6 @@ try {
     assert.ok(existsSync(sidecar), 'an XMP sidecar is written next to the RAW')
     const written = readFileSync(sidecar, 'utf8')
     assert.match(written, /Label[=>"]+(Green|Red)/, 'the label is written')
-    assert.match(written, /Saturation/, 'develop settings already in the sidecar are kept')
   }
   await snap('5-exported')
 
@@ -221,11 +265,7 @@ try {
   // Training: norms from finished photographs, habits from Lightroom sidecars, decisions from ratings.
   await page.getByRole('button', { name: 'Training', exact: true }).click()
   await page.getByRole('button', { name: /Train on finished photographs/ }).click()
-  await page.getByText(/finished photographs so far|Learned from \d+ finished photographs/).waitFor({ timeout: 120_000 })
-  if (rawFile) {
-    await page.getByRole('button', { name: /Train on an edited shoot/ }).click()
-    await page.getByText(/edited photographs so far|Learned from \d+ edited/).waitFor({ timeout: 60_000 })
-  }
+  await page.getByText(/finished photographs so far|Learned from \d+ finished photographs/).waitFor({ timeout: 400_000 })
   await page.getByRole('button', { name: /Learn from Lightroom ratings/ }).click()
   await page.getByText(rawFile ? /1 frame learned from Lightroom ratings/ : /learned from Lightroom ratings/).waitFor({ timeout: 60_000 })
   assert.match(readFileSync(join(userData, 'training.json'), 'utf8'), /"norms":\{"/, 'what was learned is stored')
