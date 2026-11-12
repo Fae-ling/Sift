@@ -17,11 +17,16 @@ import { DEFAULT_BALANCE, STORY_PLANS } from '@shared/storyPlans'
 import { groupShots } from './analysis/grouping'
 import { emptyLearning, examplesOf, FEATURE_VERSION, isBlindBurst, learn as learnTaste, trimmed, type Learned as Taste, type LearningData } from './analysis/learner'
 import { ingestShot } from './analysis/pipeline'
+import { deriveLook, lookStats } from './analysis/look'
+import { loadOriented, PREVIEW_EDGE, resized, rgba } from './analysis/image'
+import { metricsOf } from './analysis/diagnose'
+import { analyse } from './analysis/reading'
 import { scoreAndSuggest, tasteOf, type ScoreOptions } from './analysis/scoring'
+import { addSamples, addToHouseLook, emptyTraining, HABIT_KEYS, limitsFrom, TRAINING_VERSION, type Training, type TrainingEvent } from './analysis/training'
 import { buildProfile, feelOf, mergeProfiles, profileFacts, STARTER_PROFILES, styleNotes } from './analysis/style'
 import type { StyleProfile } from '@shared/types'
 
-export type View = 'projects' | 'profiles' | 'look' | 'diagnose' | 'brief' | 'import' | 'cull' | 'story' | 'coach' | 'export' | 'learn' | 'settings'
+export type View = 'projects' | 'profiles' | 'training' | 'look' | 'diagnose' | 'brief' | 'import' | 'cull' | 'story' | 'coach' | 'export' | 'learn' | 'settings'
 export type Filter = 'all' | 'suggested' | 'undecided' | 'picks' | 'rejects' | 'warnings' | 'gems' | 'unkept'
 
 interface IngestState {
@@ -90,6 +95,10 @@ interface State {
   tasteData: LearningData
   /** The taste model trained from them, with its self-check. null until there is something to learn from. */
   taste: Taste | null
+  /** What has been learned from photographs provided for training. */
+  training: Training
+  /** Progress of a training run. */
+  teaching: { running: boolean; done: number; total: number; label: string }
   /** Only frames of this chapter are shown in Cull; null shows every chapter. */
   chapter: string | null
   /** Decisions that can be undone and redone: each entry is what the changed frames were before. */
@@ -118,6 +127,19 @@ interface State {
   undo(): void
   redo(): void
   loadLearning(): Promise<void>
+  loadTraining(): Promise<void>
+  /** Learns the photographer's own norms from a folder of finished photographs. */
+  trainFinished(folder: string): Promise<void>
+  /** Learns their editing habits from a folder of RAW files with Lightroom sidecars. */
+  trainEdits(folder: string): Promise<void>
+  /** Learns their look from unedited frames and the finished versions with the same file names. */
+  trainLook(beforeFolder: string, afterFolder: string): Promise<void>
+  /** Takes the open project's decisions from ratings given in Lightroom. Returns how many frames were decided. */
+  teachFromRatings(minStars: number): Promise<number>
+  /** Takes the open project's decisions from a folder of delivered files (matched by name). */
+  teachFromDelivered(folder: string): Promise<number>
+  giveFeedback(topic: string, agree: boolean): void
+  resetTraining(area: 'norms' | 'habits' | 'houseLook' | 'feedback'): void
   /** Retrains the taste model from every stored decision plus the open project's. */
   relearn(): void
   setBlindBursts(on: boolean): void
@@ -205,6 +227,69 @@ function swap(get: () => State, set: (p: Partial<State>) => void, from: 'undoSta
   if (entry.length === 1) set({ selectedId: entry[0].id })
 }
 
+const baseName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path
+
+/** Opens any photo as an upright preview-sized canvas, through a scratch cache slot. */
+async function openPreview(slot: string, path: string): Promise<HTMLCanvasElement> {
+  const extracted = await window.studio.extract('train', slot, path)
+  const blob = await (await fetch(`${extracted.url}?t=${Date.now()}`)).blob()
+  return resized(await loadOriented(blob, extracted.applyOrientation, PREVIEW_EDGE), PREVIEW_EDGE)
+}
+
+/** Runs one training step per item, with progress; an item that fails is skipped. */
+async function teach(set: (p: Partial<State>) => void, get: () => State, label: string, total: number, step: (i: number) => Promise<void>): Promise<void> {
+  if (get().teaching.running) throw new Error('A training run is already in progress.')
+  set({ teaching: { running: true, done: 0, total, label } })
+  try {
+    for (let i = 0; i < total; i++) {
+      try {
+        await step(i)
+      } catch {
+        // One unreadable file must not stop the run.
+      }
+      set({ teaching: { running: true, done: i + 1, total, label } })
+    }
+  } finally {
+    set({ teaching: { running: false, done: total, total, label } })
+  }
+}
+
+function saveTraining(set: (p: Partial<State>) => void, get: () => State, patch: Partial<Training>, event?: Omit<TrainingEvent, 'at'>): void {
+  const training = { ...get().training, ...patch }
+  if (event) training.log = [...training.log, { ...event, at: Date.now() }].slice(-60)
+  set({ training })
+  void window.studio.training.save(training)
+}
+
+/**
+ * Records decisions the photographer made before Atelier (in Lightroom, or by
+ * delivering some files and not others) on the open project, and learns from
+ * them. They were made with no suggestion from this app, so they count as
+ * unprompted choices. Decisions already made here are left alone.
+ */
+function applyPastDecisions(get: () => State, keptOf: (s: Shot) => boolean | null, name: string): number {
+  let count = 0
+  get().update((p) => ({
+    ...p,
+    shots: p.shots.map((s) => {
+      const kept = keptOf(s)
+      if (kept === null || s.decision !== null || !s.analysis) return s
+      count++
+      return { ...s, decision: kept ? ('pick' as const) : ('reject' as const), decidedBy: 'manual' as const, suggestedThen: s.suggestion, blind: true }
+    })
+  }))
+  if (count) {
+    get().relearn()
+    const training = { ...get().training, log: [...get().training.log, { at: Date.now(), kind: 'decisions' as const, name, count }].slice(-60) }
+    useStore.setState({ training })
+    void window.studio.training.save(training)
+  }
+  return count
+}
+
+/** The diagnosis limits as trained so far. */
+export const currentLimits = (training: Training) => limitsFrom(training)
+
 type Get = () => State
 type Set = (partial: Partial<State>) => void
 
@@ -247,6 +332,8 @@ export const useStore = create<State>((set, get) => ({
   toast: null,
   tasteData: emptyLearning(),
   taste: null,
+  training: emptyTraining(),
+  teaching: { running: false, done: 0, total: 0, label: '' },
   chapter: null,
   undoStack: [],
   redoStack: [],
@@ -657,6 +744,93 @@ export const useStore = create<State>((set, get) => ({
     await window.studio.learning.save(learning)
     if (get().project) get().update((p) => ({ ...p, shots: scoreAndSuggest(p.shots, scoring(p, get().learned)) }))
   },
+
+  loadTraining: async () => {
+    const stored = (await window.studio.training.get()) as Training | null
+    set({ training: stored && stored.version === TRAINING_VERSION ? { ...emptyTraining(), ...stored } : emptyTraining() })
+  },
+
+  trainFinished: async (folder) => {
+    const files = await window.studio.scan(folder, true)
+    if (!files.length) throw new Error(`No images found in ${folder}.`)
+    let norms = get().training.norms
+    let count = 0
+    await teach(set, get, 'Studying finished photographs', files.length, async (i) => {
+      const preview = await openPreview(`f${i % 4}`, files[i].path)
+      const reading = (await analyse(preview)).reading
+      // A photograph with no person in it says nothing about separation or skin.
+      if (!reading.hasSubject) return
+      norms = addSamples(norms, metricsOf(reading))
+      count++
+    })
+    if (!count) throw new Error('No people were found in those photographs, so there was nothing to learn norms from.')
+    saveTraining(set, get, { norms }, { kind: 'finished', name: baseName(folder), count })
+  },
+
+  trainEdits: async (folder) => {
+    const files = (await window.studio.scan(folder)).filter((f) => !/\.jpe?g$/i.test(f.name))
+    if (!files.length) throw new Error(`No RAW files found in ${folder}.`)
+    let habits = get().training.habits
+    let count = 0
+    await teach(set, get, 'Reading Lightroom settings', files.length, async (i) => {
+      const develop = await window.studio.readDevelop(files[i].path)
+      if (!develop || Object.keys(develop.values).length < 4) return
+      const values: Record<string, number> = {}
+      for (const key of HABIT_KEYS) if (typeof develop.values[key] === 'number') values[key] = develop.values[key] as number
+      habits = addSamples(habits, values)
+      count++
+    })
+    if (!count) throw new Error('None of those files has Lightroom settings beside it. Turn on "Automatically write changes into XMP" in Lightroom, or select the photos and press Ctrl+S, then try again.')
+    saveTraining(set, get, { habits }, { kind: 'edits', name: baseName(folder), count })
+  },
+
+  trainLook: async (beforeFolder, afterFolder) => {
+    const stem = (name: string): string => name.replace(/\.\w+$/, '').toLowerCase()
+    const after = new Map((await window.studio.scan(afterFolder, true)).map((f) => [stem(f.name), f.path]))
+    const pairs = (await window.studio.scan(beforeFolder, true)).filter((f) => after.has(stem(f.name)) && after.get(stem(f.name)) !== f.path)
+    if (!pairs.length) throw new Error('No matching file names in the two folders. The finished photos must keep the names of the originals (IMG_0123.ARW and IMG_0123.jpg).')
+    let house = get().training.houseLook
+    let count = 0
+    await teach(set, get, 'Comparing before and after', pairs.length, async (i) => {
+      const before = resized(await openPreview('before', pairs[i].path), 512)
+      const finished = resized(await openPreview('after', after.get(stem(pairs[i].name))!), 512)
+      house = addToHouseLook(house, deriveLook(lookStats(rgba(finished).data), lookStats(rgba(before).data)))
+      count++
+    })
+    saveTraining(set, get, { houseLook: house }, { kind: 'look', name: baseName(afterFolder), count })
+  },
+
+  teachFromRatings: async (minStars) => {
+    const project = get().project
+    if (!project) return 0
+    const ratings = new Map((await window.studio.readRatings(project.shots.map((s) => s.path))).map((r) => [r.path, r]))
+    const kept = (path: string): boolean | null => {
+      const r = ratings.get(path)
+      if (!r || (r.rating === null && r.label === null)) return null
+      return (r.rating ?? 0) >= minStars
+    }
+    return applyPastDecisions(get, (s) => kept(s.path), `Lightroom ratings: ${project.name}`)
+  },
+
+  teachFromDelivered: async (folder) => {
+    const stem = (name: string): string => name.replace(/\.\w+$/, '').toLowerCase()
+    const delivered = new Set((await window.studio.scan(folder, true)).map((f) => stem(f.name)))
+    if (!delivered.size) throw new Error(`No images found in ${folder}.`)
+    // Exported files often carry a suffix (IMG_0123-Edit, IMG_0123-2): match on the original name at the start.
+    const isDelivered = (name: string): boolean => {
+      const s = stem(name)
+      return delivered.has(s) || [...delivered].some((d) => d.startsWith(s + '-') || d.startsWith(s + '_'))
+    }
+    return applyPastDecisions(get, (s) => isDelivered(s.name), `Delivered files: ${get().project?.name ?? ''}`)
+  },
+
+  giveFeedback: (topic, agree) => {
+    const prev = get().training.feedback[topic] ?? { agree: 0, dismiss: 0 }
+    const feedback = { ...get().training.feedback, [topic]: agree ? { ...prev, agree: prev.agree + 1 } : { ...prev, dismiss: prev.dismiss + 1 } }
+    saveTraining(set, get, { feedback })
+  },
+
+  resetTraining: (area) => saveTraining(set, get, { [area]: emptyTraining()[area] } as Partial<Training>),
 
   loadSettings: async () => set({ settings: await window.studio.settings.get() }),
   saveSettings: async (patch) => set({ settings: await window.studio.settings.set(patch) })

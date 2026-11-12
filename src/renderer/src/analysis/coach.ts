@@ -1,5 +1,6 @@
 import type { Brief, Shot } from '@shared/types'
 import { describeHarmony, hueName } from './color'
+import type { Habit } from './training'
 
 export interface CoachNote {
   topic: string
@@ -171,18 +172,25 @@ const num = (d: Develop, key: string): number => (typeof d[key] === 'number' ? (
  * Comments on the Lightroom settings currently saved for a photo. Each tip
  * names the slider, says what the value is doing, and gives the principle.
  */
-export function developTips(d: Develop, shot: Shot, brief: Brief): CoachNote[] {
+export function developTips(d: Develop, shot: Shot, brief: Brief, habits: Record<string, Habit> = {}): CoachNote[] {
   const tips: CoachNote[] = []
   const hasFace = shot.analysis!.faces.length > 0
-  const tip = (topic: string, finding: string, advice: string, level: CoachNote['level'] = 'attention'): void => {
-    tips.push({ topic, finding, advice, level })
+  /** True when a setting's value is inside the photographer's own usual range, learned in training. */
+  const usual = (key: string): boolean => {
+    const h = habits[key]
+    return !!h && num(d, key) >= h.lo && num(d, key) <= h.hi
+  }
+  const tip = (topic: string, finding: string, advice: string, level: CoachNote['level'] = 'attention', key?: string): void => {
+    // A value that is normal for this photographer is their style, not a slip: say so and step back.
+    if (key && usual(key)) tips.push({ topic, finding: `${finding} That is within your usual range (${habits[key].lo.toFixed(0)} to ${habits[key].hi.toFixed(0)}).`, advice, level: 'info' })
+    else tips.push({ topic, finding, advice, level })
   }
 
   const exposure = num(d, 'Exposure2012')
   if (Math.abs(exposure) > 1.5) {
     tip('Exposure', `Exposure is at ${exposure > 0 ? '+' : ''}${exposure.toFixed(2)}.`, exposure > 0
       ? 'That is a large lift: expect noise and thin colour in the shadows. Apply noise reduction after the tonal work and check the shadows at 100%. Next time, expose brighter in camera for this light.'
-      : 'That is a large cut. If highlights were clipped in the RAW they will turn grey rather than recover; look for flat, colourless patches.')
+      : 'That is a large cut. If highlights were clipped in the RAW they will turn grey rather than recover; look for flat, colourless patches.', 'attention', 'Exposure2012')
   }
   const highlights = num(d, 'Highlights2012')
   const shadows = num(d, 'Shadows2012')
@@ -195,17 +203,17 @@ export function developTips(d: Develop, shot: Shot, brief: Brief): CoachNote[] {
 
   const clarity = num(d, 'Clarity2012')
   const texture = num(d, 'Texture')
-  if (hasFace && clarity > 20) tip('Clarity', `Clarity is +${clarity} on a photo with a face.`, 'Clarity adds midtone contrast, which deepens every pore and line. On portraits keep it near zero or slightly negative on skin, and add it locally (eyes, hair, fabric) with a mask.')
-  if (hasFace && texture > 25) tip('Texture', `Texture is +${texture} on a photo with a face.`, 'Texture sharpens fine skin detail. Use it on the eyes and hair with a mask; on skin, zero to slightly negative is kinder and still looks real.')
+  if (hasFace && clarity > 20) tip('Clarity', `Clarity is +${clarity} on a photo with a face.`, 'Clarity adds midtone contrast, which deepens every pore and line. On portraits keep it near zero or slightly negative on skin, and add it locally (eyes, hair, fabric) with a mask.', 'attention', 'Clarity2012')
+  if (hasFace && texture > 25) tip('Texture', `Texture is +${texture} on a photo with a face.`, 'Texture sharpens fine skin detail. Use it on the eyes and hair with a mask; on skin, zero to slightly negative is kinder and still looks real.', 'attention', 'Texture')
   if (hasFace && (clarity < -35 || texture < -45)) tip('Skin smoothing', `Clarity ${clarity}, Texture ${texture}.`, 'This much softening removes the texture that makes skin look like skin, and it applies to eyes and hair too. Restrict it to skin with a mask and halve it.')
   const dehaze = num(d, 'Dehaze')
-  if (Math.abs(dehaze) > 30) tip('Dehaze', `Dehaze is ${dehaze > 0 ? '+' : ''}${dehaze}.`, 'Dehaze shifts colour and darkens shadows heavily, and it shows halos around edges. Small amounts on skies via a mask are safe; globally, it rarely survives a second look.')
+  if (Math.abs(dehaze) > 30) tip('Dehaze', `Dehaze is ${dehaze > 0 ? '+' : ''}${dehaze}.`, 'Dehaze shifts colour and darkens shadows heavily, and it shows halos around edges. Small amounts on skies via a mask are safe; globally, it rarely survives a second look.', 'attention', 'Dehaze')
 
   const sat = num(d, 'Saturation')
   const vib = num(d, 'Vibrance')
   if (sat > 20) tip('Saturation', `Saturation is +${sat}.`, hasFace
     ? 'Saturation pushes every colour equally, skin included, which turns faces orange. Bring it back toward zero and use Vibrance, which protects skin and already-vivid colours.'
-    : 'Global saturation makes everything shout at once. Lower it, then raise only the colour that matters in the Color Mixer: saturation contrast directs the eye.')
+    : 'Global saturation makes everything shout at once. Lower it, then raise only the colour that matters in the Color Mixer: saturation contrast directs the eye.', 'attention', 'Saturation')
   if (sat < -40 && vib > 30) tip('Vibrance against Saturation', `Saturation ${sat} with Vibrance +${vib}.`, 'A known recipe for a muted, filmic palette: it works, but watch skin, which can go grey. Check Orange saturation in the Color Mixer.', 'info')
   const orangeSat = num(d, 'SaturationAdjustmentOrange')
   const orangeHue = num(d, 'HueAdjustmentOrange')
@@ -223,7 +231,7 @@ export function developTips(d: Develop, shot: Shot, brief: Brief): CoachNote[] {
   const mask = num(d, 'SharpenEdgeMasking')
   if (sharp > 60 && mask < 20) tip('Sharpening', `Sharpening ${sharp} with Masking ${mask}.`, 'Without masking, sharpening is applied to skin and sky, where it only adds grain. Hold Alt while dragging Masking until only edges are white (often 50 to 80).')
   const nr = num(d, 'LuminanceSmoothing')
-  if (nr > 45) tip('Noise reduction', `Luminance noise reduction is ${nr}.`, 'This much smears fine detail into a waxy surface. Some grain looks natural, especially in print. Try 15 to 25, or AI Denoise on the RAW.')
+  if (nr > 45) tip('Noise reduction', `Luminance noise reduction is ${nr}.`, 'This much smears fine detail into a waxy surface. Some grain looks natural, especially in print. Try 15 to 25, or AI Denoise on the RAW.', 'attention', 'LuminanceSmoothing')
   const vignette = num(d, 'PostCropVignetteAmount')
   if (vignette < -30) tip('Vignette', `Vignette is ${vignette}.`, 'A visible vignette reads as an effect. The aim is for the viewer to feel the centre is brighter without seeing why: stay above -20, or darken edges with a radial mask you can shape.', 'info')
 
@@ -236,6 +244,14 @@ export function developTips(d: Develop, shot: Shot, brief: Brief): CoachNote[] {
   if (temp && wants(['warm', 'golden', 'cozy', 'cosy', 'nostalg']) && temp < 4800) tip('Against your brief', `Temperature is ${temp} K, on the cool side.`, 'Your brief asks for warmth. Raise Temp, or keep the white balance and warm the midtones with Color Grading so shadows stay clean.')
   if (wants(['soft', 'gentle', 'airy', 'dream', 'pastel']) && (contrast > 25 || clarity > 15)) tip('Against your brief', `Contrast +${contrast}, Clarity +${clarity}.`, 'Your brief asks for softness; both of these add hardness. Lower them and lift the blacks slightly on the Tone Curve for a gentler shadow.')
   if (wants(['natural', 'true', 'honest', 'timeless', 'classic']) && (Math.max(...grades) > 20 || Math.abs(sat) > 25)) tip('Against your brief', 'Strong colour grading or saturation changes.', 'Your brief asks for a natural, timeless feel. Looks that are fashionable now date quickly; pull the stylising back until the photo simply looks like a good day.')
+
+  // Against the photographer's own habits, learned from their past edits.
+  const out = Object.entries(habits)
+    .filter(([key, h]) => d[key] !== undefined && h.count >= 12 && (num(d, key) < h.lo - 0.15 * (h.hi - h.lo + 1) || num(d, key) > h.hi + 0.15 * (h.hi - h.lo + 1)))
+    .map(([key, h]) => `${key.replace('2012', '').replace('Adjustment', ' ')} ${num(d, key)} (you usually stay between ${h.lo.toFixed(key === 'Exposure2012' ? 2 : 0)} and ${h.hi.toFixed(key === 'Exposure2012' ? 2 : 0)})`)
+  if (out.length) {
+    tip('Outside your own habits', out.slice(0, 5).join('; ') + '.', 'Not wrong, but unlike your other work. If this frame belongs to a set, check it against the set\'s reference frame; if the picture needed it, carry on.', 'info')
+  }
 
   if (!tips.length) tips.push({ topic: 'So far, so good', finding: 'Nothing in the current settings stands out as a risk.', advice: 'Compare against your reference frame for this scene, and look at the photo small: problems of balance show at thumbnail size.', level: 'info' })
   return tips

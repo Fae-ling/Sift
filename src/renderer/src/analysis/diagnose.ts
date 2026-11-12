@@ -604,8 +604,69 @@ const place = (b: { x: number; y: number; w: number; h: number }): string => {
 }
 const pct = (v: number): string => `${Math.round(v * 100)}%`
 
+/**
+ * The points at which a measurement becomes a finding. The defaults are general;
+ * training on the photographer's own finished work replaces them with their own.
+ */
+export interface Limits {
+  /** Share of outline lost: "partly", and "merges". */
+  mergedSome: number
+  mergedMost: number
+  /** Below this share of attention on the subject, the subject is not holding the eye. */
+  attentionLow: number
+  /** Skin unevenness (0..1): "slightly", and "noticeably". */
+  blotchySome: number
+  blotchyMost: number
+  /** CIELAB hue band for skin, in degrees. */
+  skinHue: [number, number]
+  /** Colour difference within the face, and between face and body, in delta E. */
+  skinSpread: number
+  faceVsBody: number
+  /** Edge density at the outline relative to the picture's average. */
+  clutter: number
+  /** Background saturation and local contrast relative to the subject's. */
+  bgSaturation: number
+  bgContrast: number
+  /** What these limits were learned from, for the screen. Empty for the defaults. */
+  basis: string
+}
+
+export const DEFAULT_LIMITS: Limits = {
+  mergedSome: 0.12,
+  mergedMost: 0.3,
+  attentionLow: 0.4,
+  blotchySome: 0.42,
+  blotchyMost: 0.6,
+  skinHue: SKIN_HUE_BAND,
+  skinSpread: 9,
+  faceVsBody: 5,
+  clutter: 1.35,
+  bgSaturation: 1.3,
+  bgContrast: 1.25,
+  basis: ''
+}
+
+/** The numbers a finished photograph is characterised by, for learning the photographer's own norms. */
+export function metricsOf(r: Reading): Record<string, number> {
+  const m: Record<string, number> = {}
+  if (r.separation) m.merged = r.separation.mergedShare
+  if (r.hasSubject) {
+    m.attention = r.attentionOnSubject
+    if (r.subjectSat > 0.02) m.bgSaturation = r.backgroundSat / r.subjectSat
+    if (r.subjectContrast > 0.002) m.bgContrast = r.backgroundContrast / r.subjectContrast
+  }
+  if (r.skin && r.skin.share > 0.004) m.blotchy = r.skin.blotchiness
+  if (r.skinColour) {
+    m.skinHue = r.skinColour.hue
+    m.skinSpread = r.skinColour.unevenness
+    if (r.skinColour.faceVsBody !== null) m.faceVsBody = r.skinColour.faceVsBody
+  }
+  if (r.background && r.hasSubject) m.clutter = r.background.edgesAtOutline
+  return m
+}
+
 /** Turns the measurements into a diagnosis and proposed adjustments, with reasons. */
-export function findings(r: Reading): Finding[] {
+export function findings(r: Reading, L: Limits = DEFAULT_LIMITS): Finding[] {
   const out: Finding[] = []
   if (!r.hasSubject) {
     out.push({
@@ -619,7 +680,7 @@ export function findings(r: Reading): Finding[] {
   // Separation of subject and background.
   if (r.separation) {
     const s = r.separation
-    if (s.mergedShare > 0.3) {
+    if (s.mergedShare > L.mergedMost) {
       out.push({
         topic: 'Subject merges with the background',
         finding: `Along ${pct(s.mergedShare)} of the outline the subject is nearly the same brightness and colour as what is behind it${s.merged.length ? `, most of all in ${s.merged.map(place).join(' and ')}` : ''}.`,
@@ -627,7 +688,7 @@ export function findings(r: Reading): Finding[] {
           'A silhouette that cannot be read is the most common reason a picture feels flat. Do not sharpen or brighten the subject: change the background beside the lost edge. Lighten it where the subject is dark, darken it where the subject is light (a soft brush mask along the edge, a third to two thirds of a stop), or shift its colour away from the subject\'s.',
         level: 'attention'
       })
-    } else if (s.mergedShare > 0.12) {
+    } else if (s.mergedShare > L.mergedSome) {
       out.push({
         topic: 'Separation',
         finding: `The subject reads against the background for most of its outline; ${pct(s.mergedShare)} of it is lost${s.merged.length ? `, in ${s.merged.map(place).join(' and ')}` : ''}.`,
@@ -657,10 +718,10 @@ export function findings(r: Reading): Finding[] {
       topic: 'Where the eye goes',
       finding: `About ${pct(on)} of what draws the eye lies on the subject.`,
       advice:
-        on < 0.4
+        on < L.attentionLow
           ? 'Most of the pull is elsewhere. To make the subject stand out, do not push it harder: quieten what surrounds it. Less colour in the background, less contrast, softer edges. The eye then arrives by itself, and nobody can tell the picture was worked on.'
           : 'The subject holds the eye. Further emphasis is better achieved by calming the rest than by adding contrast or saturation to the subject.',
-      level: on < 0.4 ? 'attention' : 'good'
+      level: on < L.attentionLow ? 'attention' : 'good'
     })
   }
   for (const d of r.distractions.filter((d) => d.pull > 0.035)) {
@@ -674,7 +735,7 @@ export function findings(r: Reading): Finding[] {
       level: 'attention'
     })
   }
-  if (r.backgroundContrast > r.subjectContrast * 1.25 && r.hasSubject) {
+  if (r.backgroundContrast > r.subjectContrast * L.bgContrast && r.hasSubject) {
     out.push({
       topic: 'Background busier than the subject',
       finding: 'The background has more local contrast than the subject.',
@@ -682,7 +743,7 @@ export function findings(r: Reading): Finding[] {
       level: 'attention'
     })
   }
-  if (r.backgroundSat > r.subjectSat * 1.3 && r.backgroundSat > 0.25 && r.hasSubject) {
+  if (r.backgroundSat > r.subjectSat * L.bgSaturation && r.backgroundSat > 0.25 && r.hasSubject) {
     out.push({
       topic: 'Background more colourful than the subject',
       finding: `Background saturation is ${pct(r.backgroundSat)} against ${pct(r.subjectSat)} on the subject.`,
@@ -715,32 +776,32 @@ export function findings(r: Reading): Finding[] {
     const b = r.skin.blotchiness
     out.push({
       topic: 'Skin',
-      finding: `${b > 0.6 ? 'The skin is noticeably uneven: patches differ in brightness and redness from the skin around them' : b > 0.42 ? 'The skin is slightly uneven in tone' : 'The skin is reasonably even in tone'} (unevenness ${Math.round(b * 100)} of 100).`,
+      finding: `${b > L.blotchyMost ? 'The skin is noticeably uneven: patches differ in brightness and redness from the skin around them' : b > L.blotchySome ? 'The skin is slightly uneven in tone' : 'The skin is reasonably even in tone'} (unevenness ${Math.round(b * 100)} of 100).`,
       advice:
-        b > 0.42
+        b > L.blotchySome
           ? 'Viewers carry a memory of skin and notice unevenness before they notice the wrong hue; blotchy skin reads as older and more tired. Even it out, do not blur it: dodge and burn at low flow to level the patches, and for redness lower Red saturation slightly or shift Red hue toward orange on a skin mask. Keep the texture.'
           : 'Leave it alone. Skin that is already even is easily over-retouched.',
-      level: b > 0.42 ? 'attention' : 'good'
+      level: b > L.blotchySome ? 'attention' : 'good'
     })
   }
 
   if (r.skinColour) {
     const c = r.skinColour
-    const [lo, hi] = SKIN_HUE_BAND
+    const [lo, hi] = L.skinHue
     if (c.hue < lo - 4 || c.hue > hi + 4) {
       const red = c.hue < lo
       out.push({
         topic: 'Skin hue',
         mask: 'skin',
         strength: clamp(Math.abs(c.hue - (red ? lo : hi)) / 30, 0.2, 0.9),
-        finding: `Skin hue measures ${c.hue.toFixed(1)}°, outside the usual band of ${lo}° to ${hi}°: shifted toward ${red ? 'red and magenta' : 'yellow and green'}.`,
+        finding: `Skin hue measures ${c.hue.toFixed(1)}°, outside ${L.basis ? 'the band of your own finished work' : 'the usual band'} of ${lo.toFixed(0)}° to ${hi.toFixed(0)}°: shifted toward ${red ? 'red and magenta' : 'yellow and green'}.`,
         advice: red
           ? 'Move it back toward the band without touching brightness: on a skin mask shift hue from red toward yellow (in Lightroom, Color Mixer → Red and Orange hue to the right, or Tint toward green on the mask). Check that it is not white balance first: if the whole picture is magenta, fix that globally.'
           : 'Move it back toward the band: Orange hue slightly toward red on a skin mask, or Tint toward magenta. If the cause is light reflected from grass or walls, a mask on the affected side is cleaner than a global change.',
         level: 'attention'
       })
     }
-    if (c.unevenness > 9 || c.hueSpread > 22) {
+    if (c.unevenness > L.skinSpread || c.hueSpread > 22) {
       out.push({
         topic: 'Skin colour varies',
         mask: 'skin',
@@ -750,7 +811,7 @@ export function findings(r: Reading): Finding[] {
         level: 'attention'
       })
     }
-    if (c.faceVsBody !== null && c.faceVsBody > 5) {
+    if (c.faceVsBody !== null && c.faceVsBody > L.faceVsBody) {
       out.push({
         topic: 'Face and body do not match',
         mask: 'skin',
@@ -774,7 +835,7 @@ export function findings(r: Reading): Finding[] {
 
   if (r.background && r.hasSubject) {
     const b = r.background
-    if (b.edgesAtOutline > 1.35) {
+    if (b.edgesAtOutline > L.clutter) {
       out.push({
         topic: 'Background clutter at the outline',
         mask: 'background',

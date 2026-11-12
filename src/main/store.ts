@@ -120,6 +120,24 @@ export async function saveLearning(data: unknown): Promise<void> {
   await fs.rename(tmp, learningFile())
 }
 
+// --- what was learned from photographs provided for training ---
+
+const trainingFile = (): string => join(app.getPath('userData'), 'training.json')
+
+export async function getTraining(): Promise<unknown> {
+  try {
+    return JSON.parse(await fs.readFile(trainingFile(), 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+export async function saveTraining(data: unknown): Promise<void> {
+  const tmp = trainingFile() + '.tmp'
+  await fs.writeFile(tmp, JSON.stringify(data))
+  await fs.rename(tmp, trainingFile())
+}
+
 // --- what the optional AI advice has cost ---
 
 const spendFile = (): string => join(app.getPath('userData'), 'spend.json')

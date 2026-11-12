@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { DevelopSettings } from '@shared/types'
 import { coachNotes, developText, developTips, measurementText } from '../analysis/coach'
 import { previewUrl } from '../analysis/pipeline'
+import { habitsFrom } from '../analysis/training'
 import { estimateCost, formatCost } from '../components/AiCost'
 import { Scopes } from '../components/Scopes'
 import { Thumb } from '../components/Thumb'
@@ -21,7 +22,8 @@ const ORDER: [string, string][] = [
 ]
 
 export function Coach(): React.JSX.Element {
-  const { project, update, settings, setView, notify } = useStore()
+  const { project, update, settings, setView, notify, training } = useStore()
+  const habits = useMemo(() => habitsFrom(training), [training])
   const [chosen, setChosen] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -130,7 +132,7 @@ export function Coach(): React.JSX.Element {
             <p className="small muted">
               Read from Lightroom's sidecar, saved {new Date(develop.modified).toLocaleTimeString()}. Updates by itself as you edit.
             </p>
-            {developTips(develop.values, shot, project.brief).map((n, i) => (
+            {developTips(develop.values, shot, project.brief, habits).map((n, i) => (
               <div className={`note ${n.level === 'attention' ? 'warn' : 'teach'}`} key={i}>
                 <p>
                   <b>{n.topic}.</b> {n.finding}

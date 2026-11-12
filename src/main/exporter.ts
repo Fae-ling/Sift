@@ -130,3 +130,27 @@ export async function saveFiles(folder: string, files: { name: string; data: Arr
   }
   return result
 }
+
+/**
+ * Reads the star rating and colour label a photo already carries: from the XMP
+ * sidecar for a RAW, from the file itself otherwise. Used to learn from shoots
+ * that were culled in Lightroom before Atelier existed.
+ */
+export async function readRatings(paths: string[]): Promise<{ path: string; rating: number | null; label: string | null }[]> {
+  const out: { path: string; rating: number | null; label: string | null }[] = []
+  for (const path of paths) {
+    const sidecar = sidecarPath(path)
+    const source = isRaw(path) ? ((await exists(sidecar)) ? sidecar : null) : path
+    if (!source) {
+      out.push({ path, rating: null, label: null })
+      continue
+    }
+    try {
+      const tags = (await exiftool.read(source)) as unknown as Record<string, unknown>
+      out.push({ path, rating: typeof tags.Rating === 'number' ? tags.Rating : null, label: typeof tags.Label === 'string' ? tags.Label : null })
+    } catch {
+      out.push({ path, rating: null, label: null })
+    }
+  }
+  return out
+}

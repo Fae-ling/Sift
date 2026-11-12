@@ -4,11 +4,13 @@ import { pathToFileURL } from 'node:url'
 import type { DiagnoseRequest, EssenceRequest, GradeRequest, Learned, Project, ReadRequest, StoryRequest, XmpItem } from '@shared/types'
 import { diagnose, gradeAdvice, narrativeRead, storyAdvice, styleEssence } from './ai'
 import { promises as fs } from 'node:fs'
-import { copySelects, exportXmp, readDevelop, saveFiles } from './exporter'
+import { copySelects, exportXmp, readDevelop, readRatings, saveFiles } from './exporter'
 import { exiftool, extractPreview, savePreview, scanFolder } from './ingest'
 import {
   getLearned,
   getLearning,
+  getTraining,
+  saveTraining,
   saveLearning,
   getSpend,
   getSettings,
@@ -92,6 +94,9 @@ function registerIpc(): void {
   handle('reveal', (path: string) => shell.showItemInFolder(path))
   handle('learning:get', getLearning)
   handle('learning:save', (data: unknown) => saveLearning(data))
+  handle('training:get', getTraining)
+  handle('training:save', (data: unknown) => saveTraining(data))
+  handle('readRatings', (paths: string[]) => readRatings(paths))
   handle('spend', getSpend)
   handle('settings:get', getSettings)
   handle('settings:set', (patch: { apiKey?: string; model?: string }) => setSettings(patch))

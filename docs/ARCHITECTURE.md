@@ -24,6 +24,7 @@ comes next and why, see `DEVELOPMENT_PLAN.md`.
 | 4 Story | `views/Story.tsx` | Sequence picks, chapter coverage, "Your eye", picture editor's opinion |
 | 5 Edit coach | `views/Coach.tsx` | Scopes, notes, live tips from Lightroom's sidecar, grading plan |
 | 6 Hand off | `views/Export.tsx` | Ratings and labels to XMP; copy picks |
+| Training | `views/Training.tsx` | Teach each part with your own photographs; training log |
 | Culling profiles | `views/Profiles.tsx` | Feelings to cull for; galleries; the learned taste and its self-check |
 | Diagnose a photo | `views/Diagnose.tsx` | What is wrong with one picture before retouching; try-it preview; masks |
 | Look extractor | `views/Look.tsx` | A reference photo's look as LUT or Lightroom preset |
@@ -60,6 +61,8 @@ comes next and why, see `DEVELOPMENT_PLAN.md`.
 | `scoring.ts` | Craft and moment scores, suggestions, hidden gems | none |
 | `style.ts` | Culling profiles: measured profile, atmosphere words | none |
 | `learner.ts` | The photographer's taste: examples, training, held-back self-check | linear model, trained locally |
+| `training.ts` | Personal norms, editing habits, house look, feedback; turns them into limits | none |
+| `reading.ts` | Runs the whole diagnosis on one preview (shared by Diagnose and Training) | uses the above |
 | `coach.ts` | Editing notes from measurements and from Lightroom settings | none |
 | `look.ts` | Look extraction: curve, zone tints, saturation; LUT and preset writers | none |
 | `diagnose.ts` | Attention, distractions, three masses, outline separation, skin evenness and colour, background clutter and colour families, findings | none |
@@ -78,6 +81,7 @@ the app in `out/renderer/mediapipe`.
 | `projects/look/`, `projects/diagnose/` | Scratch previews for the two single-photo tools |
 | `learned.json` | Culling profiles; learned balance per kind of shoot |
 | `learning.json` | Examples of the photographer's decisions, per project |
+| `training.json` | Norms of finished photographs, editing habits, house look, feedback, log |
 | `spend.json` | What Claude has cost, by month |
 | `settings.json` | Model choice; encrypted API key |
 

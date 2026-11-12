@@ -360,6 +360,13 @@ export interface StudioApi {
     get(): Promise<unknown>
     save(data: unknown): Promise<void>
   }
+  /** What has been learned from photographs the user provided for training (opaque to the main process). */
+  training: {
+    get(): Promise<unknown>
+    save(data: unknown): Promise<void>
+  }
+  /** Star ratings and colour labels already given to photos, from their sidecars or the files themselves. */
+  readRatings(paths: string[]): Promise<{ path: string; rating: number | null; label: string | null }[]>
   /** What the optional Claude advice has cost, by month (YYYY-MM) in US dollars. */
   spend(): Promise<Record<string, number>>
   settings: {

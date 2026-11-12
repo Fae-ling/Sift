@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { loadOriented, resized, rgba } from '../analysis/image'
 import { applyLookToImage, deriveLook, describeLook, lookStats, mismatch, scaleLook, shiftToHueSat, toCube, toLightroomPreset, type Look as LookType } from '../analysis/look'
+import { houseLookAsLook } from '../analysis/training'
 import { useStore } from '../store'
 
 interface Loaded {
@@ -20,7 +21,8 @@ async function load(slot: string): Promise<Loaded | null> {
 }
 
 export function Look(): React.JSX.Element {
-  const { notify } = useStore()
+  const { notify, training } = useStore()
+  const house = training.houseLook
   const [reference, setReference] = useState<Loaded | null>(null)
   const [source, setSource] = useState<Loaded | null>(null)
   const [full, setFull] = useState<LookType | null>(null)
@@ -114,6 +116,23 @@ export function Look(): React.JSX.Element {
         Opens JPEG, PNG, WebP, AVIF, BMP and GIF directly, and RAW, TIFF, HEIC and PSD files through the preview stored
         inside them. Nothing is uploaded.
       </p>
+
+      {house && (
+        <div className="note teach">
+          <p>
+            <b>Your house look</b>, learned from {house.pairs} before/after pair{house.pairs === 1 ? '' : 's'} in Training.
+          </p>
+          <ul className="small" style={{ paddingLeft: 18, margin: '0 0 8px' }}>
+            {describeLook(houseLookAsLook(house)).map((line, i) => (
+              <li key={i}>{line}</li>
+            ))}
+          </ul>
+          <div className="row">
+            <button onClick={() => void save('my-look.cube', toCube(houseLookAsLook(house), 'My look'))}>Save my look as LUT (.cube)</button>
+            <button onClick={() => void save('my-look.xmp', toLightroomPreset(houseLookAsLook(house), 'My look'))}>Save my look as Lightroom preset</button>
+          </div>
+        </div>
+      )}
 
       {!reference && (
         <div className="note teach">

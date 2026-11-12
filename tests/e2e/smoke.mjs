@@ -210,6 +210,27 @@ try {
   }
   await snap('5-exported')
 
+  // Clear the decision on the RAW so that its Lightroom rating (written at hand-off) is something new to learn.
+  if (rawFile) {
+    await page.getByRole('button', { name: 'Cull', exact: false }).first().click()
+    await page.getByRole('button', { name: /^All \d/ }).click()
+    await page.locator(`.strip .thumb[title="${rawFile}"]`).click()
+    await page.keyboard.press('u')
+  }
+
+  // Training: norms from finished photographs, habits from Lightroom sidecars, decisions from ratings.
+  await page.getByRole('button', { name: 'Training', exact: true }).click()
+  await page.getByRole('button', { name: /Train on finished photographs/ }).click()
+  await page.getByText(/finished photographs so far|Learned from \d+ finished photographs/).waitFor({ timeout: 120_000 })
+  if (rawFile) {
+    await page.getByRole('button', { name: /Train on an edited shoot/ }).click()
+    await page.getByText(/edited photographs so far|Learned from \d+ edited/).waitFor({ timeout: 60_000 })
+  }
+  await page.getByRole('button', { name: /Learn from Lightroom ratings/ }).click()
+  await page.getByText(rawFile ? /1 frame learned from Lightroom ratings/ : /learned from Lightroom ratings/).waitFor({ timeout: 60_000 })
+  assert.match(readFileSync(join(userData, 'training.json'), 'utf8'), /"norms":\{"/, 'what was learned is stored')
+  await snap('6-training')
+
   assert.deepEqual(errors, [], 'no console errors')
   console.log('smoke test passed')
 } catch (err) {

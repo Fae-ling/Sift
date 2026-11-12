@@ -12,6 +12,7 @@ import { Look } from './views/Look'
 import { Profiles } from './views/Profiles'
 import { SettingsView } from './views/Settings'
 import { Story } from './views/Story'
+import { TrainingView } from './views/Training'
 
 const PROJECT_NAV: { view: View; label: string; hint: string }[] = [
   { view: 'brief', label: 'Brief', hint: 'What the work is for' },
@@ -23,14 +24,15 @@ const PROJECT_NAV: { view: View; label: string; hint: string }[] = [
 ]
 
 export function App(): React.JSX.Element {
-  const { view, project, setView, closeProject, refreshProjects, loadSettings, loadLearned, loadLearning, toast } = useStore()
+  const { view, project, setView, closeProject, refreshProjects, loadSettings, loadLearned, loadLearning, loadTraining, toast } = useStore()
 
   useEffect(() => {
     void refreshProjects()
     void loadSettings()
     void loadLearned()
     void loadLearning()
-  }, [refreshProjects, loadSettings, loadLearned, loadLearning])
+    void loadTraining()
+  }, [refreshProjects, loadSettings, loadLearned, loadLearning, loadTraining])
 
   const picks = project?.shots.filter((s) => s.decision === 'pick').length ?? 0
 
@@ -59,6 +61,9 @@ export function App(): React.JSX.Element {
         <button className={`nav ${view === 'profiles' ? 'active' : ''}`} onClick={() => setView('profiles')} title="The feelings you cull for, and what each has learned">
           Culling profiles
         </button>
+        <button className={`nav ${view === 'training' ? 'active' : ''}`} onClick={() => setView('training')} title="Teach Atelier with your own photographs">
+          Training
+        </button>
         <button className={`nav ${view === 'diagnose' ? 'active' : ''}`} onClick={() => setView('diagnose')} title="What is wrong with this picture, before you retouch it">
           Diagnose a photo
         </button>
@@ -75,6 +80,7 @@ export function App(): React.JSX.Element {
       <main className="main">
         {view === 'projects' && <Projects />}
         {view === 'profiles' && <Profiles />}
+        {view === 'training' && <TrainingView />}
         {view === 'diagnose' && <Diagnose />}
         {view === 'look' && <Look />}
         {view === 'learn' && <Learn />}

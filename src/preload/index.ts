@@ -26,6 +26,8 @@ const api: StudioApi = {
   copySelects: call('copySelects'),
   reveal: call('reveal'),
   learning: { get: call('learning:get'), save: call('learning:save') },
+  training: { get: call('training:get'), save: call('training:save') },
+  readRatings: call('readRatings'),
   spend: call('spend'),
   settings: { get: call('settings:get'), set: call('settings:set') },
   ai: { story: call('ai:story'), grade: call('ai:grade'), read: call('ai:read'), essence: call('ai:essence'), diagnose: call('ai:diagnose') }
