@@ -21,7 +21,13 @@ const models = {
     'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite',
   // Separates a person into hair, skin, clothes and background, for the photo diagnosis.
   'selfie_multiclass.tflite':
-    'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite'
+    'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite',
+  // Reads the body: where arms, hands, head and legs are, for gestures.
+  'pose_landmarker_lite.task':
+    'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task',
+  // Turns a small picture of a face into numbers, to tell the people of one shoot apart.
+  'image_embedder.tflite':
+    'https://storage.googleapis.com/mediapipe-models/image_embedder/mobilenet_v3_small/float32/latest/mobilenet_v3_small.tflite'
 }
 
 for (const [name, url] of Object.entries(models)) {

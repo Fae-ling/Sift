@@ -10,6 +10,8 @@ import { Import } from './views/Import'
 import { Learn } from './views/Learn'
 import { Look } from './views/Look'
 import { Profiles } from './views/Profiles'
+import { KnowledgeView } from './views/Knowledge'
+import { People } from './views/People'
 import { Projects } from './views/Projects'
 import { SettingsView } from './views/Settings'
 import { Story } from './views/Story'
@@ -18,6 +20,7 @@ import { TrainingView } from './views/Training'
 const STEPS: { view: View; label: string; icon: string; hint: string }[] = [
   { view: 'brief', label: 'Brief', icon: 'brief', hint: 'The style of the shoot and what it is for' },
   { view: 'import', label: 'Import', icon: 'import', hint: 'Read and analyse the shoot' },
+  { view: 'people', label: 'People', icon: 'people', hint: 'Who is in the shoot, and who matters most' },
   { view: 'cull', label: 'Cull', icon: 'cull', hint: 'Choose the keepers' },
   { view: 'story', label: 'Story', icon: 'story', hint: 'Sequence the picks' },
   { view: 'export', label: 'Hand off', icon: 'handoff', hint: 'Send ratings to Lightroom' }
@@ -26,7 +29,8 @@ const STEPS: { view: View; label: string; icon: string; hint: string }[] = [
 const LIBRARY: { view: View; label: string; icon: string; hint: string }[] = [
   { view: 'profiles', label: 'Shoot styles', icon: 'styles', hint: 'Your kinds of work, and what the cull looks for in each' },
   { view: 'emotions', label: 'Emotions', icon: 'emotions', hint: 'What the app reads on a face, and teaching it more' },
-  { view: 'training', label: 'Training', icon: 'training', hint: 'Teach the app with your own photographs' }
+  { view: 'training', label: 'Training', icon: 'training', hint: 'Teach the app with your own photographs' },
+  { view: 'knowledge', label: 'What it knows', icon: 'knowledge', hint: 'What the app has learned from your culls and from Claude, and how well it predicts you' }
 ]
 
 const TOOLS: { view: View; label: string; icon: string; hint: string }[] = [
@@ -46,16 +50,17 @@ function NavItem(props: { view?: View; label: string; icon: string; hint: string
 }
 
 export function App(): React.JSX.Element {
-  const { view, project, setView, closeProject, refreshProjects, loadSettings, loadLearned, loadLearning, loadTraining, loadEmotions, toast, emotions } = useStore()
+  const { view, project, setView, closeProject, refreshProjects, loadSettings, loadLearned, loadLearning, loadTraining, loadEmotions, loadKnowledge, toast, emotions } = useStore()
 
   useEffect(() => {
     void refreshProjects()
     void loadSettings()
     void loadLearned()
-    void loadLearning()
+    // What was learned from Claude and from past trade-offs is needed before the first scoring.
+    void loadKnowledge().then(loadLearning)
     void loadTraining()
     void loadEmotions()
-  }, [refreshProjects, loadSettings, loadLearned, loadLearning, loadTraining, loadEmotions])
+  }, [loadKnowledge, refreshProjects, loadSettings, loadLearned, loadLearning, loadTraining, loadEmotions])
 
   const shots = project?.shots ?? []
   const picks = shots.filter((s) => s.decision === 'pick').length
@@ -64,6 +69,7 @@ export function App(): React.JSX.Element {
   const done: Partial<Record<View, boolean>> = {
     brief: !!project && (project.styleIds.length > 0 || !!project.brief.intention),
     import: shots.length > 0 && shots.every((s) => s.analysis || s.error),
+    people: (project?.people ?? []).some((p) => p.key),
     cull: shots.length > 0 && undecided === 0,
     story: (project?.storyOrder.length ?? 0) > 0
   }
@@ -115,6 +121,8 @@ export function App(): React.JSX.Element {
         {view === 'profiles' && <Profiles />}
         {view === 'emotions' && <Emotions />}
         {view === 'training' && <TrainingView />}
+        {view === 'knowledge' && <KnowledgeView />}
+        {project && view === 'people' && <People />}
         {view === 'diagnose' && <Diagnose />}
         {view === 'look' && <Look />}
         {view === 'learn' && <Learn />}

@@ -1,4 +1,8 @@
-import type { Analysis, FaceInfo, Genre, MomentTag, NarrativeRead, Score, Shot, ShotType, StyleProfile, Suggestion, Warning } from '@shared/types'
+import type { Analysis, FaceInfo, Genre, MomentTag, NarrativeRead, Person, Score, Shot, ShotType, StyleProfile, Suggestion, Warning } from '@shared/types'
+import { assetsOf, describeFrame, flawsOf } from './describe'
+import { gestureCentroid, leadGesture, type GestureStore } from './gesture'
+import { assetLift, cleanTag, forgiveness, recogniseTags, sceneVector, tagDirections, type Concepts, type ProjectLedger } from './knowledge'
+import { keyPeopleIn } from './people'
 import { centroid, DEFAULT_EMOTION_VALUE, FAMILY_EMOTIONS, readEmotion, toCues, UNNAMED_EMOTION_VALUE, type EmotionRead, type EmotionStore } from './emotion'
 import { featuresOf, predict, reasonsFor, type Model } from './learner'
 import { styleBonus, type Feel } from './style'
@@ -150,6 +154,14 @@ export interface ScoreOptions {
   emotions?: { store: EmotionStore; weights: Record<string, number>; centroids?: number[][] }
   /** Chapters the style says must not be missed. */
   must?: Set<string>
+  /** The gesture machine. */
+  gestures?: { store: GestureStore; centroids?: number[][] }
+  /** What the app has learned to recognise as happening in a frame. */
+  concepts?: { store: Concepts; directions?: ReturnType<typeof tagDirections> }
+  /** The photographer's decisions so far, filed by mistake and asset. */
+  ledger?: ProjectLedger
+  /** The people of this shoot; the key ones count for more. */
+  people?: Person[]
   /** The model of the photographer's own taste, and how much say it has earned (0..0.8). */
   learned?: { model: Model; trust: number }
 }
@@ -194,6 +206,10 @@ export interface FrameContext {
   rare?: boolean
   /** The frame belongs to a chapter that must not be missed. */
   must?: boolean
+  /** The key people in the frame, and which face each is. */
+  keyPeople?: { name: string; face: number }[]
+  /** What is happening in the frame, as words. */
+  happens?: string[]
 }
 
 export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?: NarrativeRead, ctx: FrameContext = {}): Score {
@@ -207,6 +223,9 @@ export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?:
   const exposure = exposureScore(a, notes, warnings)
   const main = mainFaces(a.faces)
   const moment = readMoment(a.faces)
+  // A key person's face counts three times: their closed eyes matter more than a bystander's.
+  const keyFaces = new Set((ctx.keyPeople ?? []).map((k) => k.face))
+  const weightOf = (f: FaceInfo): number => f.w * f.h * (keyFaces.has(a.faces.indexOf(f)) ? 3 : 1)
 
   // Craft of the faces: open eyes and sharp eyes. Expression is not craft.
   let faces: number | null = null
@@ -216,7 +235,7 @@ export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?:
     let blinks = 0
     let softFaces = 0
     main.forEach((f, i) => {
-      const w = f.w * f.h
+      const w = weightOf(f)
       const emotion = reads[a.faces.indexOf(f)]
       const explained = (moment?.eyesExplained.has(i) ?? false) || (!!emotion?.name && EYES_CLOSE_IN.includes(emotion.name) && emotion.intensity > 0.3)
       const eyes = explained ? 1 : 1 - smooth(0.35, 0.7, f.blink)
@@ -325,7 +344,7 @@ export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?:
     for (const f of main) {
       const r = reads[a.faces.indexOf(f)]
       if (!r) continue
-      const w = f.w * f.h
+      const w = weightOf(f)
       weight += w
       if (r.name !== 'calm') total += w * r.intensity * emotionWeight(options.emotions.weights, options.genre, r.name)
     }
@@ -348,6 +367,18 @@ export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?:
       tags.push('rare')
       momentNotes.push(`Rare in this shoot: few frames show ${lead.name === 'unnamed' ? 'an expression like this' : lead.name}. Uncommon moments are the ones a set is remembered for.`)
     }
+  }
+  // Gesture: what the bodies are doing. It can carry a frame in which no face is visible.
+  const gesture = options.gestures ? leadGesture(a.bodies, options.gestures.store, options.gestures.centroids) : null
+  if (gesture) {
+    const worth = gesture.intensity * gesture.value
+    if (local !== null) local = Math.max(0, Math.min(100, local + 14 * worth))
+    else if (!read) local = 100 * clamp(0.42 + 0.45 * worth)
+    momentNotes.push(moment ? `Gesture: ${gesture.name}.` : `No face to read, but the body speaks: ${gesture.name}.`)
+  }
+  if (ctx.keyPeople?.length) {
+    if (local !== null) local = Math.min(100, local + 6)
+    momentNotes.push(`With ${[...new Set(ctx.keyPeople.map((k) => k.name))].join(' and ')}: ${ctx.keyPeople.length > 1 ? 'key people' : 'a key person'} of this shoot.`)
   }
   if (options.style) {
     const bonus = styleBonus(options.style, moment, a.shotType)
@@ -374,7 +405,20 @@ export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?:
     emotion: lead ?? undefined,
     faceEmotions: options.emotions ? reads.map((r) => (r ? (r.name === 'calm' ? null : (r.name ?? 'unnamed')) : null)) : undefined,
     emotionValue,
-    must: ctx.must || undefined
+    must: ctx.must || undefined,
+    gesture: gesture ? { name: gesture.name, intensity: gesture.intensity } : undefined,
+    keyPeople: ctx.keyPeople?.length ? [...new Set(ctx.keyPeople.map((k) => k.name))] : undefined,
+    happens: ctx.happens?.length ? ctx.happens : undefined,
+    happening: describeFrame(a, {
+      emotions: main.map((f) => {
+        const r = reads[a.faces.indexOf(f)]
+        return r && r.name !== 'calm' ? (r.name ?? 'unnamed') : null
+      }),
+      gesture: gesture?.name,
+      connection: moment?.connection ?? 0,
+      keyPeople: [...new Set((ctx.keyPeople ?? []).map((k) => k.name))],
+      happens: read?.tags?.length ? [] : (ctx.happens ?? [])
+    })
   }
 }
 
@@ -417,10 +461,18 @@ export function scoreAndSuggest(shots: Shot[], options: ScoreOptions): Shot[] {
     const name = leads.get(id)
     return !!name && analysed.length >= 40 && seen.get(name)! / analysed.length < 0.04
   }
+  if (options.gestures && !options.gestures.centroids) options = { ...options, gestures: { ...options.gestures, centroids: options.gestures.store.concepts.map(gestureCentroid) } }
+  const directions = options.concepts ? (options.concepts.directions ?? tagDirections(options.concepts.store)) : []
+  // What is happening: the photographer's own words first, then Claude's, then what the app recognises by itself.
+  const happensIn = (s: Shot): string[] => {
+    const said = [...new Set([...(s.tags ?? []), ...(s.read?.tags ?? [])].map(cleanTag).filter(Boolean))]
+    if (said.length || !options.concepts || !directions.length) return said
+    return recogniseTags(sceneVector(s.analysis!), options.concepts.store, directions)
+  }
   const mustChapter = (s: Shot): boolean => !!options.must?.has(s.chapter ?? s.read?.beat ?? '')
 
   const scores = new Map<string, Score>()
-  for (const s of analysed) scores.set(s.id, scoreShot(s.analysis!, refs.get(s.sceneId ?? 0)!, options, s.read, { rare: rare(s.id), must: mustChapter(s) }))
+  for (const s of analysed) scores.set(s.id, scoreShot(s.analysis!, refs.get(s.sceneId ?? 0)!, options, s.read, { rare: rare(s.id), must: mustChapter(s), keyPeople: keyPeopleIn(s, options.people), happens: happensIn(s) }))
 
   const stacks = new Map<number, Shot[]>()
   for (const s of analysed) stacks.set(s.stackId ?? 0, [...(stacks.get(s.stackId ?? 0) ?? []), s])
@@ -441,6 +493,42 @@ export function scoreAndSuggest(shots: Shot[], options: ScoreOptions): Shot[] {
           const balance = effectiveBalance(options)
           peak.overall = (1 - balance) * peak.craft + balance * peak.moment
         }
+      }
+    }
+    // Mistakes against assets: what is wrong with each frame, what it brings, and what
+    // the photographer's own culls say about that trade.
+    for (const s of stack) {
+      const score = scores.get(s.id)!
+      const flaws = (score.flaws = flawsOf(score, s.analysis!))
+      const assets = (score.assets = assetsOf(score, s, s.analysis!))
+      const ledger = options.ledger
+      if (!ledger) continue
+      const lifts = assets.flatMap((x) => {
+        const l = assetLift(ledger, x)
+        return l ? [{ asset: x, ...l }] : []
+      })
+      const up = lifts.filter((l) => l.lift > 0).sort((x, y) => y.lift - x.lift).slice(0, 2)
+      const down = lifts.filter((l) => l.lift < 0).sort((x, y) => x.lift - y.lift)[0]
+      const shift = Math.max(-10, Math.min(10, 40 * (up.reduce((n, l) => n + l.lift, 0) / Math.max(1, up.length)) + 40 * (down?.lift ?? 0)))
+      if (Math.abs(shift) >= 1) {
+        score.overall = Math.max(0, Math.min(100, score.overall + shift))
+        const lead = shift > 0 ? up[0] : down
+        if (lead) score.momentNotes.push(`${shift > 0 ? 'You keep' : 'You tend to pass over'} frames with ${lead.asset} ${shift > 0 ? 'more often than others' : ''} (kept ${Math.round(lead.k)} of ${Math.round(lead.n)}).`.replace('  ', ' '))
+      }
+      const f = forgiveness(ledger, flaws, assets)
+      if (!f) continue
+      const said = `${Math.round(f.k)} of ${Math.round(f.n)} frames with ${f.flaw}${f.asset ? ` that also had ${f.asset}` : ''}`
+      if (f.factor >= 0.6 && isFlawed(score) && !score.warnings.includes('misfire') && !score.warnings.includes('blurred')) {
+        score.tradeoff = `You have kept ${said}. Here the mistake is worth less to you than what the frame brings.`
+        score.overall = Math.min(100, score.overall + f.factor * 0.5 * Math.max(0, 75 - score.craft) * (1 - effectiveBalance(options)))
+        if (!score.gem) {
+          score.gem = true
+          score.momentNotes.unshift(score.tradeoff)
+        }
+      } else if (f.factor <= 0.3) {
+        score.tradeoff = `You have kept only ${said}. To you this mistake usually outweighs what a frame brings.`
+      } else {
+        score.tradeoff = `You have kept ${said}: a close call, yours to make.`
       }
     }
     // What the photographer's own past choices say about each frame of this moment.

@@ -1,3 +1,4 @@
+import { Happening } from '../components/Happening'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FaceInfo, Shot } from '@shared/types'
 import { previewUrl } from '../analysis/pipeline'
@@ -17,6 +18,8 @@ const MAIN_FILTERS: { id: Filter; label: string; hint: string }[] = [
 /** The filters for a particular check, kept in a menu. */
 const MORE_FILTERS: { id: Filter; label: string; hint: string }[] = [
   { id: 'gems', label: 'Hidden gems', hint: 'Flawed frames that may hold a moment' },
+  { id: 'key', label: 'Key people', hint: 'Frames with someone you marked as a key person' },
+  { id: 'relook', label: 'Another look', hint: 'What a re-estimate of this project turned up: moments you kept nothing from that the app would now put forward, and picks it would now question' },
   { id: 'must', label: 'Must-have chapters', hint: 'Frames from chapters your style says must not be missed' },
   { id: 'unkept', label: 'Second look', hint: 'The strongest frame of every moment you kept nothing from' },
   { id: 'rejects', label: 'Rejects', hint: 'Frames you rejected' },
@@ -26,7 +29,7 @@ const MORE_FILTERS: { id: Filter; label: string; hint: string }[] = [
 const time = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 export function Cull(): React.JSX.Element {
-  const { project, selectedId, select, filter, setFilter, decide, acceptSuggestions, setView, chapter, setChapter, setRating, undo, redo, tasteData, setSceneChapter, deep, cancelDeepRead } = useStore()
+  const { project, selectedId, select, filter, setFilter, decide, acceptSuggestions, setView, chapter, setChapter, setRating, undo, redo, tasteData, setSceneChapter, deep, cancelDeepRead, relook } = useStore()
   const [showTriage, setShowTriage] = useState(false)
   const [compare, setCompare] = useState(false)
   const [zoom, setZoom] = useState(false)
@@ -42,13 +45,13 @@ export function Cull(): React.JSX.Element {
     return ids
   }, [project?.id, shots, tasteData.blindBursts])
   const list = useMemo(() => {
-    const shown = new Set(visibleShots(shots, filter).map((s) => s.id))
+    const shown = new Set(visibleShots(shots, filter, relook).map((s) => s.id))
     // A hidden burst must not give its suggestion away through the filters:
     // Keepers shows all of its frames, and the flaw filters show none.
     if (filter === 'suggested' || filter === 'unkept') for (const id of hidden) shown.add(id)
     if (filter === 'gems' || filter === 'warnings') for (const id of hidden) shown.delete(id)
     return shots.filter((s) => shown.has(s.id) && (!chapter || (s.chapter ?? s.read?.beat) === chapter))
-  }, [shots, filter, chapter, hidden])
+  }, [shots, filter, chapter, hidden, relook])
   const current = list.find((s) => s.id === selectedId) ?? list[0]
   const stack = useMemo(() => (current ? shots.filter((s) => s.stackId === current.stackId) : []), [shots, current])
   // What to compare against: the suggested frame of this moment, or the runner-up if this is it.
@@ -354,7 +357,7 @@ const TAG_TEXT = { laugh: 'laughter', joy: 'joy', connection: 'connection', embr
 
 
 function Inspector({ shot, projectId, hide }: { shot: Shot; projectId: string; hide: boolean }): React.JSX.Element {
-  const { decide, setRating, taste } = useStore()
+  const { decide, setRating, taste, setFacePerson } = useStore()
   const score = shot.score
   const a = shot.analysis!
   const chapterName = shot.chapter ?? shot.read?.beat
@@ -426,10 +429,12 @@ function Inspector({ shot, projectId, hide }: { shot: Shot; projectId: string; h
         </section>
       )}
 
+      <Happening shot={shot} hide={hide} />
+
       {a.faces.length > 0 && (
         <section className="insp-section">
           <h3>Faces{!hide && score?.faceEmotions ? <span className="faint" style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}> · click an emotion to teach it</span> : ''}</h3>
-          <FaceCrops src={previewUrl(projectId, shot.id)} faces={a.faces} emotions={hide ? undefined : score?.faceEmotions} teachable />
+          <FaceCrops src={previewUrl(projectId, shot.id)} faces={a.faces} emotions={hide ? undefined : score?.faceEmotions} teachable who={shot.people} onWho={(i, id) => setFacePerson(shot.id, i, id)} />
         </section>
       )}
 
@@ -545,8 +550,9 @@ function CullSettings(): React.JSX.Element {
 }
 
 /** Enlarged crops of each face, so expression and focus can be judged without zooming. */
-function FaceCrops({ src, faces, emotions, teachable }: { src: string; faces: FaceInfo[]; emotions?: (string | null)[]; teachable?: boolean }): React.JSX.Element {
+function FaceCrops({ src, faces, emotions, teachable, who, onWho }: { src: string; faces: FaceInfo[]; emotions?: (string | null)[]; teachable?: boolean; who?: (string | null)[]; onWho?: (face: number, personId: string | 'new' | null) => void }): React.JSX.Element {
   const { teachEmotion, emotions: store } = useStore()
+  const people = useStore((x) => x.project?.people)
   const refs = useRef<(HTMLCanvasElement | null)[]>([])
   const [teaching, setTeaching] = useState<number | null>(null)
   const [name, setName] = useState('')
@@ -604,6 +610,17 @@ function FaceCrops({ src, faces, emotions, teachable }: { src: string; faces: Fa
                 )
               ) : (
                 <div>{f.blink > BLINK_LIMIT ? 'eyes closed' : f.smile > 0.5 ? 'smiling' : 'eyes open'}</div>
+              )}
+              {onWho && f.id && (
+                <select className="who" value={who?.[i] ?? ''} onChange={(e) => onWho(i, (e.target.value || null) as string | 'new' | null)} aria-label="Who is this" title="Who this is. Correcting it teaches the app to tell this person apart.">
+                  <option value="">someone</option>
+                  {(people ?? []).map((p, k) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name || `person ${k + 1}`}
+                    </option>
+                  ))}
+                  <option value="new">a new person</option>
+                </select>
               )}
             </div>
           )

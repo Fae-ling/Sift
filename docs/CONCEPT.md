@@ -31,13 +31,17 @@ document wins.
 
 ## The machine inside
 
-Four parts learn, and each feeds the others.
+Eight parts learn, and each feeds the others.
 
 | Part | What it knows | How it learns | Who teaches it |
 | --- | --- | --- | --- |
 | **Emotion machine** (`analysis/emotion.ts`) | Named emotions as regions in the space of 51 facial-expression measurements. Starts with 14 described by the Facial Action Coding System; grows without limit. | From examples: each one moves an emotion toward what it actually looks like. Strong expressions it cannot name are gathered into *pointers* until someone names them. | The photographer (click a face, name it); Claude (names faces when asked, and during a read of the shoot) |
 | **Shoot styles** (`analysis/style.ts`) | For each kind of work: chapters and which must not be missed, how much each emotion is valued, what to look for, what to forgive, the balance of craft against moment. | Emotion weights shift with what the photographer keeps in that style; a measured profile is built from galleries and picks; the whole style can be redeveloped from evidence. | The photographer (edits anything); Claude (develops a style from a sentence, refines it from the photographer's culling) |
 | **Taste model** (`analysis/learner.ts`) | Which measurable qualities of a frame this photographer keeps. | Trained on every decision; checked on bursts it never saw; only influences suggestions once it beats the built-in rules. | The photographer's decisions, including past shoots culled elsewhere |
+| **Gesture machine** (`analysis/gesture.ts`) | Named gestures as regions in the space of 16 body measurements (arms up, hand to face, leaning, close to someone...). Starts with 15; grows without limit. | From examples, as the emotion machine does. | The photographer (correct or name a gesture under a frame); Claude (names the gesture that carries a frame during a read) |
+| **People** (`analysis/people.ts`) | Who is who within one shoot, and which of them are key. Faces are told apart, never identified. | Each correction ("this is her too", "these two are the same") adds a known face to that person. | The photographer |
+| **What is happening** (`analysis/knowledge.ts`) | Words for what goes on in a frame ("first dance", "toast", "sword clash"), each tied to the measurements of the frames it was said of. | Every description Claude gives is stored with the frame's measurements. A word with enough examples is recognised by the app itself. A description counts fully once the photographer's decision agreed with Claude's judgement of that frame, less when it went against it. | Claude's reads; the photographer's own words |
+| **Mistakes against assets** (`analysis/knowledge.ts`) | Which mistakes this photographer forgives for which assets ("closed eyes are kept when there is laughter"), and which assets they value at all. | Every decided frame is filed by what was wrong with it, what it brought, and whether it was kept. | The photographer's decisions |
 | **Norms** (`analysis/training.ts`) | What this photographer's finished work looks like, so composition and skin are judged against their own standard. | From folders of finished photographs, and from agreeing or disagreeing with findings. | The photographer |
 
 **How they connect.** A face is read by the emotion machine. The active style says
@@ -48,6 +52,29 @@ three: the taste model retrains, the style's emotion weights shift, and if they
 named a face, the emotion machine has a new example. When Claude reads a shoot, the
 emotions it names on single faces become examples too, so paid reads make the free
 local reading better.
+
+**A frame is read, not only measured.** For every frame the app writes a sentence
+(who is in it, how close, what faces and bodies are doing, how it is framed and
+lit) and two lists: what the frame *brings* and what is *against it*. The goal of
+the learning is stated in those terms: to find out which mistakes are worth less
+to this photographer than the assets a frame brought when they chose it. A
+mistake that the record shows is forgiven (in general, or when a particular asset
+is present) stops being a reason to reject; the frame is put in front of the
+photographer with the evidence ("you have kept 9 of 10 frames with closed eyes
+that also had laughter").
+
+**Claude remembers through the app.** Claude itself keeps nothing between calls.
+The app does: before every assessment it tells Claude what this photographer's
+decisions have shown, where they went against Claude's earlier judgement (with
+Claude's own description of those frames), what has been kept and rejected in
+this shoot so far, and who the key people are. So Claude judges for this
+photographer, and its reads improve as the record grows.
+
+**The app checks itself on old work.** A culled project can be re-estimated:
+scored again with everything known today except what was learned from that
+project, and compared with the decisions made in it. The share of calls it gets
+right is kept per project over time, and the pass turns up frames worth another
+look.
 
 ## Styles are open-ended
 

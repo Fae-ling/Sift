@@ -62,7 +62,10 @@ export const FEATURES: Feature[] = [
   { key: 'intensity', more: 'strong expressions', less: 'quiet faces' },
   { key: 'rare', more: 'emotions that are rare in the shoot', less: 'you pass over rare emotions' },
   { key: 'separation', more: 'subjects that stand clear of the background', less: 'you do not mind a subject merging with the background' },
-  { key: 'holdsEye', more: 'frames where the subject holds the eye', less: 'frames where the eye wanders' }
+  { key: 'holdsEye', more: 'frames where the subject holds the eye', less: 'frames where the eye wanders' },
+  { key: 'keyPerson', more: 'frames with a key person', less: 'frames without the key people' },
+  { key: 'gesture', more: 'a telling gesture', less: 'bodies at rest' },
+  { key: 'happening', more: 'frames where something recognisable is happening', less: 'frames where nothing in particular happens' }
 ]
 
 const index = Object.fromEntries(FEATURES.map((f, i) => [f.key, i])) as Record<string, number>
@@ -111,6 +114,9 @@ export function featuresOf(shot: Shot, stack: Shot[]): number[] {
   // Unknown composition is neutral, not bad.
   set('separation', a.diag?.merged !== undefined ? 1 - a.diag.merged : 0.7)
   set('holdsEye', a.diag?.attention ?? 0.5)
+  set('keyPerson', score.keyPeople?.length ? 1 : 0)
+  set('gesture', score.gesture?.intensity ?? 0)
+  set('happening', score.happens?.length ? 1 : 0)
   return x
 }
 
@@ -187,7 +193,7 @@ export interface Model {
 const sigmoid = (z: number): number => 1 / (1 + Math.exp(-z))
 const dot = (w: number[], x: number[]): number => {
   let s = 0
-  for (let i = 0; i < w.length; i++) s += w[i] * x[i]
+  for (let i = 0; i < w.length; i++) s += w[i] * (x[i] ?? 0)
   return s
 }
 

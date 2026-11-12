@@ -1,5 +1,6 @@
 import type { Analysis, Shot } from '@shared/types'
 import { colorStats } from './color'
+import { analyseBodies, identify } from './body'
 import { analyseFaces } from './faces'
 import { ANALYSIS_EDGE, dHash, loadOriented, PREVIEW_EDGE, resized, rgba, subjectSharpness, THUMB_EDGE, toGray, toJpeg } from './image'
 import { classifyShot } from './scoring'
@@ -49,8 +50,11 @@ export async function ingestShot(projectId: string, shot: Shot, options: IngestO
     hash: dHash(preview),
     color: colorStats(rgba(thumb)),
     faces,
-    shotType: classifyShot(faces)
+    shotType: classifyShot(faces),
+    bodies: await analyseBodies(preview)
   }
+  // Telling people apart costs a model run per face, so the fast import leaves it out.
+  if (!options.fast) await identify(preview, previewPixels, faces)
   const unnamed = options.wantFace
     ? faces.filter((f) => f.shapes && f.h >= 0.05 && options.wantFace!(f.shapes)).slice(0, 3).map((f) => ({ shapes: f.shapes!, thumb: faceThumb(preview, f) }))
     : []

@@ -4,6 +4,8 @@ import {
   IMAGE_EXTENSIONS,
   styleCacheId,
   type Analysis,
+  type Estimate,
+  type Person,
   type Learned,
   type Style,
   type Decision,
@@ -27,9 +29,16 @@ import { addSamples, addToHouseLook, emptyTraining, limitsFrom, TRAINING_VERSION
 import { emptyEmotions, EMOTION_VERSION, dismissPointer, forgetEmotion, namePointer, notice, readEmotion, teach as teachFace, toCues, centroid, type EmotionStore } from './analysis/emotion'
 import { buildProfile, emotionLifts, emotionWeights, feelOf, mergeLifts, mergeProfiles, newStyle, profileFacts, STARTER_STYLES, styleNotes, upgradeStyle } from './analysis/style'
 import type { StyleProfile } from '@shared/types'
+import { emptyGestures, forgetGesture, GESTURE_VERSION, gestureCentroid, readGesture, teachGesture, type GestureStore } from './analysis/gesture'
+import { absorb, addNote, briefing, cleanTag, emptyKnowledge, KNOWLEDGE_VERSION, learnTags, mergedLedger, READ_WEIGHT, sceneVector, tagDirections, vocabulary, type Knowledge, type Note, type ProjectLedger } from './analysis/knowledge'
+import { appearances, assignPeople, mergePeople, namesIn } from './analysis/people'
+import { estimateOf, relookOf, type Relook } from './analysis/estimate'
+import { faceThumb } from './analysis/pipeline'
+import { FEATURES, tendencies } from './analysis/learner'
 
-export type View = 'projects' | 'profiles' | 'emotions' | 'training' | 'look' | 'diagnose' | 'brief' | 'import' | 'cull' | 'story' | 'export' | 'learn' | 'settings'
-export type Filter = 'all' | 'suggested' | 'undecided' | 'picks' | 'rejects' | 'warnings' | 'gems' | 'unkept' | 'must'
+type ViewBase = 'projects' | 'profiles' | 'emotions' | 'training' | 'look' | 'diagnose' | 'brief' | 'import' | 'cull' | 'story' | 'export' | 'learn' | 'settings'
+export type View = ViewBase | 'people' | 'knowledge'
+export type Filter = 'all' | 'suggested' | 'undecided' | 'picks' | 'rejects' | 'warnings' | 'gems' | 'unkept' | 'must' | 'relook' | 'key'
 
 interface IngestState {
   running: boolean
@@ -146,6 +155,32 @@ interface State {
   cancelDeepRead(): void
   deep: { running: boolean; done: number; total: number }
   setFastImport(on: boolean): void
+  /** What the app knows about gestures. */
+  gestures: GestureStore
+  /** What it has learned from Claude's descriptions, from mistakes weighed against assets, and its record with Claude. */
+  knowledge: Knowledge
+  loadKnowledge(): Promise<void>
+  /** Teaches that a body (its stored measurements) shows a named gesture. */
+  teachGestureNamed(name: string, g: number[], source?: 'you' | 'claude'): void
+  forgetGestureNamed(name: string): void
+  /** Says, in the photographer's own words, what is happening in a frame. */
+  setTags(shotId: string, tags: string[]): void
+  forgetTag(name: string): void
+  /** Keeps a piece of Claude's advice for later assessments. */
+  remember(note: Omit<Note, 'at'>): void
+  /** Tells the people of the open shoot apart (again). */
+  findPeople(): Promise<void>
+  editPerson(id: string, patch: Partial<Pick<Person, 'name' | 'key'>>): void
+  mergePerson(fromId: string, intoId: string): void
+  /** Says who a face is: an existing person, 'new' for someone not listed yet, or null for nobody in particular. */
+  setFacePerson(shotId: string, face: number, personId: string | 'new' | null): void
+  /** Frames a re-estimate of the open project turned up. */
+  relook: Relook | null
+  /** Scores the open project again with what the app knows today, minus what it learned here. */
+  reestimate(): Estimate | null
+  /** Does the same for every project, and rebuilds everything learned from their decisions. */
+  reestimateAll(): Promise<void>
+  estimating: { running: boolean; done: number; total: number }
   loadTraining(): Promise<void>
   /** Learns the photographer's own norms from a folder of finished photographs. */
   trainFinished(folder: string): Promise<void>
@@ -198,18 +233,106 @@ function scheduleSave(project: Project): void {
 /** At most this many frames of a gallery are kept as samples and shown to Claude for the essence. */
 const MAX_SAMPLES = 36
 
+/** Leaves out what was learned from one project, to ask what the app would say without it. */
+interface Without {
+  projectId: string
+  taste: Taste | null
+}
+
 /** Everything the scoring needs to know about a project, including its culling profile. */
-function scoring(p: Pick<Project, 'genre' | 'balance' | 'styleIds' | 'storyPlan'>, learned: Learned): ScoreOptions {
+function scoring(p: Pick<Project, 'genre' | 'balance' | 'styleIds' | 'storyPlan' | 'people'>, learned: Learned, without?: Without): ScoreOptions {
   const active = learned.styles.filter((s) => p.styleIds.includes(s.id))
+  const taste = without ? without.taste : currentTaste
   return {
+    gestures: { store: currentGestures, centroids: gestureCentroids() },
+    concepts: { store: currentKnowledge.concepts, directions: directionsNow() },
+    ledger: ledgerFor(p.styleIds[0] ?? '', without?.projectId),
+    people: p.people,
     emotions: { store: currentEmotions, weights: emotionWeights(active[0]) },
     must: new Set(p.storyPlan.filter((c) => c.must).map((c) => c.name)),
     genre: p.genre,
     balance: p.balance,
     style: mergeProfiles(active.flatMap((s) => (s.profile ? [s.profile] : []))),
     feel: active.length ? feelOf(active.flatMap((s) => s.tags)) : undefined,
-    learned: currentTaste ? { model: currentTaste.model, trust: currentTaste.trust } : undefined
+    learned: taste ? { model: taste.model, trust: taste.trust } : undefined
   }
+}
+
+/** The gesture machine and the knowledge in use. Kept beside the store so the scoring helper can reach them. */
+let currentGestures: GestureStore = emptyGestures()
+let currentKnowledge: Knowledge = emptyKnowledge()
+let gestureCache: { store: GestureStore; list: number[][] } | null = null
+function gestureCentroids(): number[][] {
+  if (gestureCache?.store !== currentGestures) gestureCache = { store: currentGestures, list: currentGestures.concepts.map(gestureCentroid) }
+  return gestureCache.list
+}
+let directionCache: { of: Knowledge['concepts']; list: ReturnType<typeof tagDirections> } | null = null
+function directionsNow(): ReturnType<typeof tagDirections> {
+  if (directionCache?.of !== currentKnowledge.concepts) directionCache = { of: currentKnowledge.concepts, list: tagDirections(currentKnowledge.concepts) }
+  return directionCache.list
+}
+let ledgerCache: { of: Knowledge['ledger']; key: string; merged: ProjectLedger } | null = null
+function ledgerFor(style: string, except?: string): ProjectLedger {
+  const key = `${style}|${except ?? ''}`
+  if (ledgerCache?.of !== currentKnowledge.ledger || ledgerCache.key !== key) ledgerCache = { of: currentKnowledge.ledger, key, merged: mergedLedger(currentKnowledge.ledger, style, except) }
+  return ledgerCache.merged
+}
+
+function setKnowledge(set: (p: Partial<State>) => void, knowledge: Knowledge, save = true): void {
+  currentKnowledge = knowledge
+  set({ knowledge })
+  if (save) void window.studio.data.save('knowledge', knowledge)
+}
+
+function setGestures(set: (p: Partial<State>) => void, store: GestureStore, save = true): void {
+  currentGestures = store
+  set({ gestures: store })
+  if (save) void window.studio.data.save('gestures', store)
+}
+
+/** What Claude is told about this photographer before an assessment. Empty when nothing has been learned yet. */
+export function claudeContext(): string {
+  const { project, taste } = useStore.getState()
+  return briefing({
+    knowledge: currentKnowledge,
+    style: project?.styleIds[0] ?? '',
+    tendencies: taste && taste.trust > 0 ? tendencies(taste.model, 6) : [],
+    shots: project?.shots ?? [],
+    people: project?.people
+  })
+}
+
+/** What the app would suggest for a project today, had it never learned from that project's own decisions. */
+function freshLook(project: Project, get: () => State): Shot[] {
+  const learned = get().learned
+  const styleId = project.styleIds[0]
+  const lifts = Object.entries(learned.lifts?.[styleId] ?? {}).filter(([id]) => id !== project.id)
+  const merged = lifts.reduce((acc, [, l]) => mergeLifts(acc, l), {} as Record<string, { w: number; n: number }>)
+  const styles = learned.styles.map((x) => (x.id === styleId ? { ...x, emotionLift: merged } : x))
+  const projects = { ...get().tasteData.projects }
+  delete projects[project.id]
+  const has = Object.values(projects).some((p) => p.examples.length)
+  const taste = has ? learnTaste({ ...get().tasteData, projects }, project.genre) : null
+  return scoreAndSuggest(project.shots, scoring(project, { ...learned, styles }, { projectId: project.id, taste }))
+}
+
+/** Gives every listed person a small picture, taken from the frame where their face is largest. */
+async function picturePeople(get: () => State): Promise<void> {
+  const project = get().project
+  if (!project?.people?.some((p) => !p.thumb)) return
+  const seen = appearances(project.shots)
+  const thumbs = new Map<string, string>()
+  for (const p of project.people) {
+    const best = seen.get(p.id)?.largest
+    if (p.thumb || !best) continue
+    try {
+      const bitmap = await createImageBitmap(await (await fetch(previewUrl(project.id, best.shot.id))).blob())
+      thumbs.set(p.id, faceThumb(bitmap as unknown as HTMLCanvasElement, best.shot.analysis!.faces[best.face]))
+    } catch {
+      // A person without a picture is still a person.
+    }
+  }
+  if (thumbs.size && get().project?.id === project.id) get().update((p) => ({ ...p, people: p.people?.map((x) => (thumbs.has(x.id) ? { ...x, thumb: thumbs.get(x.id) } : x)) }))
 }
 
 /** The emotion machine in use. Kept beside the store so the scoring helper can reach it. */
@@ -377,6 +500,10 @@ export const useStore = create<State>((set, get) => ({
   taste: null,
   emotions: emptyEmotions(),
   deep: { running: false, done: 0, total: 0 },
+  gestures: emptyGestures(),
+  knowledge: emptyKnowledge(),
+  relook: null,
+  estimating: { running: false, done: 0, total: 0 },
   training: emptyTraining(),
   teaching: { running: false, done: 0, total: 0, label: '' },
   chapter: null,
@@ -432,7 +559,7 @@ export const useStore = create<State>((set, get) => ({
     if (loaded.balance === undefined) project.shots = scoreAndSuggest(project.shots, scoring(project, get().learned))
     const has = project.shots.length > 0
     // Open on the frames the cull would keep; everything else is one click away.
-    set({ project, view: has ? 'cull' : 'brief', selectedId: null, filter: has ? 'suggested' : 'all', chapter: null, undoStack: [], redoStack: [] })
+    set({ project, view: has ? 'cull' : 'brief', selectedId: null, filter: has ? 'suggested' : 'all', chapter: null, undoStack: [], redoStack: [], relook: null })
     // Score the project with the taste model as it stands, tuned to this kind of shoot.
     get().relearn()
   },
@@ -601,7 +728,8 @@ export const useStore = create<State>((set, get) => ({
       get().regroup()
       set((s) => ({ ingest: { ...s.ingest, running: false }, selectedId: s.selectedId ?? s.project?.shots[0]?.id ?? null }))
       void window.studio.data.save('emotions', get().emotions)
-      // With everything measured, look more closely at the frames most likely to be kept.
+      // With everything measured, tell the people apart and look more closely at the frames most likely to be kept.
+      await get().findPeople()
       void get().deepRead()
     }
   },
@@ -747,7 +875,13 @@ export const useStore = create<State>((set, get) => ({
           beats: project.storyPlan,
           styleNotes: styleNotes(activeStyles(project, get().learned)),
           emotions: get().emotions.concepts.map((c) => c.name),
+          gestures: get().gestures.concepts.map((c) => c.name),
+          happenings: vocabulary(get().knowledge.concepts).slice(0, 60).map((t) => t.name),
+          // Everything learned so far, and what has been chosen in this shoot up to this moment.
+          context: claudeContext(),
           frames: chunk.map((s) => ({
+            people: namesIn(s, project.people).join(', ') || undefined,
+            decided: s.decision === 'pick' ? 'kept' : s.decision === 'reject' ? 'rejected' : undefined,
             shotId: s.id,
             scene: s.sceneId ?? 0,
             time: clock(s.time),
@@ -765,6 +899,20 @@ export const useStore = create<State>((set, get) => ({
           if (readEmotion(toCues(face.shapes!), store).intensity >= 0.25) store = teachFace(store, named, toCues(face.shapes!), 'claude')
         }
         if (store !== get().emotions) setEmotions(set, store)
+        // What Claude said is happening is stored with the frame's measurements, so the app learns to see it
+        // by itself; the gesture it named teaches the gesture machine when one body carries the frame.
+        let knowledge = get().knowledge
+        let gestures = get().gestures
+        for (const shot of chunk) {
+          const read = result.reads[shot.id]
+          if (!read) continue
+          if (read.tags?.length) knowledge = { ...knowledge, concepts: learnTags(knowledge.concepts, `${project.id}:${shot.id}`, sceneVector(shot.analysis!), read.tags, 'claude', READ_WEIGHT.open) }
+          const named = read.gesture ? cleanTag(read.gesture) : ''
+          const moving = (shot.analysis!.bodies ?? []).filter((b) => readGesture(b.g, gestures).intensity >= 0.3)
+          if (named && !['none', 'no gesture', 'still'].includes(named) && moving.length === 1) gestures = teachGesture(gestures, named, moving[0].g, 'claude')
+        }
+        if (knowledge !== get().knowledge) setKnowledge(set, knowledge)
+        if (gestures !== get().gestures) setGestures(set, gestures)
         // Each chunk is saved as it arrives, so a pause or an error keeps what was paid for.
         get().update((p) => {
           const shots = p.shots.map((s) => (result.reads[s.id] ? { ...s, read: result.reads[s.id] } : s))
@@ -786,7 +934,10 @@ export const useStore = create<State>((set, get) => ({
   loadLearning: async () => {
     const stored = (await window.studio.learning.get()) as LearningData | null
     // Examples measured by an older version of the app no longer line up with the model.
-    set({ tasteData: stored && stored.version === FEATURE_VERSION ? stored : emptyLearning() })
+    const data = stored && stored.version === FEATURE_VERSION ? stored : emptyLearning()
+    // Examples stored before a measurement was added lack it; it counts as zero for them.
+    for (const p of Object.values(data.projects)) for (const e of p.examples) while (e.x.length < FEATURES.length) e.x.push(0)
+    set({ tasteData: data })
     get().relearn()
   },
 
@@ -813,6 +964,8 @@ export const useStore = create<State>((set, get) => ({
       set({ learned: updated })
       void window.studio.learned.save(updated)
     }
+    // The same decisions, filed as mistakes against assets, and held against what Claude said of each frame.
+    if (project) setKnowledge(set, absorb(get().knowledge, project.id, project.shots, project.styleIds[0] ?? ''))
     const total = Object.values(learning.projects).reduce((n, p) => n + p.examples.length, 0)
     const taste = total ? learnTaste(learning, project?.genre ?? 'other') : null
     currentTaste = taste
@@ -991,13 +1144,166 @@ export const useStore = create<State>((set, get) => ({
 
   setFastImport: (on) => get().update((p) => ({ ...p, fastImport: on })),
 
+  loadKnowledge: async () => {
+    const [k, g] = await Promise.all([window.studio.data.get('knowledge'), window.studio.data.get('gestures')])
+    const knowledge = k as Knowledge | null
+    const gestures = g as GestureStore | null
+    setKnowledge(set, knowledge && knowledge.version === KNOWLEDGE_VERSION ? { ...emptyKnowledge(), ...knowledge } : emptyKnowledge(), false)
+    setGestures(set, gestures && gestures.version === GESTURE_VERSION ? gestures : emptyGestures(), false)
+  },
+
+  teachGestureNamed: (name, g, source = 'you') => {
+    setGestures(set, teachGesture(get().gestures, name, g, source))
+    rescore(get)
+  },
+
+  forgetGestureNamed: (name) => {
+    setGestures(set, forgetGesture(get().gestures, name))
+    rescore(get)
+  },
+
+  setTags: (shotId, tags) => {
+    const project = get().project
+    const shot = project?.shots.find((x) => x.id === shotId)
+    if (!project || !shot?.analysis) return
+    const clean = [...new Set(tags.map(cleanTag).filter(Boolean))]
+    const k = get().knowledge
+    setKnowledge(set, { ...k, concepts: learnTags(k.concepts, `${project.id}:${shotId}`, sceneVector(shot.analysis), clean, 'you', 1) })
+    get().update((p) => ({ ...p, shots: scoreAndSuggest(p.shots.map((x) => (x.id === shotId ? { ...x, tags: clean.length ? clean : undefined } : x)), scoring(p, get().learned)) }))
+  },
+
+  forgetTag: (name) => {
+    const k = get().knowledge
+    setKnowledge(set, { ...k, concepts: { ...k.concepts, tags: k.concepts.tags.filter((t) => t.name !== name) } })
+    rescore(get)
+  },
+
+  remember: (note) => setKnowledge(set, addNote(get().knowledge, { ...note, at: Date.now() })),
+
+  findPeople: async () => {
+    const project = get().project
+    if (!project) return
+    get().update((p) => {
+      // People nobody named are gathered afresh; named and key people keep what is known of them.
+      const found = assignPeople(p.shots, (p.people ?? []).filter((x) => x.name || x.key))
+      return { ...p, people: found.people, shots: scoreAndSuggest(found.shots, scoring({ ...p, people: found.people }, get().learned)) }
+    })
+    await picturePeople(get)
+  },
+
+  editPerson: (id, patch) => {
+    const project = get().project
+    if (!project?.people) return
+    const name = patch.name?.trim()
+    // Giving someone the name of a person already listed says they are the same person.
+    const twin = name ? project.people.find((x) => x.id !== id && x.name.toLowerCase() === name.toLowerCase()) : undefined
+    if (twin) return get().mergePerson(id, twin.id)
+    get().update((p) => {
+      const people = p.people!.map((x) => (x.id === id ? { ...x, ...patch, name: name ?? x.name } : x))
+      return { ...p, people, shots: scoreAndSuggest(p.shots, scoring({ ...p, people }, get().learned)) }
+    })
+  },
+
+  mergePerson: (fromId, intoId) =>
+    get().update((p) => {
+      const merged = mergePeople(p.shots, p.people ?? [], fromId, intoId)
+      // With more faces known of the person, look again for others that are theirs.
+      const found = assignPeople(merged.shots, merged.people.filter((x) => x.name || x.key || x.id === intoId))
+      return { ...p, people: found.people, shots: scoreAndSuggest(found.shots, scoring({ ...p, people: found.people }, get().learned)) }
+    }),
+
+  setFacePerson: (shotId, face, personId) =>
+    get().update((p) => {
+      const shot = p.shots.find((x) => x.id === shotId)
+      const f = shot?.analysis?.faces[face]
+      if (!shot || !f) return p
+      let people = p.people ?? []
+      let id: string | null = personId
+      if (personId === 'new') {
+        id = `p${Date.now().toString(36)}`
+        people = [...people, { id, name: '', key: false, faces: f.id ? [f.id] : [], wear: f.id ? [f.wear ?? []] : [] }]
+      } else if (personId && f.id) {
+        // The corrected face becomes one of the faces known to be theirs.
+        people = people.map((x) => (x.id === personId ? { ...x, faces: [...x.faces, f.id!].slice(-20), wear: [...x.wear, f.wear ?? []].slice(-20) } : x))
+      }
+      const who = shot.analysis!.faces.map((_, i) => (i === face ? id : (shot.people?.[i] ?? null)))
+      const shots = p.shots.map((x) => (x.id === shotId ? { ...x, people: who, peopleSet: [...new Set([...(x.peopleSet ?? []), face])] } : x))
+      const found = assignPeople(shots, people.filter((x) => x.name || x.key || x.id === id))
+      return { ...p, people: found.people, shots: scoreAndSuggest(found.shots, scoring({ ...p, people: found.people }, get().learned)) }
+    }),
+
+  reestimate: () => {
+    const project = get().project
+    if (!project || !project.shots.some((x) => x.decision !== null)) return null
+    // Learn from this project as it stands first, so that "today" really is today.
+    get().relearn()
+    const now = get().project!
+    const fresh = freshLook(now, get)
+    const estimate = estimateOf(now.shots, fresh)
+    set({ relook: relookOf(fresh) })
+    get().update((p) => ({ ...p, estimates: [...(p.estimates ?? []), estimate].slice(-30) }))
+    return estimate
+  },
+
+  reestimateAll: async () => {
+    if (get().estimating.running || get().project) return
+    const list = await window.studio.projects.list()
+    set({ estimating: { running: true, done: 0, total: list.length * 2 } })
+    try {
+      // First pass: everything every project's decisions can teach, measured as the app measures today.
+      let learning = { ...get().tasteData, projects: {} as LearningData['projects'] }
+      let knowledge = get().knowledge
+      let learned = get().learned
+      for (const [i, summary] of list.entries()) {
+        const p = await window.studio.projects.load(summary.id)
+        const scored = scoreAndSuggest(p.shots, scoring(p, learned))
+        const examples = examplesOf(scored)
+        if (examples.length) learning.projects[p.id] = { genre: p.genre, updatedAt: p.updatedAt, examples }
+        knowledge = absorb(knowledge, p.id, scored, p.styleIds?.[0] ?? '')
+        setKnowledge(set, knowledge, false)
+        const styleId = p.styleIds?.[0]
+        if (styleId) {
+          const lifts = { ...(learned.lifts ?? {}), [styleId]: { ...(learned.lifts?.[styleId] ?? {}), [p.id]: emotionLifts(scored) } }
+          const merged = Object.values(lifts[styleId]).reduce((acc, l) => mergeLifts(acc, l), {} as Record<string, { w: number; n: number }>)
+          learned = { ...learned, lifts, styles: learned.styles.map((x) => (x.id === styleId ? { ...x, emotionLift: merged } : x)) }
+        }
+        set({ estimating: { running: true, done: i + 1, total: list.length * 2 } })
+      }
+      learning = trimmed(learning)
+      set({ tasteData: learning, learned })
+      void window.studio.learning.save(learning)
+      void window.studio.learned.save(learned)
+      void window.studio.data.save('knowledge', knowledge)
+      const total = Object.values(learning.projects).reduce((n, p) => n + p.examples.length, 0)
+      currentTaste = total ? learnTaste(learning, 'other') : null
+      set({ taste: currentTaste })
+      // Second pass: how well today's app, without each project's own lessons, predicts that project.
+      for (const [i, summary] of list.entries()) {
+        const p = await window.studio.projects.load(summary.id)
+        if (p.shots.some((x) => x.decision !== null && x.decidedBy !== 'accepted')) {
+          const estimate = estimateOf(p.shots, freshLook({ ...p, styleIds: p.styleIds ?? [] }, get))
+          if (estimate.moments) await window.studio.projects.save({ ...p, estimates: [...(p.estimates ?? []), estimate].slice(-30) }, false)
+        }
+        set({ estimating: { running: true, done: list.length + i + 1, total: list.length * 2 } })
+      }
+    } finally {
+      set((x) => ({ estimating: { ...x.estimating, running: false } }))
+    }
+  },
+
   loadSettings: async () => set({ settings: await window.studio.settings.get() }),
   saveSettings: async (patch) => set({ settings: await window.studio.settings.set(patch) })
 }))
 
 /** Shots after the current filter, in capture order. */
-export function visibleShots(shots: Shot[], filter: Filter): Shot[] {
+export function visibleShots(shots: Shot[], filter: Filter, relook?: Relook | null): Shot[] {
   switch (filter) {
+    case 'relook': {
+      const ids = new Set([...(relook?.missed ?? []), ...(relook?.doubted ?? [])])
+      return shots.filter((s) => ids.has(s.id))
+    }
+    case 'key':
+      return shots.filter((s) => s.score?.keyPeople?.length)
     case 'suggested':
       return shots.filter((s) => s.suggestion === 'pick' || s.decision === 'pick')
     case 'undecided':

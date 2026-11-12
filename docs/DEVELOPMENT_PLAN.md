@@ -113,6 +113,14 @@ Ordered by value to a wedding and portrait photographer.
 
 ### 3.1 Key people
 
+*Status: built, with a general-purpose model.* People are told apart with a small
+general image model on a tight face crop plus hair and clothes colour
+(`body.ts`, `people.ts`), because no face-specific model could be downloaded in
+the build environment. It separates clearly different people and holds across
+similar light; it will split one person across very different light or angle
+more often than a face-specific model would. The steps below remain the way to
+make it more exact: only `identify` in `body.ts` changes, the rest is in place.
+
 *Why:* a wedding gallery must contain the important people looking like themselves.
 Today the app knows there are faces, not whose.
 

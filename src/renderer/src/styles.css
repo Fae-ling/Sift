@@ -323,3 +323,25 @@ details.insp-section[open] > summary { margin-bottom: var(--s2); }
 /* Training */
 .your-eye { background: var(--panel-2); border-radius: var(--r); padding: var(--s3) var(--s4); margin: var(--s3) 0; }
 .your-eye h3 { margin-top: 0; }
+
+/* --- what is happening, assets against mistakes, people, knowledge --- */
+.ledger { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); margin-top: var(--s3); }
+.ledger h4 { font-size: 11px; font-weight: 600; color: var(--muted); margin: 0 0 4px; }
+.ledger ul { list-style: none; margin: 0; padding: 0; font-size: 12px; line-height: 1.5; }
+.ledger li::before { content: '+ '; color: var(--pick); font-weight: 700; }
+.ledger ul.against li::before { content: '− '; color: var(--reject); }
+.tradeoff { margin: var(--s2) 0 0; padding-top: var(--s2); border-top: 1px solid var(--line); color: var(--text); }
+.closeup select.who { width: 84px; margin-top: 3px; font-size: 10px; padding: 1px 2px; height: auto; }
+.card-group { margin-bottom: var(--s5); padding-bottom: var(--s4); border-bottom: 1px solid var(--line); }
+.card-group:last-child { border-bottom: 0; }
+.card-group h3 { margin-top: var(--s3); }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s5); }
+@media (max-width: 1100px) { .two-col { grid-template-columns: 1fr; } }
+.chip-x { border: 0; background: none; color: var(--faint); padding: 0 0 0 4px; min-height: 0; height: auto; font-size: 13px; line-height: 1; cursor: pointer; }
+.chip-x:hover { color: var(--reject); background: none; }
+.person-face { width: 64px; height: 64px; border-radius: var(--r); object-fit: cover; background: var(--panel-2, #2a2a2a); flex: none; }
+.card.person.key { border-color: var(--pick); }
+.trend { display: flex; align-items: flex-end; gap: 6px; height: 72px; margin-top: var(--s3); }
+.trend > div { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; width: 34px; }
+.trend i { display: block; width: 14px; background: var(--focus); border-radius: 2px 2px 0 0; }
+.trend span { font-size: 10px; color: var(--muted); margin-top: 2px; }

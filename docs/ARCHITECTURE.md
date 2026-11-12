@@ -21,11 +21,13 @@ comes next, `DEVELOPMENT_PLAN.md`.
 | Projects | `views/Projects.tsx` | Create, open, delete projects |
 | 1 Brief | `views/Brief.tsx` | Kind of shoot, client ask, intention, mood, story plan |
 | 2 Import | `views/Import.tsx` | Point at a folder; analysis; scene gap; camera clocks |
+| People | `views/People.tsx` | The people of the shoot: naming, key people, joining duplicates, coverage |
 | 3 Cull | `views/Cull.tsx` | Decide per moment: ultrafast cull, filters, compare, undo, style, balance, teaching emotions on faces, scene chapters, Cull with Claude |
 | 4 Story | `views/Story.tsx` | Sequence picks, chapter coverage, "Your eye", picture editor's opinion |
 | 5 Hand off | `views/Export.tsx` | Ratings and labels to XMP; copy picks |
 | Training | `views/Training.tsx` | Teach each part with your own photographs; training log |
 | Shoot styles | `views/Profiles.tsx` | Kinds of work: chapters, must-haves, emotion weights, markers; Claude development; the learned taste and its self-check |
+| What it knows | `views/Knowledge.tsx` | Trade-offs learned, words for what is happening, gestures, the record with Claude, re-estimates |
 | Emotions | `views/Emotions.tsx` | What the app reads on faces; naming expressions it could not name |
 | Diagnose a photo | `views/Diagnose.tsx` | What is wrong with one picture before retouching; try-it preview; masks |
 | Look extractor | `views/Look.tsx` | A reference photo's look as LUT or Lightroom preset |
@@ -61,6 +63,12 @@ comes next, `DEVELOPMENT_PLAN.md`.
 | `grouping.ts` | Scenes, stacks, camera clock correction | none |
 | `scoring.ts` | Craft (with composition), emotion weighed by style, rarity, must-have chapters, suggestions, hidden gems, misfires, ultrafast cull | none |
 | `emotion.ts` | The emotion machine: concepts over 51 face measurements, teaching, pointers for unnamed expressions | prototypes, taught locally |
+| `body.ts` | Bodies and their joints; numbers that tell one face from another; hair and clothes colour | MediaPipe Pose Landmarker (lite), MobileNet V3 image embedder |
+| `gesture.ts` | The gesture machine: 16 body measurements, named gestures, teaching | prototypes, taught locally |
+| `people.ts` | Gathers alike faces into people within one shoot; joining, corrections, key people | none |
+| `describe.ts` | The sentence saying what is happening; what a frame brings and what is against it | none |
+| `knowledge.ts` | What Claude's descriptions taught (words tied to measurements); the ledger of mistakes against assets; the record with Claude; the briefing Claude is given | prototypes and counts, learned locally |
+| `estimate.ts` | Re-estimating a culled project: calls right then and now, frames worth another look | none |
 | `style.ts` | Shoot styles: chapters, emotion weights and how decisions shift them, measured profile, atmosphere words | none |
 | `learner.ts` | The photographer's taste: examples, training, held-back self-check | linear model, trained locally |
 | `training.ts` | Personal norms, editing habits, house look, feedback; turns them into limits | none |
@@ -83,6 +91,8 @@ the app in `out/renderer/mediapipe`.
 | `projects/look/`, `projects/diagnose/` | Scratch previews for the two single-photo tools |
 | `learned.json` | Shoot styles and what each has learned |
 | `emotions.json` | Emotion concepts, their examples, unnamed expressions waiting for a name |
+| `gestures.json` | Gesture concepts and their examples |
+| `knowledge.json` | Words for what is happening with their examples; per project, the ledger of mistakes against assets and the record with Claude; advice acted on |
 | `learning.json` | Examples of the photographer's decisions, per project |
 | `training.json` | Norms of finished photographs, editing habits, house look, feedback, log |
 | `spend.json` | What Claude has cost, by month |
@@ -92,8 +102,8 @@ the app in `out/renderer/mediapipe`.
 
 | Call | Sends | Returns |
 | --- | --- | --- |
-| `read` (Cull with Claude) | Thumbnails of 1 to 3 frames per moment, brief, story plan, style, known emotions | Chapter, emotion, moment score, gem flag, note per frame |
-| `story` | Thumbnails of picks, brief | Sequence, cuts, gaps, a lesson |
+| `read` (Cull with Claude) | Thumbnails of 1 to 3 frames per moment, brief, story plan, style, known emotions, gestures and words, who is in each frame, what was already decided, and the briefing | Chapter, emotion, moment score, gem flag, note, a sentence saying what is happening, words for it, the gesture |
+| `story` | Thumbnails of picks, brief, the briefing | Sequence, cuts, gaps, a lesson |
 | `nameFaces` | Small crops of faces the app could not name, the known emotions | An emotion per face, new ones with a description |
 | `developStyle` | A style as it stands, evidence from the photographer's culling, optionally kept frames | Chapters, emotion weights, markers, balance, notes |
 | `atmosphere` | One photo, the measured look, the concept | How to shape the look, as words and as numbers |
@@ -101,6 +111,35 @@ the app in `out/renderer/mediapipe`.
 | `diagnose` | One preview, the diagnosis findings, brief | Description, diagnosis, ordered adjustments, what stays the photographer's |
 
 All use structured output, report their cost, and add it to the spend ledger.
+
+**The briefing** (`briefing` in `knowledge.ts`, sent with `read`, `story` and
+`diagnose`) is plain text of at most about 1,000 words: what the taste model has
+learned, the clearest trade-offs and asset preferences from the ledger, how often
+the photographer went with or against Claude's earlier reads with examples of
+each, advice they acted on, the key people, and the most recent frames kept and
+rejected by hand in the open shoot. No image and no face data is part of it.
+
+**What comes back is kept.** `read` results are stored on the frame; the words
+are stored with the frame's measurements in `knowledge.json` at half weight, and
+`absorb` (run whenever the app relearns) raises or lowers that weight by what the
+photographer decided. The emotion and gesture Claude named become examples in
+their machines. A story lesson is kept once the photographer uses the sequence.
+
+## How a frame's value is put together
+
+```
+measurements ──► emotion machine ─┐
+(faces, bodies,  gesture machine ─┤
+ colour, focus)  people (key?) ───┼─► craft, moment ─► ledger: mistakes ─► taste model ─► suggestion
+                 words (Claude's, │   (style weighs     against assets     (earned trust)
+                 or recognised) ──┘    emotions)        (forgive / lift)
+```
+
+Each arrow back from a decision: the taste model retrains, the style's emotion
+weights shift, the ledger re-files the project, Claude's descriptions of the
+decided frames are re-weighted. All four are rebuilt from stored evidence per
+project, so changing your mind in an old project is learned too, and
+`reestimateAll` can rebuild everything from the projects on disk.
 
 ## Diagnose a photo: how it is built, and how it grows
 
@@ -136,7 +175,7 @@ does not change.
 ## Tests
 
 - `tests/*.test.ts`: unit tests of the pure logic (grouping, scoring, profiles, look,
-  learner, diagnosis, EXIF orientation).
+  learner, diagnosis, emotions, gestures, people, knowledge, re-estimates, EXIF orientation).
 - `tests/e2e/smoke.mjs`: drives the real app through every screen, with Claude
   replaced by a stand-in.
 - CI (`.github/workflows/build.yml`): type-check, unit tests on Linux and Windows,

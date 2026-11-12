@@ -42,6 +42,12 @@ How to advise:
 - Be honest. If a frame is weak or the set has a hole, say it kindly and specifically.
 - Write plainly and briefly. No flattery, no filler.`
 
+/** What the app has learned about this photographer, as a block of the prompt. Empty when nothing is known yet. */
+const learnedText = (context: string | undefined): string =>
+  context?.trim()
+    ? `\n\nWhat the culling software has learned about this photographer from their own decisions. Use it to judge what THEY would keep, not what photographers in general would; where your own judgement differs from their habit, say so rather than hide it:\n${context.trim()}`
+    : ''
+
 const briefText = (genre: Genre, b: Brief): string =>
   [
     `Genre: ${genre}`,
@@ -130,7 +136,7 @@ export async function storyAdvice(req: StoryRequest): Promise<StoryAdvice> {
   const content: Anthropic.ContentBlockParam[] = [
     {
       type: 'text',
-      text: `${briefText(req.genre, req.brief)}\n\nBelow are ${req.frames.length} candidate frames in capture order. Each is labelled with a frame number, its scene, capture time and shot type. "picked" means the photographer has already chosen it.`
+      text: `${briefText(req.genre, req.brief)}${learnedText(req.context)}\n\nBelow are ${req.frames.length} candidate frames in capture order. Each is labelled with a frame number, its scene, capture time and shot type. "picked" means the photographer has already chosen it.`
     }
   ]
   for (const [i, f] of req.frames.entries()) {
@@ -165,7 +171,10 @@ const ReadSchema = z.object({
       emotion: z.string().describe('The dominant emotion of the main person in one or two lowercase words. Use a name from the known list where it fits, a new precise one where none does ("grief", "battle fury", "mischief"), and "calm" when the face is at rest.'),
       moment: z.number().describe('0 to 10: how much this frame carries emotionally and for the story. 5 is a competent, unremarkable frame.'),
       gem: z.boolean().describe('True only if the frame has a listed technical flaw and is still worth keeping for what it holds.'),
-      note: z.string().describe('One short sentence: what is happening between or within the people, and why it matters or does not.')
+      what: z.string().describe('One plain sentence saying what is happening in the frame, as you would describe it to someone who cannot see it: who, doing what, where. No judgement.'),
+      tags: z.array(z.string()).describe('Two to five lowercase words or short phrases naming what is happening ("first dance", "toast", "getting ready", "sword clash", "blowing out candles", "walking away"). Reuse words from the known list where they fit; the software learns to recognise these by itself from your examples, so be consistent.'),
+      gesture: z.string().describe('The body gesture that carries the frame, in one to three lowercase words, from the known gestures where one fits ("embrace", "arms raised", "hand to face"), or "none".'),
+      note: z.string().describe('One short sentence: why the frame matters or does not, for this brief and this photographer.')
     })
   )
 })
@@ -179,11 +188,11 @@ export async function narrativeRead(req: ReadRequest): Promise<ReadResult> {
   const content: Anthropic.ContentBlockParam[] = [
     {
       type: 'text',
-      text: `${briefText(req.genre, req.brief)}\n\nStory plan for this shoot:\n${plan}\n\nEmotions the app already knows by name: ${req.emotions.join(', ')}.${req.styleNotes ? `\n\nThe photographer is culling for a particular feeling. Let it shape what you value, without overriding the brief:\n${req.styleNotes}` : ''}\n\nBelow are ${req.frames.length} frames in capture order, each labelled with a number, scene, time, shot type and any technical flaws already measured.`
+      text: `${briefText(req.genre, req.brief)}\n\nStory plan for this shoot:\n${plan}\n\nEmotions the app already knows by name: ${req.emotions.join(', ')}.${req.gestures?.length ? `\nGestures it knows: ${req.gestures.join(', ')}.` : ''}${req.happenings?.length ? `\nWords already used for what is happening: ${req.happenings.join(', ')}.` : ''}${learnedText(req.context)}${req.styleNotes ? `\n\nThe photographer is culling for a particular feeling. Let it shape what you value, without overriding the brief:\n${req.styleNotes}` : ''}\n\nBelow are ${req.frames.length} frames in capture order, each labelled with a number, scene, time, shot type and any technical flaws already measured.`
     }
   ]
   for (const [i, f] of req.frames.entries()) {
-    content.push({ type: 'text', text: `Frame ${i + 1} | scene ${f.scene} | ${f.time} | ${f.shotType}${f.flaws ? ` | flaws: ${f.flaws}` : ''}` })
+    content.push({ type: 'text', text: `Frame ${i + 1} | scene ${f.scene} | ${f.time} | ${f.shotType}${f.flaws ? ` | flaws: ${f.flaws}` : ''}${f.people ? ` | people: ${f.people}` : ''}${f.decided ? ` | already ${f.decided} by the photographer` : ''}` })
     content.push(await image(req.projectId, `${safeId(f.shotId)}_t.jpg`))
   }
   content.push({
@@ -196,7 +205,7 @@ export async function narrativeRead(req: ReadRequest): Promise<ReadResult> {
   for (const f of value.frames) {
     const shot = req.frames[f.frame - 1]
     if (!shot) continue
-    reads[shot.shotId] = { beat: f.beat, emotion: f.emotion, moment: Math.min(10, Math.max(0, f.moment)), gem: f.gem && !!shot.flaws, note: f.note }
+    reads[shot.shotId] = { beat: f.beat, emotion: f.emotion, moment: Math.min(10, Math.max(0, f.moment)), gem: f.gem && !!shot.flaws, note: f.note, what: f.what, tags: f.tags.map((t) => t.trim().toLowerCase()).filter(Boolean).slice(0, 5), gesture: f.gesture.trim().toLowerCase() }
   }
   return { reads, usage }
 }
@@ -255,7 +264,7 @@ export async function diagnose(req: DiagnoseRequest): Promise<DiagnosisAdvice> {
     await image(safeId(req.cacheId), `${safeId(req.shotId)}.jpg`),
     {
       type: 'text',
-      text: `Before retouching this photograph, read it the way an experienced retoucher does. Measurements taken from it on the photographer's computer:\n${req.measured}\n\nWork from what is known about how people look at pictures: the eye follows contrast and structure, not brightness alone; a face, and the direction of its gaze, outranks everything; skin is judged by its evenness more than its hue; and the way to make a subject stand out is to quieten what surrounds it, not to push the subject. Do not appeal to the rule of thirds, the golden ratio, or complementary colours as guarantees. Propose technical clean-up only: separating the subject, evening skin, calming the background, removing distractions. Leave mood and colour to the photographer.`
+      text: `Before retouching this photograph, read it the way an experienced retoucher does. Measurements taken from it on the photographer's computer:\n${req.measured}${learnedText(req.context)}\n\nWork from what is known about how people look at pictures: the eye follows contrast and structure, not brightness alone; a face, and the direction of its gaze, outranks everything; skin is judged by its evenness more than its hue; and the way to make a subject stand out is to quieten what surrounds it, not to push the subject. Do not appeal to the rule of thirds, the golden ratio, or complementary colours as guarantees. Propose technical clean-up only: separating the subject, evening skin, calming the background, removing distractions. Leave mood and colour to the photographer.`
     }
   ])
   return { ...value, usage }

@@ -7,7 +7,7 @@ import { previewUrl } from '../analysis/pipeline'
 import { analyse, polygonMask, type Analysis } from '../analysis/reading'
 import { estimateCost, formatCost } from '../components/AiCost'
 import { Thumb } from '../components/Thumb'
-import { useStore } from '../store'
+import { claudeContext, useStore } from '../store'
 import { PageHeader } from '../components/PageHeader'
 
 // --- drawing ---------------------------------------------------------------------------------
@@ -294,7 +294,8 @@ export function Diagnose(): React.JSX.Element {
           cacheId: source.cacheId,
           shotId: source.shotId,
           brief: b && !source.opened ? `Brief. Client asked for: ${b.clientAsk || 'not given'}. Intention: ${b.intention || 'not given'}. Mood: ${b.moodWords || 'not given'}.` : '',
-          measured: measured(analysis)
+          measured: measured(analysis),
+          context: source.opened ? undefined : claudeContext()
         })
       )
     } catch (err) {

@@ -4,7 +4,7 @@ import { thumbUrl } from '../analysis/pipeline'
 import { tasteOf } from '../analysis/scoring'
 import { estimateCost, formatCost } from '../components/AiCost'
 import { Thumb } from '../components/Thumb'
-import { useStore } from '../store'
+import { claudeContext, useStore } from '../store'
 import { PageHeader } from '../components/PageHeader'
 
 const MAX_FRAMES = 120
@@ -74,6 +74,7 @@ export function Story(): React.JSX.Element {
         projectId: project.id,
         genre: project.genre,
         brief: project.brief,
+        context: claudeContext(),
         frames: candidates.map((s) => ({
           shotId: s.id,
           scene: s.sceneId ?? 0,
@@ -234,7 +235,15 @@ export function Story(): React.JSX.Element {
           </div>
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <h3>Suggested sequence</h3>
-            <button onClick={() => update((p) => ({ ...p, storyOrder: advice.sequence.map((s) => s.shotId) }))}>Use this order</button>
+            <button
+              onClick={() => {
+                update((p) => ({ ...p, storyOrder: advice.sequence.map((s) => s.shotId) }))
+                // Advice the photographer acts on is kept, and shown to Claude before later assessments.
+                useStore.getState().remember({ source: 'story', text: advice.lesson, project: project.id })
+              }}
+            >
+              Use this order
+            </button>
           </div>
           {advice.sequence.map((s, i) =>
             byId.has(s.shotId) ? (

@@ -37,6 +37,10 @@ export interface FaceInfo {
   yaw?: number
   /** The face model's 51 expression measurements, 0..100 each, in the order of SHAPES in emotion.ts. */
   shapes?: number[]
+  /** What tells this face from others in the shoot: 48 numbers (-100..100) from a small picture of it. */
+  id?: number[]
+  /** Hair and clothes colour (r, g, b each, 0..255): people rarely change either during a shoot. */
+  wear?: number[]
   /** Mean skin hue (degrees) and saturation (0..1) sampled on the cheeks. */
   skinHue: number | null
   skinSat: number | null
@@ -60,6 +64,17 @@ export interface ColorStats {
   palette: string[]
 }
 
+/** One body found in the frame, and what its limbs are doing. */
+export interface BodyInfo {
+  /** Bounding box in 0..1 image coordinates. */
+  x: number
+  y: number
+  w: number
+  h: number
+  /** Gesture measurements, 0..100 each, in the order of GESTURE_CUES in gesture.ts. */
+  g: number[]
+}
+
 export type ShotType = 'close-up' | 'medium' | 'wide' | 'group' | 'detail'
 
 export interface Analysis {
@@ -70,6 +85,8 @@ export interface Analysis {
   color: ColorStats
   faces: FaceInfo[]
   shotType: ShotType
+  /** The bodies in the frame and their gestures. Absent for frames measured before gestures were read. */
+  bodies?: BodyInfo[]
   /** Composition readings from the photo diagnosis, taken for the strongest frames of each moment. */
   diag?: { merged?: number; attention?: number; pull?: number }
 }
@@ -104,6 +121,19 @@ export interface Score {
   faceEmotions?: (string | null)[]
   /** How much the style values the emotions shown, -1..1. */
   emotionValue?: number
+  /** The strongest gesture read in the frame, and how strongly it shows (0..1). */
+  gesture?: { name: string; intensity: number }
+  /** What is happening in the frame, in a sentence, as far as the app can tell by itself. */
+  happening?: string
+  /** What is happening, as words: Claude's where it has looked, else what the app recognises from what Claude taught it. */
+  happens?: string[]
+  /** Names of the key people the app believes are in the frame. */
+  keyPeople?: string[]
+  /** What the frame brings (emotion, gesture, a key person, a rare moment...) and what is wrong with it. */
+  assets?: string[]
+  flaws?: string[]
+  /** How the photographer's past choices weigh this frame's mistakes against what it brings. */
+  tradeoff?: string
   /** Belongs to a chapter the style says must not be missed. */
   must?: boolean
   /** The overall score from the built-in rules alone, before the learned taste is mixed in. */
@@ -220,6 +250,38 @@ export interface NarrativeRead {
   moment: number
   gem: boolean
   note: string
+  /** What is happening in the frame, in one plain sentence. */
+  what?: string
+  /** What is happening, as two to five lowercase words or short phrases ("first dance", "toast"). */
+  tags?: string[]
+  /** The gesture that carries the frame, if one does. */
+  gesture?: string
+}
+
+/** Someone who appears in a shoot. Belongs to one project: faces are told apart, never identified. */
+export interface Person {
+  id: string
+  /** What the photographer calls them: "bride", "Marta", "the duke". Empty until named. */
+  name: string
+  /** A key person: frames of them count for more, and the story should not come back without them. */
+  key: boolean
+  /** A few faces known to be theirs (id vectors), and what they wore. */
+  faces: number[][]
+  wear: number[][]
+  /** A small picture of them, as a data URL. */
+  thumb?: string
+}
+
+/** One re-estimate of a culled project: how well today's app would have predicted the decisions made in it. */
+export interface Estimate {
+  at: number
+  /** Decided frames it was measured on. */
+  frames: number
+  /** Share of moments where the app's keeper is a frame the photographer kept: at the time of deciding, and now. */
+  then: number | null
+  now: number
+  /** Moments compared. */
+  moments: number
 }
 
 export type Warning = 'blink' | 'soft' | 'soft-face' | 'clipped' | 'dark' | 'misfire' | 'blurred'
@@ -247,6 +309,12 @@ export interface Shot {
   stackId?: number
   suggestion?: Suggestion
   read?: NarrativeRead
+  /** Who each face is (a Person id, or null), in the order of the analysis' faces. */
+  people?: (string | null)[]
+  /** Indices of faces the photographer assigned to a person by hand: left alone when people are found again. */
+  peopleSet?: number[]
+  /** What is happening, in the photographer's own words, where they have said so. */
+  tags?: string[]
   /** The chapter of the story this frame belongs to, when the photographer has said so. */
   chapter?: string
   decision: Decision
@@ -302,6 +370,10 @@ export interface Project {
   fastImport?: boolean
   storyOrder: string[]
   storyAdvice?: StoryAdvice
+  /** The people of this shoot, as far as the app has told them apart. */
+  people?: Person[]
+  /** Re-estimates of this project over time. */
+  estimates?: Estimate[]
 }
 
 export interface ProjectSummary {
@@ -410,6 +482,8 @@ export interface StoryRequest {
   projectId: string
   genre: Genre
   brief: Brief
+  /** What the app has learned about this photographer so far, in plain text. */
+  context?: string
   frames: { shotId: string; scene: number; time: string; shotType: ShotType; faces: number; picked: boolean }[]
 }
 
@@ -496,6 +570,8 @@ export interface DiagnoseRequest {
   brief: string
   /** What the on-device analysis measured, in plain sentences. */
   measured: string
+  /** What the app has learned about this photographer so far, in plain text. */
+  context?: string
 }
 
 /** Claude's reading of one photograph: what it is, what holds it back, what to do. */
@@ -525,7 +601,12 @@ export interface ReadRequest {
   styleNotes: string
   /** Emotions the app already knows by name, so that Claude reuses them where they fit. */
   emotions: string[]
-  frames: { shotId: string; scene: number; time: string; shotType: ShotType; flaws: string }[]
+  /** Gestures and "what is happening" words the app already knows, to be reused where they fit. */
+  gestures?: string[]
+  happenings?: string[]
+  /** What the app has learned about this photographer and what they have chosen so far, in plain text. */
+  context?: string
+  frames: { shotId: string; scene: number; time: string; shotType: ShotType; flaws: string; people?: string; decided?: string }[]
 }
 
 export interface ReadResult {

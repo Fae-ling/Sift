@@ -73,7 +73,7 @@ try {
     ipcMain.removeHandler('ai:read')
     ipcMain.handle('ai:read', (_event, req) => ({
       reads: Object.fromEntries(
-        req.frames.map((f) => [f.shotId, { beat: req.beats[0].name, emotion: 'joy', moment: 9, gem: !!f.flaws, note: 'Stand-in read.' }])
+        req.frames.map((f) => [f.shotId, { beat: req.beats[0].name, emotion: 'joy', moment: 9, gem: !!f.flaws, note: 'Stand-in read.', what: 'Someone looks into the camera.', tags: ['portrait sitting'], gesture: 'none' }])
       ),
       usage: { model: 'stand-in', inputTokens: 1000, outputTokens: 100, costUsd: 0.01 }
     }))
@@ -273,6 +273,30 @@ try {
   await page.getByText(rawFile ? /1 frame learned from Lightroom ratings/ : /learned from Lightroom ratings/).waitFor({ timeout: 60_000 })
   assert.match(readFileSync(join(userData, 'training.json'), 'utf8'), /"norms":\{"/, 'what was learned is stored')
   await snap('6-training')
+
+  // People: the shoot's people are told apart; one is named and marked as key.
+  await page.locator('.sidebar .nav', { hasText: 'People' }).click()
+  await snap('7-people')
+  const cards = page.locator('.card.person')
+  if (await cards.count()) {
+    await cards.first().getByRole('textbox').fill('the sitter')
+    await cards.first().getByRole('textbox').blur()
+    await cards.first().getByLabel('Key person').check()
+    await page.getByText(/Key person:.*the sitter/).waitFor()
+    await page.getByRole('button', { name: 'Show their frames in Cull' }).click()
+    await page.locator('.chip.pick', { hasText: 'the sitter' }).first().waitFor()
+    await snap('7-key-person')
+  } else console.log('note: no people were told apart in these samples')
+
+  // What it knows: Claude's words were stored, the decisions were filed, and the project can be re-estimated.
+  await page.locator('.sidebar .nav', { hasText: 'What it knows' }).click()
+  await page.locator('.chip', { hasText: 'portrait sitting' }).waitFor()
+  await page.getByRole('button', { name: 'Re-estimate this project' }).click()
+  await page.getByText(/Last re-estimate: the app's call matched yours/).waitFor()
+  await snap('8-knowledge')
+  const knowledge = JSON.parse(readFileSync(join(userData, 'knowledge.json'), 'utf8'))
+  assert.ok(knowledge.concepts.tags.some((t) => t.name === 'portrait sitting'), "Claude's description is stored for learning")
+  assert.ok(Object.keys(knowledge.ledger.projects).length === 1, 'decisions are filed as mistakes against assets')
 
   assert.deepEqual(errors, [], 'no console errors')
   console.log('smoke test passed')
