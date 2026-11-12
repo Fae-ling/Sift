@@ -29,7 +29,7 @@ export function PastShootForm({ onDone, compact }: { onDone?: (count: number) =>
         from: how === 'ratings' ? { stars } : { delivered: delivered! },
         fast
       })
-      notify(count ? `Learned from ${count} decisions in “${baseName(folder)}”.` : 'No ratings or matching delivered files were found, so there was nothing to learn from.')
+      notify(count ? `Learned from ${count} decision${count === 1 ? '' : 's'} in “${baseName(folder)}”.` : 'No ratings or matching delivered files were found, so there was nothing to learn from.')
       setFolder(null)
       setDelivered(null)
       onDone?.(count)

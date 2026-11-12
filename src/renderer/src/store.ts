@@ -174,6 +174,9 @@ interface State {
   mergePerson(fromId: string, intoId: string): void
   /** Says who a face is: an existing person, 'new' for someone not listed yet, or null for nobody in particular. */
   setFacePerson(shotId: string, face: number, personId: string | 'new' | null): void
+  /** What surrounds the photo in Cull: the side panel, the filmstrip, and everything at once (focus). */
+  chrome: { inspector: boolean; film: boolean; focus: boolean }
+  setChrome(patch: Partial<State['chrome']>): void
   /** Frames chosen together in Cull (Ctrl- or Shift-click), to decide in one go. */
   marked: string[]
   setMarked(ids: string[]): void
@@ -543,6 +546,7 @@ export const useStore = create<State>((set, get) => ({
   relook: null,
   marked: [],
   asking: null,
+  chrome: { inspector: true, film: true, focus: false },
   estimating: { running: false, done: 0, total: 0 },
   training: emptyTraining(),
   teaching: { running: false, done: 0, total: 0, label: '' },
@@ -1186,6 +1190,7 @@ export const useStore = create<State>((set, get) => ({
   setFastImport: (on) => get().update((p) => ({ ...p, fastImport: on })),
 
   setMarked: (marked) => set({ marked }),
+  setChrome: (patch) => set({ chrome: { ...get().chrome, ...patch } }),
   setAsking: (asking) => set({ asking }),
   setWhy: (ids, why) => {
     const wanted = new Set(ids)

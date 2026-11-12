@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Icon } from './components/Icon'
 import { Mark } from './components/Mark'
 import { useStore, type View } from './store'
@@ -57,7 +57,7 @@ const IS_WORKSHOP = location.hash.startsWith('#workshop')
 
 function NavItem(props: Item & { active: boolean; onClick: () => void; badge?: React.ReactNode; done?: boolean }): React.JSX.Element {
   return (
-    <button className={`nav ${props.active ? 'active' : ''}`} onClick={props.onClick} title={props.hint} aria-current={props.active ? 'page' : undefined}>
+    <button className={`nav ${props.active ? 'active' : ''}`} onClick={props.onClick} title={`${props.label}: ${props.hint}`} aria-label={props.label} aria-current={props.active ? 'page' : undefined}>
       <Icon name={props.icon} />
       <span className="nav-label">{props.label}</span>
       {props.badge !== undefined && props.badge !== null && <span className="nav-badge">{props.badge}</span>}
@@ -100,7 +100,10 @@ function Toast(): React.JSX.Element {
 
 function StudioApp(): React.JSX.Element {
   useLoad()
-  const { view, project, setView, closeProject, emotions, settings } = useStore()
+  const { view, project, setView, closeProject, emotions, settings, chrome } = useStore()
+  // While culling, the menu shrinks to icons so that the photo has the room; it can be opened again.
+  const [wide, setWide] = useState(false)
+  const rail = view === 'cull' && !wide
   const shots = project?.shots ?? []
   const picks = shots.filter((s) => s.decision === 'pick').length
   const undecided = shots.filter((s) => s.analysis && s.decision === null).length
@@ -114,11 +117,16 @@ function StudioApp(): React.JSX.Element {
   }
 
   return (
-    <div className="app">
-      <nav className="sidebar" aria-label="Main">
+    <div className={`app ${view === 'cull' && chrome.focus ? 'focus' : ''}`}>
+      <nav className={`sidebar ${rail ? 'rail' : ''}`} aria-label="Main">
         <div className="brand">
           <Mark />
-          Sift
+          <span className="brand-name">Sift</span>
+          {view === 'cull' && (
+            <button className="ghost rail-toggle" onClick={() => setWide(!wide)} title={rail ? 'Show the menu' : 'Shrink the menu to icons'} aria-label={rail ? 'Show the menu' : 'Shrink the menu'}>
+              <Icon name="menu" size={16} />
+            </button>
+          )}
         </div>
 
         {project ? (
@@ -139,12 +147,13 @@ function StudioApp(): React.JSX.Element {
         )}
 
         <div className="nav-group">Tools</div>
+        <div className="nav-group-rule" />
         {TOOLS.map((n) => (
           <NavItem key={n.view} {...n} active={view === n.view} onClick={() => setView(n.view)} />
         ))}
 
         <div className="spacer" />
-        <button className="workshop-link" onClick={() => void window.studio.openWorkshop()} title="What the app has learned, and teaching it more. Opens in its own window.">
+        <button className="workshop-link" onClick={() => void window.studio.openWorkshop()} title="Workshop: what the app has learned, and teaching it more. Opens in its own window." aria-label="Workshop">
           <Icon name="knowledge" />
           <span>
             <b>Workshop</b>
@@ -188,7 +197,7 @@ function WorkshopApp(): React.JSX.Element {
       <nav className="sidebar" aria-label="Workshop">
         <div className="brand">
           <Mark />
-          Workshop
+          <span className="brand-name">Workshop</span>
         </div>
         {WORKSHOP.map((g) => (
           <div key={g.group || 'top'}>

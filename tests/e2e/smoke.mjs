@@ -88,7 +88,7 @@ try {
   await page.getByRole('button', { name: 'Next' }).click()
   await page.getByRole('button', { name: /Choose its folder of originals/ }).click()
   await page.getByRole('button', { name: 'Learn from this shoot' }).click()
-  await page.getByText(/Learned from \d+ decisions|nothing to learn from/).waitFor({ timeout: 300_000 })
+  await page.getByText(/Learned from \d+ decisions?|nothing to learn from/).waitFor({ timeout: 300_000 })
   await snap('0-guide-past-shoot')
   await page.getByRole('button', { name: 'Skip the guide' }).click()
   await page.getByRole('dialog', { name: 'Setting up Sift' }).waitFor({ state: 'detached' })

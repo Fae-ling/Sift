@@ -31,7 +31,7 @@ const NONE = new Set<string>()
 const time = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 export function Cull(): React.JSX.Element {
-  const { project, selectedId, select, filter, setFilter, decide, acceptSuggestions, setView, chapter, setChapter, setRating, undo, redo, tasteData, setSceneChapter, deep, cancelDeepRead, relook, marked, setMarked, asking, setAsking, setWhy, settings } = useStore()
+  const { project, selectedId, select, filter, setFilter, decide, acceptSuggestions, setView, chapter, setChapter, setRating, undo, redo, tasteData, setSceneChapter, deep, cancelDeepRead, relook, marked, setMarked, asking, setAsking, setWhy, settings, chrome, setChrome } = useStore()
   const [showTriage, setShowTriage] = useState(false)
   const [compare, setCompare] = useState(false)
   const [zoom, setZoom] = useState(false)
@@ -96,7 +96,7 @@ export function Cull(): React.JSX.Element {
   const planNames = useMemo(() => project?.storyPlan.map((c) => c.name) ?? [], [project?.storyPlan])
 
   useEffect(() => {
-    if (current) stripRef.current?.querySelector(`[data-shot="${current.id}"]`)?.scrollIntoView({ block: 'nearest' })
+    if (current) stripRef.current?.querySelector(`[data-shot="${current.id}"]`)?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' })
   }, [current?.id])
 
   const markedSet = useMemo(() => new Set(marked), [marked])
@@ -171,6 +171,11 @@ export function Cull(): React.JSX.Element {
         e.preventDefault()
         return redo()
       }
+      // As in Lightroom: Tab hides the side panel, Shift+Tab everything but the photo.
+      if (key === 'tab' && !e.ctrlKey && !e.altKey && !(e.target as HTMLElement).closest('button, a, [tabindex]')) {
+        e.preventDefault()
+        return e.shiftKey ? setChrome({ focus: !chrome.focus }) : setChrome({ inspector: !chrome.inspector, focus: false })
+      }
       if ((e.ctrlKey || e.metaKey) && key === 'a') {
         e.preventDefault()
         return setMarked(list.map((s) => s.id))
@@ -192,6 +197,10 @@ export function Cull(): React.JSX.Element {
           return
         }
         setAsking(null)
+      }
+      if (key === 'escape' && chrome.focus) {
+        e.preventDefault()
+        return setChrome({ focus: false })
       }
       if (key === 'escape' && marked.length) {
         e.preventDefault()
@@ -215,7 +224,7 @@ export function Cull(): React.JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [current, stack, hidden, move, moveStack, decide, acceptSuggestions, setRating, undo, redo, list, asking, marked, setMarked, setAsking, setWhy, targets, reject])
+  }, [current, stack, hidden, move, moveStack, decide, acceptSuggestions, setRating, undo, redo, list, asking, marked, setMarked, setAsking, setWhy, targets, reject, chrome, setChrome])
 
   if (!project) return <></>
   if (shots.length === 0) {
@@ -237,7 +246,7 @@ export function Cull(): React.JSX.Element {
   const target = project.brief.targetCount
 
   return (
-    <div className={`cull ${showRead || showTriage ? 'with-read' : ''}`}>
+    <div className={`cull ${chrome.inspector && !chrome.focus ? '' : 'no-insp'} ${chrome.film && !chrome.focus ? '' : 'no-film'} ${chrome.focus ? 'focus' : ''}`}>
       <div className="cull-bar">
         <div className="segmented" role="group" aria-label="Show">
           {MAIN_FILTERS.map((f) => (
@@ -297,6 +306,13 @@ export function Cull(): React.JSX.Element {
         <button className={`ghost ${showRead ? 'on' : ''}`} onClick={() => (setShowRead((v) => !v), setShowTriage(false))} title="Claude reads each moment: chapter, emotion, hidden gems" aria-label="Cull with Claude" aria-expanded={showRead}>
           <Icon name="sparkle" /> <span className="label">Cull with Claude</span>
         </button>
+        <span className="bar-sep" />
+        <button className={`ghost icon ${chrome.film ? 'on' : ''}`} onClick={() => setChrome({ film: !chrome.film, focus: false })} title="Filmstrip" aria-label="Show the filmstrip" aria-pressed={chrome.film}>
+          <Icon name="film" />
+        </button>
+        <button className={`ghost icon ${chrome.inspector ? 'on' : ''}`} onClick={() => setChrome({ inspector: !chrome.inspector, focus: false })} title="Side panel (Tab). Shift+Tab hides everything but the photo." aria-label="Show the side panel" aria-pressed={chrome.inspector}>
+          <Icon name="panel" />
+        </button>
         <button className="primary" onClick={() => acceptSuggestions()} disabled={undecided === 0} title="Applies every suggestion to frames you have not decided yourself">
           Accept suggestions
         </button>
@@ -304,25 +320,6 @@ export function Cull(): React.JSX.Element {
 
       {showRead && <ReadPanel />}
       {showTriage && <TriagePanel onDone={() => setShowTriage(false)} />}
-
-      <div className="strip" ref={stripRef} role="listbox" aria-multiselectable="true" aria-label="Frames">
-        {list.length === 0 && <p className="muted small" style={{ padding: 8 }}>Nothing matches this filter.</p>}
-        {scenes.map((scene) => (
-          <SceneBlock
-            key={scene.id}
-            projectId={project.id}
-            scene={scene}
-            chapter={sceneBeat.get(scene.id) ?? ''}
-            plan={planNames}
-            // Only the scene holding the selection is given it, so moving through a large shoot redraws one scene, not all.
-            selectedId={current && scene.stacks.some((st) => st.some((x) => x.id === current.id)) ? current.id : null}
-            hidden={hidden}
-            marked={scene.stacks.some((st) => st.some((x) => markedSet.has(x.id))) ? markedSet : NONE}
-            onSelect={onThumb}
-            onChapter={setSceneChapter}
-          />
-        ))}
-      </div>
 
       {current ? (
         <>
@@ -357,28 +354,18 @@ export function Cull(): React.JSX.Element {
               </div>
             </div>
             )}
-            <div className="compare">
-              {stack.map((s) => (
-                <div key={s.id}>
-                  <Thumb projectId={project.id} shot={s} selected={s.id === current.id} marked={markedSet.has(s.id)} onSelect={onThumb} hide={hidden.has(s.id)} />
-                  <div className="cap">
-                    {hidden.has(s.id) ? '·' : Math.round(s.score?.overall ?? 0)}
-                    {hidden.has(s.id) ? '' : s.suggestion === 'pick' ? ' · best' : s.suggestion === 'alternate' ? ' · close' : ''}
-                  </div>
-                </div>
-              ))}
-              {stack.length > 1 && (
-                <div className="muted small" style={{ alignSelf: 'center', marginLeft: 8, maxWidth: 220 }}>
-                  {hidden.has(current.id) ? (
-                    <>Your call: no suggestion is shown for this moment. Pick the take you would keep.</>
-                  ) : (
-                    <>
-                      {stack.length} takes of one moment. <kbd>Enter</kbd> keeps the best and moves on.
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
+            {stack.length > 1 && !compare && (
+              <div className="take-hint">
+                Take {stack.findIndex((x) => x.id === current.id) + 1} of {stack.length}
+                {hidden.has(current.id) ? (
+                  <> · your call, no suggestion shown</>
+                ) : (
+                  <>
+                    {current.suggestion === 'pick' ? ' · the best take' : current.suggestion === 'alternate' ? ' · close to the best' : ''} · <kbd>C</kbd> compare · <kbd>Enter</kbd> keep the best
+                  </>
+                )}
+              </div>
+            )}
             {asking ? (
               <ReasonBar
                 count={asking.length}
@@ -422,8 +409,38 @@ export function Cull(): React.JSX.Element {
           <Inspector shot={current} projectId={project.id} hide={hidden.has(current.id)} />
         </>
       ) : (
-        <div className="empty" style={{ gridColumn: '2 / -1' }}>Nothing matches this filter.</div>
+        <div className="empty" style={{ gridArea: 'view' }}>Nothing matches this filter.</div>
       )}
+
+      <div
+        className="strip"
+        ref={stripRef}
+        role="listbox"
+        aria-multiselectable="true"
+        aria-label="Frames"
+        // A mouse wheel scrolls the filmstrip sideways.
+        onWheel={(e) => {
+          if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) e.currentTarget.scrollLeft += e.deltaY
+        }}
+      >
+        {list.length === 0 && <p className="muted small" style={{ padding: 8 }}>Nothing matches this filter.</p>}
+        {scenes.map((scene) => (
+          <SceneBlock
+            key={scene.id}
+            projectId={project.id}
+            scene={scene}
+            chapter={sceneBeat.get(scene.id) ?? ''}
+            plan={planNames}
+            // Only the scene holding the selection is given it, so moving through a large shoot redraws one scene, not all.
+            selectedId={current && scene.stacks.some((st) => st.some((x) => x.id === current.id)) ? current.id : null}
+            hidden={hidden}
+            marked={scene.stacks.some((st) => st.some((x) => markedSet.has(x.id))) ? markedSet : NONE}
+            onSelect={onThumb}
+            onChapter={setSceneChapter}
+          />
+        ))}
+      </div>
+
     </div>
   )
 }
@@ -509,7 +526,7 @@ function Inspector({ shot, projectId, hide }: { shot: Shot; projectId: string; h
           {shot.suggestion && <p className={`verdict ${shot.suggestion}`}>{SUGGESTION_TEXT[shot.suggestion]}</p>}
           <Meter label="Moment" value={score.moment} />
           <Meter label="Craft" value={score.craft} />
-          {score.learned !== undefined && taste && <Meter label="Your taste" value={score.learned} />}
+          {score.learned !== undefined && taste && taste.trust > 0 && <Meter label="Your taste" value={score.learned} />}
           {(score.gem || score.must || score.emotion || score.tags.length > 0 || chapterName) && (
             <div className="chips">
               {score.gem && <span className="chip gem">hidden gem</span>}
@@ -607,6 +624,8 @@ function Inspector({ shot, projectId, hide }: { shot: Shot; projectId: string; h
           <dt><kbd>Enter</kbd></dt><dd>accept this moment's suggestion</dd>
           <dt><kbd>1</kbd>–<kbd>5</kbd></dt><dd>stars</dd>
           <dt><kbd>Z</kbd> <kbd>C</kbd></dt><dd>zoom, compare</dd>
+          <dt><kbd>Tab</kbd></dt><dd>hide or show this panel</dd>
+          <dt><kbd>Shift</kbd>+<kbd>Tab</kbd></dt><dd>only the photo (Esc to come back)</dd>
           <dt><kbd>Ctrl</kbd>+<kbd>Z</kbd></dt><dd>undo (with Shift: redo)</dd>
         </dl>
       </details>
@@ -824,13 +843,15 @@ const SceneBlock = memo(function SceneBlock(props: {
           ))}
         </select>
       </div>
-      {scene.stacks.map((st) => (
-        <div className={`stack ${st.length > 1 ? 'multi' : ''}`} key={st[0].id}>
-          {st.map((x) => (
-            <Thumb key={x.id} projectId={props.projectId} shot={x} selected={x.id === props.selectedId} marked={props.marked.has(x.id)} onSelect={props.onSelect} hide={props.hidden.has(x.id)} />
-          ))}
-        </div>
-      ))}
+      <div className="scene-row">
+        {scene.stacks.map((st) => (
+          <div className={`stack ${st.length > 1 ? 'multi' : ''}`} key={st[0].id}>
+            {st.map((x) => (
+              <Thumb key={x.id} projectId={props.projectId} shot={x} selected={x.id === props.selectedId} marked={props.marked.has(x.id)} onSelect={props.onSelect} hide={props.hidden.has(x.id)} />
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   )
 })
@@ -936,9 +957,7 @@ function ReasonBar({ count, onPick, onSkip }: { count: number; onPick: (why: str
     <div className="reason-bar" role="dialog" aria-label="Why was it rejected?">
       <div className="reason-head">
         <b>Why{count > 1 ? ` (${count} frames)` : ''}?</b>
-        <span className="faint small">Press a number, or Enter to skip. It teaches the cull what you mind.</span>
-        <div className="spacer" />
-        <button className="ghost sm" onClick={onSkip}>
+        <button className="ghost sm" onClick={onSkip} title="Enter skips too">
           Skip
         </button>
       </div>
@@ -969,18 +988,17 @@ function WhyRejected({ shot }: { shot: Shot }): React.JSX.Element {
   useEffect(() => setEditing(false), [shot.id])
   const why = shot.why ?? []
   const toggle = (r: string): void => setWhy([shot.id], why.includes(r) ? why.filter((x) => x !== r) : [...why, r])
-  const open = editing || why.length === 0
+  const open = editing
   const shown = open ? [...REJECT_REASONS, ...why.filter((w) => !REJECT_REASONS.includes(w))] : why
   return (
     <section className="insp-section">
       <h3>
         Why rejected
-        {!open && (
-          <button className="link small" style={{ marginLeft: 8, textTransform: 'none', letterSpacing: 0 }} onClick={() => setEditing(true)}>
-            change
-          </button>
-        )}
+        <button className="link small" style={{ marginLeft: 8, textTransform: 'none', letterSpacing: 0 }} onClick={() => setEditing(!open)}>
+          {open ? 'done' : why.length ? 'change' : 'add a reason'}
+        </button>
       </h3>
+      {!open && why.length === 0 && <p className="faint small" style={{ margin: 0 }}>None given.</p>}
       <div className="chips">
         {shown.map((r) => (
           <button key={r} className={`chip toggle ${why.includes(r) ? 'on' : ''}`} onClick={() => toggle(r)} aria-pressed={why.includes(r)}>
