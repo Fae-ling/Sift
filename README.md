@@ -47,9 +47,11 @@ updated in place, never replaced.
 
 Everything measurable runs locally. The only paid part is the optional advice from
 the Claude API, which needs your own key (Settings). A story request sends small
-thumbnails of your picks; a grading plan sends one preview. Each button shows an
-estimate before and the actual cost after. You can choose a cheaper model in
-Settings. With no key, everything else still works.
+thumbnails of your picks. Reading a whole shoot (Cull with Claude) sends one to three
+small thumbnails per moment: by the app's own estimate, about 600 frames cost roughly
+$2 on the default model (Opus), $1 on Sonnet and 5 cents on Haiku. Each button shows
+an estimate before and the actual cost after, and the model is chosen in Settings.
+With no key, everything else still works.
 
 ## Updating without losing anything
 

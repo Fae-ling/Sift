@@ -188,7 +188,7 @@ export function Guide(): React.JSX.Element {
               <p className="lead">
                 Everything so far is free and runs on this computer. Claude is an optional second pair of eyes: it reads
                 a shoot moment by moment, says what is happening in each frame, names emotions the app cannot, and
-                everything it says is kept for the app to learn from. It costs a few cents per shoot, shown before each
+                everything it says is kept for the app to learn from. With the cheapest model a large shoot costs a few cents; with the best one, a few dollars. An estimate is shown before each
                 use.
               </p>
               {settings.hasApiKey ? (
