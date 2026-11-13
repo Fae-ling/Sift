@@ -70,6 +70,11 @@ const TOPIC_LIMITS: Record<string, { keys: (keyof Limits)[]; lenientWhenLarger: 
   'Background more colourful than the subject': { keys: ['bgSaturation'], lenientWhenLarger: true },
   'Background busier than the subject': { keys: ['bgContrast'], lenientWhenLarger: true }
 }
+/** The checks that shape the cull, in the photographer's words, for the strictness controls. */
+export const STRICTNESS_CHECKS: { topic: string; label: string; asks: string }[] = [
+  { topic: 'Subject merges with the background', label: 'Subject lost against the background', asks: 'How much of the subject\'s outline may blend into what is behind it before a frame is marked down.' },
+  { topic: 'Where the eye goes', label: 'Eye lands on the subject', asks: 'How much of the viewer\'s attention must fall on the subject before a frame is marked down.' }
+]
 export const canGiveFeedback = (topic: string): boolean => topic in TOPIC_LIMITS
 
 /**
@@ -153,7 +158,7 @@ export function trainingSummary(t: Training): { diagnosis: string; look: string 
   return {
     diagnosis:
       photos === 0
-        ? 'Nothing yet. The diagnosis uses general limits.'
+        ? 'Nothing yet. The cull uses general limits.'
         : photos < MIN_NORM
           ? `${photos} finished photographs so far; ${MIN_NORM} are needed before your own norms replace the general limits.`
           : `Learned from ${photos} finished photographs. In your work the subject typically holds ${Math.round(Number(med('attention')) * 100)}% of the attention and loses ${Math.round(Number(med('merged')) * 100)}% of its outline${t.norms.skinHue?.length >= MIN_NORM ? `; skin hue sits around ${med('skinHue')}°` : ''}. A new photo is flagged when it is worse than 85% of these.`,

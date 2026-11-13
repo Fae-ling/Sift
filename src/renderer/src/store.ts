@@ -38,7 +38,7 @@ import { faceThumb } from './analysis/pipeline'
 import { FEATURES, tendencies } from './analysis/learner'
 import { digest, emptyGuidance, forgivePriors, GUIDANCE_VERSION, priorOf, toProposals, type Check, type Guidance, type Review } from './analysis/guidance'
 
-type ViewBase = 'projects' | 'profiles' | 'emotions' | 'training' | 'look' | 'diagnose' | 'brief' | 'import' | 'cull' | 'story' | 'export' | 'learn' | 'settings'
+type ViewBase = 'projects' | 'profiles' | 'emotions' | 'training' | 'look' | 'brief' | 'import' | 'cull' | 'story' | 'export' | 'learn' | 'settings'
 export type View = ViewBase | 'people' | 'overview' | 'taste' | 'gestures' | 'words' | 'reasons' | 'claude' | 'review'
 export type Filter = 'all' | 'suggested' | 'undecided' | 'picks' | 'rejects' | 'warnings' | 'gems' | 'unkept' | 'must' | 'relook' | 'key'
 
@@ -48,6 +48,15 @@ interface IngestState {
   total: number
   failed: number
   startedAt: number
+}
+
+/** The people of a shoot, and who each face was, before a change to them. */
+interface PeopleBefore {
+  label: string
+  projectId: string
+  people: Person[] | undefined
+  shots: { id: string; people: Shot['people']; peopleSet: Shot['peopleSet'] }[]
+  learned: Knowledge['people']
 }
 
 /** A frame's decision and rating before a change, so the change can be undone. */
@@ -104,6 +113,20 @@ interface State {
   /** Progress of a reference gallery being analysed. */
   learning: { running: boolean; done: number; total: number }
   toast: string | null
+  /** When set, the toast offers to take back what it reports. */
+  toastUndo: (() => void) | null
+  /** Says something, with a button that takes it back for a few seconds. */
+  notifyUndo(message: string, undo: () => void): void
+  /** Runs a removal of something learned, and offers to bring it back. */
+  undoable(message: string, fn: () => void): void
+  /** Starts a new stack at this frame: it and the later frames of its stack, so a wrongly joined take can be set apart. */
+  splitStack(shotId: string): void
+  /** Joins a stack to the one next to it in the same scene: they were the same moment. Returns false when they are not neighbours. */
+  joinStacks(fromStackId: number, intoStackId: number): boolean
+  /** Starts a new scene at this frame. */
+  splitScene(shotId: string): void
+  /** Joins a scene to the one before it. */
+  joinSceneAbove(sceneId: number): void
   /** Stored examples of the photographer's decisions, across projects. */
   tasteData: LearningData
   /** The taste model trained from them, with its self-check. null until there is something to learn from. */
@@ -118,6 +141,10 @@ interface State {
   undoStack: Before[][]
   redoStack: Before[][]
 
+  /** Changes to who is who, each as the people and faces before it, so the last can be taken back. */
+  peopleUndo: PeopleBefore[]
+  /** Takes back the last change to the people of the shoot. */
+  undoPeople(): void
   setView(view: View): void
   setFilter(filter: Filter): void
   select(id: string | null): void
@@ -192,6 +219,10 @@ interface State {
   peopleLearning(): TuningReport
   editPerson(id: string, patch: Partial<Pick<Person, 'name' | 'key'>>): void
   mergePerson(fromId: string, intoId: string): void
+  /** Takes some faces out of a person and makes them a person of their own: for two people the app took for one. */
+  splitPerson(id: string, faces: { shotId: string; face: number }[]): void
+  /** Takes someone off the list (a passer-by, or a mistake): their faces become nobody in particular and stay that way. */
+  removePerson(id: string): void
   /** Says who a face is: an existing person, 'new' for someone not listed yet, or null for nobody in particular. */
   setFacePerson(shotId: string, face: number, personId: string | 'new' | null): void
   /** What surrounds the photo in Cull: the side panel, the filmstrip, and everything at once (focus). */
@@ -218,7 +249,7 @@ interface State {
   forgetClaudeRecord(projectId: string): void
   setExcluded(key: string, excluded: boolean): void
   setIgnoredMeasurement(key: string, ignored: boolean): void
-  forgetProjectDecisions(projectId: string): void
+  forgetProjectDecisions(projectId: string): Promise<void>
   /** Reloads a store another window changed, without saving anything back. */
   reloadChanged(name: string): Promise<void>
   /** Frames a re-estimate of the open project turned up. */
@@ -305,7 +336,8 @@ function scoring(p: Pick<Project, 'genre' | 'balance' | 'styleIds' | 'storyPlan'
     balance: p.balance,
     style: mergeProfiles(active.flatMap((s) => (s.profile ? [s.profile] : []))),
     feel: active.length ? feelOf(active.flatMap((s) => s.tags)) : undefined,
-    learned: taste ? { model: taste.model, trust: taste.trust } : undefined
+    learned: taste ? { model: taste.model, trust: taste.trust } : undefined,
+    limits: limitsFrom(useStore.getState().training)
   }
 }
 
@@ -366,6 +398,48 @@ function reasonsNow(): { store: ReturnType<typeof reasonConcepts>; directions: R
     reasonCache = { of: r, value: { store, directions: tagDirections(store) } }
   }
   return reasonCache.value
+}
+
+function rememberPeople(get: () => State, set: (p: Partial<State>) => void, label: string): void {
+  const project = get().project
+  if (!project) return
+  const entry: PeopleBefore = {
+    label,
+    projectId: project.id,
+    people: project.people,
+    shots: project.shots.filter((x) => x.people || x.peopleSet).map((x) => ({ id: x.id, people: x.people, peopleSet: x.peopleSet })),
+    learned: get().knowledge.people
+  }
+  set({ peopleUndo: [...get().peopleUndo.slice(-19), entry] })
+}
+
+/** Which scene and stack every frame was in, so a regrouping can be taken back. */
+function regroupSnapshot(get: () => State): { id: string; sceneId?: number; stackId?: number }[] {
+  return (get().project?.shots ?? []).map((x) => ({ id: x.id, sceneId: x.sceneId, stackId: x.stackId }))
+}
+
+function restoreGroups(get: () => State, was: { id: string; sceneId?: number; stackId?: number }[]): void {
+  const at = new Map(was.map((x) => [x.id, x]))
+  get().update((p) => ({ ...p, shots: scoreAndSuggest(p.shots.map((x) => (at.has(x.id) ? { ...x, sceneId: at.get(x.id)!.sceneId, stackId: at.get(x.id)!.stackId } : x)), scoring(p, get().learned)) }))
+  useStore.setState({ toast: null, toastUndo: null })
+}
+
+/** Scenes numbered 1, 2, 3 in the order they appear, whatever was done to them. */
+function renumberScenes(shots: Shot[]): Shot[] {
+  const order = new Map<number, number>()
+  let n = 0
+  // A split-off scene carries -1 until it is numbered: it follows the scene it came from.
+  let last = 0
+  return shots.map((x) => {
+    const id = x.sceneId ?? 0
+    if (id === -1) {
+      if (!order.has(-1000 - last)) order.set(-1000 - last, ++n)
+      return { ...x, sceneId: order.get(-1000 - last)! }
+    }
+    if (!order.has(id)) order.set(id, ++n)
+    last = id
+    return { ...x, sceneId: order.get(id)! }
+  })
 }
 
 function setKnowledge(set: (p: Partial<State>) => void, knowledge: Knowledge, save = true): void {
@@ -603,14 +677,94 @@ export const useStore = create<State>((set, get) => ({
   training: emptyTraining(),
   teaching: { running: false, done: 0, total: 0, label: '' },
   chapter: null,
+  peopleUndo: [],
   undoStack: [],
   redoStack: [],
 
   setView: (view) => set({ view }),
   setFilter: (filter) => set({ filter }),
   select: (selectedId) => set({ selectedId }),
+  toastUndo: null,
+  notifyUndo: (message, undo) => {
+    set({ toast: message, toastUndo: undo })
+    setTimeout(() => get().toast === message && set({ toast: null, toastUndo: null }), 9000)
+  },
+  undoable: (message, fn) => {
+    const was = { knowledge: get().knowledge, emotions: get().emotions, gestures: get().gestures, guidance: get().guidance }
+    fn()
+    get().notifyUndo(message, () => {
+      setKnowledge(set, was.knowledge)
+      setEmotions(set, was.emotions)
+      setGestures(set, was.gestures)
+      setGuidance(set, was.guidance)
+      get().relearn()
+      set({ toast: null, toastUndo: null })
+    })
+  },
+  splitStack: (shotId) => {
+    const before = regroupSnapshot(get)
+    get().update((p) => {
+      const i = p.shots.findIndex((x) => x.id === shotId)
+      const at = p.shots[i]
+      if (!at || (i > 0 ? p.shots[i - 1].stackId !== at.stackId : true)) return p
+      const fresh = Math.max(0, ...p.shots.map((x) => x.stackId ?? 0)) + 1
+      const shots = p.shots.map((x, j) => (j >= i && x.stackId === at.stackId ? { ...x, stackId: fresh } : x))
+      return { ...p, shots: scoreAndSuggest(shots, scoring(p, get().learned)) }
+    })
+    get().notifyUndo('Started a new stack here.', () => restoreGroups(get, before))
+  },
+  joinStacks: (fromStackId, intoStackId) => {
+    const p = get().project
+    if (!p || fromStackId === intoStackId) return false
+    const idx = (id: number): number[] => p.shots.flatMap((x, i) => (x.stackId === id ? [i] : []))
+    const a = idx(fromStackId)
+    const b = idx(intoStackId)
+    const next = a.length && b.length && (a[a.length - 1] + 1 === b[0] || b[b.length - 1] + 1 === a[0])
+    if (!next || p.shots[a[0]].sceneId !== p.shots[b[0]].sceneId) {
+      get().notify('Only neighbouring takes of the same scene can be joined.')
+      return false
+    }
+    const before = regroupSnapshot(get)
+    get().update((q) => ({ ...q, shots: scoreAndSuggest(q.shots.map((x) => (x.stackId === fromStackId ? { ...x, stackId: intoStackId } : x)), scoring(q, get().learned)) }))
+    get().notifyUndo('Joined the two stacks.', () => restoreGroups(get, before))
+    return true
+  },
+  splitScene: (shotId) => {
+    const before = regroupSnapshot(get)
+    get().update((p) => {
+      const i = p.shots.findIndex((x) => x.id === shotId)
+      const at = p.shots[i]
+      if (!at || i === 0 || p.shots[i - 1].sceneId === undefined || p.shots[i - 1].sceneId !== at.sceneId) return p
+      let fresh = Math.max(0, ...p.shots.map((x) => x.stackId ?? 0)) + 1
+      const shots = p.shots.map((x, j) => {
+        if (j < i || x.sceneId !== at.sceneId) return x
+        return { ...x, sceneId: -1 }
+      })
+      // Frames of a stack that straddles the split go with the new scene, as a stack of their own.
+      const cut = new Map<number, number>()
+      shots.forEach((x, j) => {
+        if (x.sceneId !== -1) return
+        const old = p.shots[j].stackId ?? 0
+        if (p.shots.some((y, k) => k < i && y.stackId === old) && !cut.has(old)) cut.set(old, fresh++)
+      })
+      return { ...p, shots: scoreAndSuggest(renumberScenes(shots.map((x, j) => (x.sceneId === -1 && cut.has(p.shots[j].stackId ?? 0) ? { ...x, stackId: cut.get(p.shots[j].stackId ?? 0) } : x))), scoring(p, get().learned)) }
+    })
+    get().notifyUndo('Started a new scene here.', () => restoreGroups(get, before))
+  },
+  joinSceneAbove: (sceneId) => {
+    const before = regroupSnapshot(get)
+    get().update((p) => {
+      const ids = [...new Set(p.shots.map((x) => x.sceneId))]
+      const k = ids.indexOf(sceneId)
+      if (k < 1) return p
+      const above = ids[k - 1]
+      return { ...p, shots: scoreAndSuggest(renumberScenes(p.shots.map((x) => (x.sceneId === sceneId ? { ...x, sceneId: above } : x))), scoring(p, get().learned)) }
+    })
+    get().notifyUndo('Joined the scene to the one above.', () => restoreGroups(get, before))
+  },
+
   notify: (toast) => {
-    set({ toast })
+    set({ toast, toastUndo: null })
     if (toast) setTimeout(() => get().toast === toast && set({ toast: null }), 5000)
   },
 
@@ -655,7 +809,7 @@ export const useStore = create<State>((set, get) => ({
     if (loaded.balance === undefined) project.shots = scoreAndSuggest(project.shots, scoring(project, get().learned))
     const has = project.shots.length > 0
     // Open on the frames the cull would keep; everything else is one click away.
-    set({ project, view: has ? 'cull' : 'brief', selectedId: null, filter: has ? 'suggested' : 'all', chapter: null, undoStack: [], redoStack: [], relook: null, marked: [], asking: null })
+    set({ project, view: has ? 'cull' : 'brief', selectedId: null, filter: has ? 'suggested' : 'all', chapter: null, undoStack: [], redoStack: [], peopleUndo: [], relook: null, marked: [], asking: null })
     // Score the project with the taste model as it stands, tuned to this kind of shoot.
     get().relearn()
   },
@@ -1078,6 +1232,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   forgetLearning: async () => {
+    await window.studio.backup.safety('forget all learning').catch(() => {})
     const learning = { ...emptyLearning(), blindBursts: get().tasteData.blindBursts }
     currentTaste = null
     set({ tasteData: learning, taste: null })
@@ -1105,6 +1260,7 @@ export const useStore = create<State>((set, get) => ({
     })
     if (!count) throw new Error('No people were found in those photographs, so there was nothing to learn norms from.')
     saveTraining(set, get, { norms }, { kind: 'finished', name: baseName(folder), count })
+    rescore(get)
   },
 
   trainLook: async (beforeFolder, afterFolder) => {
@@ -1151,9 +1307,13 @@ export const useStore = create<State>((set, get) => ({
     const prev = get().training.feedback[topic] ?? { agree: 0, dismiss: 0 }
     const feedback = { ...get().training.feedback, [topic]: agree ? { ...prev, agree: prev.agree + 1 } : { ...prev, dismiss: prev.dismiss + 1 } }
     saveTraining(set, get, { feedback })
+    rescore(get)
   },
 
-  resetTraining: (area) => saveTraining(set, get, { [area]: emptyTraining()[area] } as Partial<Training>),
+  resetTraining: (area) => {
+    saveTraining(set, get, { [area]: emptyTraining()[area] } as Partial<Training>)
+    if (area === 'norms' || area === 'feedback') rescore(get)
+  },
 
   loadEmotions: async () => {
     const stored = (await window.studio.data.get('emotions')) as EmotionStore | null
@@ -1315,7 +1475,8 @@ export const useStore = create<State>((set, get) => ({
     set({ tasteData: { ...data, ignored: [...list] } })
     get().relearn()
   },
-  forgetProjectDecisions: (projectId) => {
+  forgetProjectDecisions: async (projectId) => {
+    await window.studio.backup.safety('forget project decisions').catch(() => {})
     const data = get().tasteData
     const projects = { ...data.projects }
     delete projects[projectId]
@@ -1547,6 +1708,7 @@ export const useStore = create<State>((set, get) => ({
     if (!project?.people) return
     const name = patch.name?.trim()
     // Giving someone the name of a person already listed says they are the same person.
+    if (!project.people.some((x) => x.id === id)) return
     const twin = name ? project.people.find((x) => x.id !== id && x.name.toLowerCase() === name.toLowerCase()) : undefined
     if (twin) return get().mergePerson(id, twin.id)
     get().update((p) => {
@@ -1555,11 +1717,28 @@ export const useStore = create<State>((set, get) => ({
     })
   },
 
+  undoPeople: () => {
+    const last = get().peopleUndo.at(-1)
+    set({ peopleUndo: get().peopleUndo.slice(0, -1) })
+    if (!last || get().project?.id !== last.projectId) return
+    get().update((p) => {
+      const was = new Map(last.shots.map((x) => [x.id, x]))
+      const shots = p.shots.map((x) => {
+        const b = was.get(x.id)
+        return b ? { ...x, people: b.people, peopleSet: b.peopleSet } : x.people || x.peopleSet ? { ...x, people: undefined, peopleSet: undefined } : x
+      })
+      return { ...p, people: last.people, shots: scoreAndSuggest(shots, scoring({ ...p, people: last.people }, get().learned)) }
+    })
+    setKnowledge(set, { ...get().knowledge, people: last.learned })
+  },
+
   mergePerson: (fromId, intoId) => {
+    rememberPeople(get, set, 'Joined two people')
     const before = get().project
     const from = before?.people?.find((x) => x.id === fromId)
     const into = before?.people?.find((x) => x.id === intoId)
-    if (from && into) {
+    if (!from || !into || from.id === into.id) return
+    {
       // "These are the same person": every face known of one against the faces known of the other.
       const more = from.faces.slice(-6).flatMap((id, i) => judge({ id, wear: from.wear[from.faces.length - Math.min(6, from.faces.length) + i] }, into, true, 4))
       if (more.length) setKnowledge(set, { ...get().knowledge, people: addJudgements(get().knowledge.people, more) })
@@ -1567,12 +1746,62 @@ export const useStore = create<State>((set, get) => ({
     get().update((p) => {
       const merged = mergePeople(p.shots, p.people ?? [], fromId, intoId)
       // With more faces known of the person, look again for others that are theirs.
-      const found = assignPeople(merged.shots, merged.people.filter((x) => x.name || x.key || x.id === intoId), tuningNow().tuning)
+      // Everyone else keeps their identity: only the faces nobody fixed are looked at again.
+      const found = assignPeople(merged.shots, merged.people, tuningNow().tuning)
+      return { ...p, people: found.people, shots: scoreAndSuggest(found.shots, scoring({ ...p, people: found.people }, get().learned)) }
+    })
+    void picturePeople(get)
+  },
+
+  splitPerson: (id, faces) => {
+    const project = get().project
+    const old = project?.people?.find((x) => x.id === id)
+    if (!project || !old || !faces.length) return
+    const picked = faces.flatMap(({ shotId, face }) => {
+      const shot = project.shots.find((x) => x.id === shotId)
+      const f = shot?.analysis?.faces[face]
+      return shot && f && shot.people?.[face] === id ? [{ shotId, face, f }] : []
+    })
+    if (!picked.length) return
+    rememberPeople(get, set, 'Split a person')
+    // "Not the same person": each picked face against the faces known of the one it came from.
+    const more = picked.flatMap(({ f }) => judge(f, old, false))
+    if (more.length) setKnowledge(set, { ...get().knowledge, people: addJudgements(get().knowledge.people, more) })
+    const newId = `p${Date.now().toString(36)}`
+    get().update((p) => {
+      const withId = picked.filter((x) => x.f.id)
+      let from: Person = p.people!.find((x) => x.id === id)!
+      for (const { f } of withId) from = removeFromPerson(from, f)
+      const fresh: Person = { id: newId, name: '', key: false, faces: withId.map((x) => x.f.id!).slice(-20), wear: withId.map((x) => x.f.wear ?? []).slice(-20) }
+      const people = [...p.people!.map((x) => (x.id === id ? from : x)), fresh]
+      const at = new Map<string, number[]>()
+      for (const x of picked) at.set(x.shotId, [...(at.get(x.shotId) ?? []), x.face])
+      const shots = p.shots.map((s) => {
+        const hit = at.get(s.id)
+        if (!hit || !s.people) return s
+        return { ...s, people: s.people.map((who, i) => (hit.includes(i) ? newId : who)), peopleSet: [...new Set([...(s.peopleSet ?? []), ...hit])] }
+      })
+      const found = assignPeople(shots, people.filter((x) => x.name || x.key || x.id === newId), tuningNow().tuning)
       return { ...p, people: found.people, shots: scoreAndSuggest(found.shots, scoring({ ...p, people: found.people }, get().learned)) }
     })
   },
 
+  removePerson: (id) => {
+    rememberPeople(get, set, 'Removed a person')
+    get().update((p) => {
+      const people = (p.people ?? []).filter((x) => x.id !== id)
+      const shots = p.shots.map((s) => {
+        if (!s.people?.includes(id)) return s
+        const peopleSet = new Set(s.peopleSet ?? [])
+        s.people.forEach((who, i) => who === id && peopleSet.add(i))
+        return { ...s, people: s.people.map((who) => (who === id ? null : who)), peopleSet: [...peopleSet] }
+      })
+      return { ...p, people, shots: scoreAndSuggest(shots, scoring({ ...p, people }, get().learned)) }
+    })
+  },
+
   setFacePerson: (shotId, face, personId) => {
+    rememberPeople(get, set, 'Corrected a face')
     const project = get().project
     const shot = project?.shots.find((x) => x.id === shotId)
     const f = shot?.analysis?.faces[face]

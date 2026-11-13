@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Person, Shot } from '@shared/types'
 import { thumbUrl } from '../analysis/pipeline'
 import { appearances } from '../analysis/people'
@@ -7,12 +7,33 @@ import { useStore } from '../store'
 
 /** The people of the open shoot: who they are, who matters most, and how well each is covered. */
 export function People(): React.JSX.Element {
-  const { project, readIdentities, editPerson, mergePerson, setFacePerson, setFilter, setView, identifying, peopleLearning } = useStore()
+  const { project, readIdentities, editPerson, mergePerson, removePerson, splitPerson, setFacePerson, peopleUndo, undoPeople, setFilter, setView, identifying, peopleLearning } = useStore()
   const shots = project?.shots ?? []
   const seen = useMemo(() => appearances(shots), [shots])
   const people = useMemo(() => [...(project?.people ?? [])].sort((a, b) => Number(b.key) - Number(a.key) || (seen.get(b.id)?.frames ?? 0) - (seen.get(a.id)?.frames ?? 0)), [project?.people, seen])
   const [showAll, setShowAll] = useState(false)
+  // The card being dragged, and the card or the bin it is over.
+  const [drag, setDrag] = useState<string | null>(null)
+  const [over, setOver] = useState<string | null>(null)
+  // A merge or removal waits here for the photographer to say yes.
+  const [ask, setAsk] = useState<{ kind: 'merge'; from: string; into: string } | { kind: 'remove'; id: string } | null>(null)
+  const lastChange = peopleUndo.at(-1)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const t = e.target as HTMLElement
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !/INPUT|TEXTAREA|SELECT/.test(t.tagName) && lastChange) {
+        e.preventDefault()
+        undoPeople()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [lastChange, undoPeople])
   if (!project) return <div className="page" />
+  const nameOf = (id: string): string => {
+    const i = people.findIndex((x) => x.id === id)
+    return people[i]?.name || `Person ${i + 1}`
+  }
 
   const hasIds = shots.some((s) => s.analysis?.faces.some((f) => f.id))
   // Frames whose faces were found at import but never given what tells them apart: an older project, or a quick import.
@@ -35,6 +56,47 @@ export function People(): React.JSX.Element {
         </button>
       </PageHeader>
 
+      {ask && (
+        <div className="confirm-backdrop" onClick={() => setAsk(null)}>
+          <div className="confirm card" role="alertdialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            {ask.kind === 'merge' ? (
+              <>
+                <h3>Join these two as one person?</h3>
+                <p>
+                  <b>{nameOf(ask.from)}</b> will be folded into <b>{nameOf(ask.into)}</b>: their frames and faces become one profile. You can undo it straight after.
+                </p>
+              </>
+            ) : (
+              <>
+                <h3>Remove {nameOf(ask.id)}?</h3>
+                <p>They leave the list and their faces count as nobody in particular. Finding people again will not bring them back. You can undo it straight after.</p>
+              </>
+            )}
+            <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
+              <button autoFocus onClick={() => setAsk(null)}>Cancel</button>
+              <button
+                className="primary"
+                onClick={() => {
+                  if (ask.kind === 'merge') mergePerson(ask.from, ask.into)
+                  else removePerson(ask.id)
+                  setAsk(null)
+                }}
+              >
+                {ask.kind === 'merge' ? 'Join them' : 'Remove'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {lastChange && (
+        <div className="undo-bar" role="status">
+          <span>{lastChange.label}.</span>
+          <button className="link" onClick={undoPeople}>
+            Undo
+          </button>
+          <span className="faint small">or Ctrl+Z</span>
+        </div>
+      )}
       {unread > 0 && (
         <div className="note teach read-faces">
           <p>
@@ -92,10 +154,44 @@ export function People(): React.JSX.Element {
                 shots={shots}
                 onNotThem={(shotId, face) => setFacePerson(shotId, face, null)}
                 onEdit={(patch) => editPerson(p.id, patch)}
-                onMerge={(into) => mergePerson(p.id, into)}
+                onMerge={(into) => setAsk({ kind: 'merge', from: p.id, into })}
+                onRemove={() => setAsk({ kind: 'remove', id: p.id })}
+                onSplit={(faces) => splitPerson(p.id, faces)}
+                dragging={drag === p.id}
+                target={!!drag && drag !== p.id && over === p.id}
+                onDragStart={() => setDrag(p.id)}
+                onDragEnd={() => {
+                  setDrag(null)
+                  setOver(null)
+                }}
+                onDragOver={() => drag && drag !== p.id && setOver(p.id)}
+                onDragLeave={() => setOver((o) => (o === p.id ? null : o))}
+                onDropHere={() => {
+                  if (drag && drag !== p.id) setAsk({ kind: 'merge', from: drag, into: p.id })
+                  setDrag(null)
+                  setOver(null)
+                }}
               />
             ))}
           </div>
+          {drag && (
+            <div
+              className={`person-bin ${over === 'bin' ? 'over' : ''}`}
+              onDragOver={(e) => {
+                e.preventDefault()
+                setOver('bin')
+              }}
+              onDragLeave={() => setOver((o) => (o === 'bin' ? null : o))}
+              onDrop={(e) => {
+                e.preventDefault()
+                setAsk({ kind: 'remove', id: drag })
+                setDrag(null)
+                setOver(null)
+              }}
+            >
+              Drop here to remove this person
+            </div>
+          )}
           {people.length > listed.length && (
             <button className="link" style={{ marginTop: 12 }} onClick={() => setShowAll(true)}>
               Show {people.length - listed.length} more who appear only a few times
@@ -119,8 +215,9 @@ export function People(): React.JSX.Element {
           </section>
           <p className="faint small" style={{ marginTop: 16 }}>
             Telling people apart is approximate: the same person in different light or seen from the side can be listed
-            twice, and two people who look and dress alike can be taken for one. Giving two entries the same name joins
-            them. To correct a single face, open the frame in Cull and choose who it is under the face.
+            twice, and two people who look and dress alike can be taken for one. Drag one person onto another to join them, or onto the bin
+            that appears to remove them. Giving two entries the same name joins them too. If two different people were put
+            into one profile, open "Check their faces", click the faces that are the other person, and split them off. To correct a single face, open the frame in Cull and choose who it is under the face.
           </p>
         </>
       )}
@@ -144,18 +241,43 @@ function faceCrop(shot: Shot, face: number): React.CSSProperties {
   return { backgroundSize: `${W * 100}% auto`, backgroundPosition: `${pos(cx, W)} ${pos(cy, H)}` }
 }
 
-function PersonCard(props: { person: Person; label: string; frames: number; kept: number; others: Person[]; shots: Shot[]; onNotThem: (shotId: string, face: number) => void; onEdit: (patch: Partial<Pick<Person, 'name' | 'key'>>) => void; onMerge: (intoId: string) => void }): React.JSX.Element {
+function PersonCard(props: { person: Person; label: string; frames: number; kept: number; others: Person[]; shots: Shot[]; onNotThem: (shotId: string, face: number) => void; onEdit: (patch: Partial<Pick<Person, 'name' | 'key'>>) => void; onMerge: (intoId: string) => void; onRemove: () => void; onSplit: (faces: { shotId: string; face: number }[]) => void; dragging: boolean; target: boolean; onDragStart: () => void; onDragEnd: () => void; onDragOver: () => void; onDragLeave: () => void; onDropHere: () => void }): React.JSX.Element {
   const { person: p } = props
   const [name, setName] = useState(p.name)
   const [open, setOpen] = useState(false)
   const [more, setMore] = useState(false)
+  // Faces ticked as belonging to someone else.
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const toggle = (k: string): void => setPicked((x) => (x.has(k) ? new Set([...x].filter((v) => v !== k)) : new Set([...x, k])))
   const faces = useMemo(
     () => (open ? props.shots.flatMap((s) => (s.people ?? []).flatMap((id, face) => (id === p.id && s.analysis?.faces[face]?.id ? [{ shot: s, face }] : []))) : []),
     [open, props.shots, p.id]
   )
   const projectId = useStore((x) => x.project?.id ?? '')
   return (
-    <div className={`card person ${p.key ? 'key' : ''}`}>
+    <div
+      className={`card person ${p.key ? 'key' : ''} ${props.dragging ? 'dragging' : ''} ${props.target ? 'merge-target' : ''}`}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move'
+        e.dataTransfer.setData('text/plain', p.id)
+        props.onDragStart()
+      }}
+      onDragEnd={props.onDragEnd}
+      onDragOver={(e) => {
+        e.preventDefault()
+        props.onDragOver()
+      }}
+      onDragLeave={props.onDragLeave}
+      onDrop={(e) => {
+        e.preventDefault()
+        props.onDropHere()
+      }}
+    >
+      {props.target && <div className="merge-hint">Let go to join as the same person</div>}
+      <button className="person-x" onClick={props.onRemove} aria-label={`Remove ${props.label}`} title="Remove this person">
+        ×
+      </button>
       <div className="row" style={{ alignItems: 'flex-start', gap: 12 }}>
         {p.thumb ? <img src={p.thumb} alt={props.label} className="person-face" /> : <div className="person-face" />}
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -182,17 +304,36 @@ function PersonCard(props: { person: Person; label: string; frames: number; kept
       </button>
       {open && (
         <>
-          <p className="faint small" style={{ margin: '6px 0' }}>Is every one of these them? Click × on one that is not: Sift removes it and learns from it.</p>
+          <p className="faint small" style={{ margin: '6px 0' }}>Is every one of these them? Click × on a stray face to remove it. If this profile mixes two people, click all the faces of the other one, then split them off.</p>
           <div className="face-grid">
             {faces.slice(0, more ? 200 : 18).map(({ shot, face }) => (
-              <div className="face-tile" key={`${shot.id}:${face}`} title={shot.name}>
+              <div className={`face-tile ${picked.has(`${shot.id}:${face}`) ? 'picked' : ''}`} key={`${shot.id}:${face}`} title={shot.name} onClick={() => toggle(`${shot.id}:${face}`)} draggable={false}>
                 <div className="face-crop" style={{ backgroundImage: `url(${thumbUrl(projectId, shot.id)})`, ...faceCrop(shot, face) }} />
-                <button className="face-x" onClick={() => props.onNotThem(shot.id, face)} aria-label={`Not ${props.label}: ${shot.name}`} title="Not them">
+                <button className="face-x" onClick={(e) => {
+                    e.stopPropagation()
+                    props.onNotThem(shot.id, face)
+                  }} aria-label={`Not ${props.label}: ${shot.name}`} title="Not them">
                   ×
                 </button>
               </div>
             ))}
           </div>
+          {picked.size > 0 && (
+            <div className="row" style={{ gap: 8, margin: '8px 0' }}>
+              <button
+                className="primary small"
+                onClick={() => {
+                  props.onSplit([...picked].map((k) => ({ shotId: k.slice(0, k.lastIndexOf(':')), face: Number(k.slice(k.lastIndexOf(':') + 1)) })))
+                  setPicked(new Set())
+                }}
+              >
+                Split {picked.size} face{picked.size === 1 ? '' : 's'} off as a new person
+              </button>
+              <button className="link small" onClick={() => setPicked(new Set())}>
+                Clear
+              </button>
+            </div>
+          )}
           {faces.length > 18 && !more && (
             <button className="link small" onClick={() => setMore(true)}>
               Show all {faces.length}

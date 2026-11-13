@@ -442,7 +442,7 @@ export function claudeRecord(shots: Shot[]): ClaudeRecord {
 /** Advice from Claude worth remembering beyond the call it came from. */
 export interface Note {
   at: number
-  source: 'story' | 'style' | 'essence' | 'diagnose' | 'review'
+  source: 'story' | 'style' | 'essence' | 'review'
   text: string
   project?: string
 }

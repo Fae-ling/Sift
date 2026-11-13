@@ -2,12 +2,12 @@ import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'elect
 import { join } from 'node:path'
 import { existsSync, renameSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
-import type { TuneRequest, AtmosphereRequest, DevelopStyleRequest, DiagnoseRequest, NameFacesRequest, EssenceRequest, Learned, Project, ReadRequest, StoryRequest, XmpItem } from '@shared/types'
-import { atmosphere, developStyle, diagnose, nameFaces, narrativeRead, storyAdvice, styleEssence, tuneLearning } from './ai'
+import type { TuneRequest, AtmosphereRequest, DevelopStyleRequest, NameFacesRequest, EssenceRequest, Learned, Project, ReadRequest, StoryRequest, XmpItem } from '@shared/types'
+import { atmosphere, developStyle, nameFaces, narrativeRead, storyAdvice, styleEssence, tuneLearning } from './ai'
 import { promises as fs } from 'node:fs'
 import { copySelects, exportXmp, readRatings, saveFiles } from './exporter'
 import { exiftool, extractPreview, savePreview, scanFolder } from './ingest'
-import { appVersion, backupTo, checkForUpdate, downloadAndInstall, installFromFile, restoreFrom, setUpdateToken } from './updater'
+import { appVersion, backupTo, checkForUpdate, downloadAndInstall, installFromFile, listSafetyBackups, restoreFrom, restoreSafetyBackup, safetyBackup, setUpdateToken, startAutoBackup } from './updater'
 import {
   getData,
   saveData,
@@ -195,6 +195,9 @@ function registerIpc(): void {
     if (result.canceled) return null
     return restoreFrom(result.filePaths[0])
   })
+  handle('data:safety', (reason: string) => safetyBackup(reason))
+  handle('data:backups', listSafetyBackups)
+  handle('data:restoreNamed', (name: string) => restoreSafetyBackup(name))
   handle('data:folder', () => shell.openPath(app.getPath('userData')))
   handle('app:version', appVersion)
   handle('ai:story', (req: StoryRequest) => storyAdvice(req))
@@ -202,7 +205,6 @@ function registerIpc(): void {
   handle('ai:nameFaces', (req: NameFacesRequest) => nameFaces(req))
   handle('ai:developStyle', (req: DevelopStyleRequest) => developStyle(req))
   handle('ai:atmosphere', (req: AtmosphereRequest) => atmosphere(req))
-  handle('ai:diagnose', (req: DiagnoseRequest) => diagnose(req))
   handle('ai:essence', (req: EssenceRequest) => styleEssence(req))
   handle('ai:tune', (req: TuneRequest) => tuneLearning(req))
 }
@@ -218,6 +220,7 @@ void app.whenReady().then(() => {
   })
   registerIpc()
   createWindow()
+  startAutoBackup()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

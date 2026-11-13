@@ -37,7 +37,6 @@ Claude's help when wanted, teaches it what they see. See
 | **Training** | One screen to teach with your own photographs: culling from past shoots (Lightroom ratings or a folder of delivered files), diagnosis norms from finished photographs, a house look from before/after pairs. Each run adds to what is known; each area can be forgotten. See [docs/TRAINING.md](docs/TRAINING.md). | free |
 | **Cull with Claude** | The editor's read, now aware of the chosen profile as well as the brief and story plan. | optional |
 | **Story** | Your picks as a sequence: coverage by chapter and shot type, gaps, reordering. **Your eye** compares your decisions with the suggestions and can tune the balance to your taste. Optionally asks Claude for a picture editor's sequence. | optional, cents |
-| **Diagnose a photo** | Open any photo, or a pick. Eight panels show what a retoucher looks for: subject and faces; skin, eyes and lips; where the eye goes and what distracts it; the picture as three masses; where the outline merges with the background; skin evenness; sky and vegetation; the silhouette. Findings are written out with the adjustment and its reason. A try-it preview sketches the fix on a small copy, and the masks can be saved as PNG. Optionally Claude writes a description, diagnosis and ordered adjustments. | free; Claude read optional |
 | **Look extractor** | Open a finished photo in almost any format; get its tone curve, shadow/midtone/highlight tints and saturation as a `.cube` LUT or a Lightroom preset. Add one of your unedited frames for a measured match and a preview. Claude can then shape the look so its atmosphere carries the concept of the shoot. | free; shaping optional |
 | **Hand off** | Writes star ratings and colour labels to XMP sidecars that Lightroom Classic reads. | free |
 | **Learn** | 27 short articles on culling, photo editing, colour, graphic design and video, each with further reading. | free |
@@ -68,6 +67,16 @@ Settings → Updates either finds it for you (add a fine-grained GitHub token wi
 (*Install from a file*). Before installing, it copies your data into
 `%APPDATA%\Sift\backups`. Settings → Your data also backs everything up to a
 folder of your choice and restores it.
+
+Backups are also made automatically, at most once a day and only when something
+has changed, into the same `backups` folder. They do not pile up: the newest of each
+of the last 7 days stays, then the newest of each of the 4 weeks after that.
+The copies made before an update (newest 3) and before a restore (newest 2) are
+trimmed the same way, so the folder stays at roughly a dozen copies of the data
+(never the preview caches). A file that has not changed since the previous backup
+is not copied again but linked to the earlier copy, so repeated backups of a big
+shoot take space only for what changed (the first one holds everything). Backups you save to a folder of your own are yours to
+manage.
 
 ## Install (Windows)
 
@@ -150,7 +159,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the suite is put togeth
 - The starting emotions and starter styles are descriptions, not measurements of real
   shoots. Nothing in the emotion or style system has been tried on real photographs yet.
 - Composition is read only for the two strongest frames of each moment that contain a face.
-- Diagnose a photo: masks come from a 256-pixel model and have soft edges. The skin
+- Composition and skin readings used in the cull: masks come from a 256-pixel model and have soft edges. The skin
   evenness scale was set on a single test portrait and needs real photos to calibrate.
   There is no depth map and no real scene segmentation (sky and vegetation are guessed
   from colour); see docs/ARCHITECTURE.md for why and how they would be added. It does

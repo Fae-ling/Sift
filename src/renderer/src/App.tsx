@@ -4,7 +4,6 @@ import { Mark } from './components/Mark'
 import { useStore, type View } from './store'
 import { Brief } from './views/Brief'
 import { Cull } from './views/Cull'
-import { Diagnose } from './views/Diagnose'
 import { Emotions } from './views/Emotions'
 import { Export } from './views/Export'
 import { Guide } from './views/Guide'
@@ -32,7 +31,6 @@ const STEPS: Item[] = [
 ]
 
 const TOOLS: Item[] = [
-  { view: 'diagnose', label: 'Diagnose a photo', icon: 'diagnose', hint: 'What holds one picture back, before you retouch it' },
   { view: 'look', label: 'Look extractor', icon: 'look', hint: "Turn a photo's colour into a LUT or preset" }
 ]
 
@@ -98,9 +96,19 @@ export function App(): React.JSX.Element {
 
 function Toast(): React.JSX.Element {
   const toast = useStore((s) => s.toast)
+  const undo = useStore((s) => s.toastUndo)
   return (
     <div className="toast-region" role="status" aria-live="polite">
-      {toast && <div className="toast">{toast}</div>}
+      {toast && (
+        <div className="toast">
+          <span>{toast}</span>
+          {undo && (
+            <button className="link" onClick={undo}>
+              Undo
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -173,7 +181,6 @@ function StudioApp(): React.JSX.Element {
       </nav>
       <main className="main">
         {view === 'projects' && <Projects />}
-        {view === 'diagnose' && <Diagnose />}
         {view === 'look' && <Look />}
         {view === 'learn' && <Learn />}
         {view === 'settings' && <SettingsView />}

@@ -5,6 +5,7 @@ import { assetLift, cleanTag, forgiveness, recogniseTags, sceneVector, tagDirect
 import { keyPeopleIn } from './people'
 import { centroid, DEFAULT_EMOTION_VALUE, FAMILY_EMOTIONS, readEmotion, toCues, UNNAMED_EMOTION_VALUE, type EmotionRead, type EmotionStore } from './emotion'
 import { featuresOf, predict, reasonsFor, type Model } from './learner'
+import { DEFAULT_LIMITS, type Limits } from './diagnose'
 import { styleBonus, type Feel } from './style'
 
 const clamp = (v: number, lo = 0, hi = 1): number => Math.min(hi, Math.max(lo, v))
@@ -168,6 +169,8 @@ export interface ScoreOptions {
   people?: Person[]
   /** The model of the photographer's own taste, and how much say it has earned (0..0.8). */
   learned?: { model: Model; trust: number }
+  /** The photographer's own limits for composition, trained from finished work and feedback. */
+  limits?: Limits
 }
 
 const FATAL: Warning[] = ['blink', 'soft', 'soft-face', 'misfire', 'blurred']
@@ -294,15 +297,19 @@ export function scoreShot(a: Analysis, refs: Refs, options: ScoreOptions, read?:
   if (a.diag) {
     const d = a.diag
     const parts: number[] = []
-    if (d.merged !== undefined) parts.push(1 - smooth(0.1, 0.6, d.merged))
-    if (d.attention !== undefined) parts.push(smooth(0.15, 0.6, d.attention))
+    // The ramps are set for the general limits; a photographer's own limits move them in proportion.
+    const lim = options.limits ?? DEFAULT_LIMITS
+    const m = lim.mergedSome / DEFAULT_LIMITS.mergedSome
+    const att = lim.attentionLow / DEFAULT_LIMITS.attentionLow
+    if (d.merged !== undefined) parts.push(1 - smooth(0.1 * m, 0.6 * m, d.merged))
+    if (d.attention !== undefined) parts.push(smooth(0.15 * att, 0.6 * att, d.attention))
     if (d.pull !== undefined) parts.push(1 - smooth(0.04, 0.2, d.pull))
     if (parts.length) {
       const composition = (100 * parts.reduce((x, y) => x + y, 0)) / parts.length
       craft = 0.82 * craft + 0.18 * composition
-      if (d.merged !== undefined && d.merged > 0.35) notes.push(`The subject merges with the background along ${Math.round(d.merged * 100)}% of its outline.`)
+      if (d.merged !== undefined && d.merged > 0.35 * m) notes.push(`The subject merges with the background along ${Math.round(d.merged * 100)}% of its outline.`)
       if (d.pull !== undefined && d.pull > 0.1) notes.push('Something other than the subject pulls the eye strongly.')
-      if (d.attention !== undefined && d.attention > 0.6 && (d.merged ?? 0) < 0.15) notes.push('The subject stands clear and holds the eye.')
+      if (d.attention !== undefined && d.attention > 0.6 * att && (d.merged ?? 0) < 0.15 * m) notes.push('The subject stands clear and holds the eye.')
     }
   }
 

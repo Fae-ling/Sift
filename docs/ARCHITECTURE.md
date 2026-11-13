@@ -38,7 +38,6 @@ reloads it without saving back (`reloadChanged`).
 | Workshop: teach with photos | `views/Training.tsx` | Past shoots (`PastShootForm`), finished work, before/after pairs; training log |
 | Workshop: shoot styles | `views/Profiles.tsx` | Kinds of work: chapters, must-haves, emotion weights, markers; Claude development |
 | Workshop: emotions | `views/Emotions.tsx` | What the app reads on faces; naming expressions; removing single examples |
-| Diagnose a photo | `views/Diagnose.tsx` | What is wrong with one picture before retouching; try-it preview; masks |
 | Look extractor | `views/Look.tsx` | A reference photo's look as LUT or Lightroom preset |
 | Learn | `views/Learn.tsx` | Articles (`knowledge/index.ts`) |
 | Settings | `views/Settings.tsx` | API key, model, spend |
@@ -82,7 +81,7 @@ reloads it without saving back (`reloadChanged`).
 | `style.ts` | Shoot styles: chapters, emotion weights and how decisions shift them, measured profile, atmosphere words | none |
 | `learner.ts` | The photographer's taste: examples, training, held-back self-check | linear model, trained locally |
 | `training.ts` | Personal norms, editing habits, house look, feedback; turns them into limits | none |
-| `reading.ts` | Runs the whole diagnosis on one preview (shared by Diagnose and Training) | uses the above |
+| `reading.ts` | Runs the whole diagnosis on one preview (used by the cull and Training) | uses the above |
 | `look.ts` | Look extraction: curve, zone tints, saturation; LUT and preset writers | none |
 | `diagnose.ts` | Attention, distractions, three masses, outline separation, skin evenness and colour, background clutter and colour families, findings | none |
 | `pipeline.ts` | Import of one photo: preview, thumbnail, measurements | uses the above |
@@ -98,7 +97,7 @@ the app in `out/renderer/mediapipe`.
 | `projects/<id>/cache/` | Preview (1600 px) and thumbnail per shot |
 | `projects/<id>/analysis.json` | Measurements of every frame, rewritten only when they change |
 | `projects/style-<id>/cache/` | Sample thumbnails of a shoot style |
-| `projects/look/`, `projects/diagnose/` | Scratch previews for the two single-photo tools |
+| `projects/look/` | Scratch previews for the look extractor |
 | `learned.json` | Shoot styles and what each has learned |
 | `emotions.json` | Emotion concepts, their examples, unnamed expressions waiting for a name |
 | `gestures.json` | Gesture concepts and their examples |
@@ -108,7 +107,7 @@ the app in `out/renderer/mediapipe`.
 | `training.json` | Norms of finished photographs, editing habits, house look, feedback, log |
 | `spend.json` | What Claude has cost, by month |
 | `update.json` | The GitHub token for updates, encrypted |
-| `backups/` | Copies of all of the above made before each update (the newest three) |
+| `backups/` | Copies of all of the above (`src/main/backups.ts`): `auto-<ms>` daily when something changed (last 7 days, then one per week for 4 weeks), `before-update-<version>-<ms>` (newest 3), `before-restore-<ms>` (newest 2). A folder without `sift-backup.txt` is unfinished and is removed. Files unchanged since the previous backup are hard-linked to its copy (copied where linking fails), so a backup costs only what changed |
 | `settings.json` | Model choice; encrypted API key |
 
 ## Calls to Claude (`src/main/ai.ts`)
@@ -122,12 +121,11 @@ the app in `out/renderer/mediapipe`.
 | `atmosphere` | One photo, the measured look, the concept | How to shape the look, as words and as numbers |
 | `essence` | Up to 36 thumbnails of a gallery, measured facts | How that photographer chooses |
 | `tune` (Review with Claude) | A text digest of everything collected: decisions, the taste model and its self-check, kept-against-not-kept means of every measurement, the ledger, reject reasons, Claude's record, styles, emotions. No images, no names | A reading, starting weights, forgiveness rules, things to stop using, style changes, questions (high effort) |
-| `diagnose` | One preview, the diagnosis findings, brief | Description, diagnosis, ordered adjustments, what stays the photographer's |
 
 All use structured output, report their cost, and add it to the spend ledger.
 
-**The briefing** (`briefing` in `knowledge.ts`, sent with `read`, `story` and
-`diagnose`) is plain text of at most about 1,000 words: what the taste model has
+**The briefing** (`briefing` in `knowledge.ts`, sent with `read` and
+`story`) is plain text of at most about 1,000 words: what the taste model has
 learned, the clearest trade-offs and asset preferences from the ledger, how often
 the photographer went with or against Claude's earlier reads with examples of
 each, advice they acted on, the key people, and the most recent frames kept and
@@ -155,10 +153,11 @@ decided frames are re-weighted. All four are rebuilt from stored evidence per
 project, so changing your mind in an old project is learned too, and
 `reestimateAll` can rebuild everything from the projects on disk.
 
-## Diagnose a photo: how it is built, and how it grows
+## Photo readings: how they are built, and how they grow
 
-The feature answers, for one photograph, the questions a retoucher asks before
-touching it. Each has a measurable part.
+There is no screen for these. They are measured per frame in the background and feed
+the cull and training. They answer, for one photograph, the questions a retoucher asks
+before touching it. Each has a measurable part.
 
 | Question | Built | How |
 | --- | --- | --- |
@@ -169,18 +168,16 @@ touching it. Each has a measurable part.
 | Is the skin even? Is its colour right? | yes | Blotch-scale variation in brightness and redness (`skinEvenness`); CIELAB hue against the usual band, spread, face against body, lips against skin (`skinColour`). Eyes and lips are excluded. |
 | Is the background fighting the subject? | yes | Edge density around the outline against the picture's average; colour families and hue spread (`readBackground`); saturation and local contrast of background against subject. |
 | Where does the gaze lead? | partly | Head turn and the room in that direction. Iris-level gaze is not read yet. |
-| What would the fix look like? | yes, as a sketch | Six sliders applied to a small copy through the masks; each names the Lightroom or Photoshop tool that does it for real. |
-| Masks to work with | yes, soft | Subject, background, skin as PNG at preview size, from a 256 px model. |
-| Depth (what is near, what is far) | **no** | Needs a depth model (Depth Anything V2 small, about 25 MB, run with `onnxruntime-web`). Its download host is not reachable from the build environment used so far, so it could not be integrated and tested. Would add: a depth panel, "atmospheric perspective" advice by distance, and a foreground/background split where there is no person. |
+| Depth (what is near, what is far) | **no** | Needs a depth model (Depth Anything V2 small, about 25 MB, run with `onnxruntime-web`). Its download host is not reachable from the build environment used so far, so it could not be integrated and tested. Would add: a depth map, "atmospheric perspective" advice by distance, and a foreground/background split where there is no person. |
 | Scene concepts (sky, vegetation, water, building, ground) | rough | Sky and vegetation are guessed from colour and position. A proper answer needs a scene-segmentation model (SegFormer-B0 on ADE20K, about 15 MB, same runtime as depth). |
-| Doing the retouch (cleaning skin, removing objects, applying the masks) | **no, by design** | Sift does not change photographs. The sketch shows direction and amount; the work is done in Lightroom and Photoshop, where it stays editable. |
+| Doing the retouch (cleaning skin, removing objects, applying the masks) | **no, by design** | Sift does not change photographs; the work is done in Lightroom and Photoshop, where it stays editable. |
 
 **To add depth and scene concepts:** add `onnxruntime-web` and its WASM files to the
 renderer's public folder; a `depth.ts` and `scene.ts` beside `segment.ts`, each
-returning a map at the working size; two more entries in `PANELS`; and in `findings`:
+returning a map at the working size; and in `findings`:
 subject-to-background distance for the separation advice, and named regions
 ("the sky", "the foliage") in place of positions for distractions. The `Analysis`
-object in `Diagnose.tsx` is where new maps are attached.
+object in `reading.ts` is where new maps are attached.
 
 **To sharpen the masks:** run the segmenter per person on a crop (the people boxes
 from `faces.ts` already exist), or replace it with a matting model; the export path

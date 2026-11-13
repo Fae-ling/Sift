@@ -20,8 +20,11 @@ export const Thumb = memo(function Thumb(props: {
   onSelect?: (id: string, mods: ClickMods) => void
   /** Hide what the app thinks of this frame (its burst is being judged unprompted). */
   hide?: boolean
+  /** Starts something new at this frame: a stack or a scene, for groupings the app got wrong. */
+  onCut?: (id: string) => void
+  cutWhat?: 'stack' | 'scene'
 }): React.JSX.Element {
-  const { shot, selected, marked, onSelect, projectId, hide } = props
+  const { shot, selected, marked, onSelect, projectId, hide, onCut, cutWhat } = props
   const flag = shot.decision ?? (!hide && shot.suggestion && shot.suggestion !== 'reject' ? `s-${shot.suggestion}` : null)
   const warning = hide ? undefined : shot.score?.warnings[0]
   return (
@@ -34,6 +37,19 @@ export const Thumb = memo(function Thumb(props: {
       aria-selected={selected || marked}
     >
       {shot.analysis ? <img src={thumbUrl(projectId, shot.id)} loading="lazy" draggable={false} alt={shot.name} /> : null}
+      {onCut && (
+        <button
+          className="cut"
+          onClick={(e) => {
+            e.stopPropagation()
+            onCut(shot.id)
+          }}
+          title={cutWhat === 'scene' ? 'A new scene starts here' : 'This is a different moment: start a new stack here'}
+          aria-label={cutWhat === 'scene' ? 'Start a new scene here' : 'Start a new stack here'}
+        >
+          ✂
+        </button>
+      )}
       {flag && <span className={`flag ${flag}`} />}
       {marked && <span className="tick">✓</span>}
       {shot.score?.gem && !hide ? <span className="w gem">gem</span> : warning && <span className="w">{WARNING_MARK[warning]}</span>}

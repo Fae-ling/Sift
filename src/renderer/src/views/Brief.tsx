@@ -35,7 +35,7 @@ function Field({ k, first }: { k: keyof BriefType; first?: boolean }): React.JSX
 }
 
 export function Brief(): React.JSX.Element {
-  const { project, update, setView, learned, chooseStyle } = useStore()
+  const { project, update, setView, learned, chooseStyle, notifyUndo } = useStore()
   if (!project) return <></>
   const set = (patch: Partial<BriefType>): void => update((p) => ({ ...p, brief: { ...p.brief, ...patch } }))
   const setPlan = (storyPlan: Beat[]): void => update((p) => ({ ...p, storyPlan }))
@@ -104,7 +104,11 @@ export function Brief(): React.JSX.Element {
             </span>
             <input value={beat.name} aria-label={`Chapter ${i + 1} name`} onChange={(e) => setPlan(project.storyPlan.map((b, j) => (j === i ? { ...b, name: e.target.value } : b)))} />
             <textarea value={beat.look} aria-label={`What to look for in ${beat.name}`} rows={2} onChange={(e) => setPlan(project.storyPlan.map((b, j) => (j === i ? { ...b, look: e.target.value } : b)))} />
-            <button className="ghost remove" onClick={() => setPlan(project.storyPlan.filter((_, j) => j !== i))} aria-label={`Remove ${beat.name}`} title="Remove chapter">
+            <button className="ghost remove" onClick={() => {
+                const was = project.storyPlan
+                setPlan(was.filter((_, j) => j !== i))
+                notifyUndo(`Removed the chapter “${beat.name}”.`, () => setPlan(was))
+              }} aria-label={`Remove ${beat.name}`} title="Remove chapter">
               ×
             </button>
           </div>

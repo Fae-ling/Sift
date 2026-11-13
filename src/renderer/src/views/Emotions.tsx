@@ -8,7 +8,7 @@ import { PageHeader } from '../components/PageHeader'
 const ASK_AT_ONCE = 24
 
 export function Emotions(): React.JSX.Element {
-  const { emotions, settings, project, learned, namePointerAs, dropPointer, forgetEmotionNamed, forgetEmotionExample, notify } = useStore()
+  const { emotions, settings, project, learned, namePointerAs, dropPointer, forgetEmotionNamed, forgetEmotionExample, notify, undoable } = useStore()
   const [asking, setAsking] = useState(false)
   const waiting = [...emotions.pointers].filter((p) => p.thumbs.length > 0).sort((a, b) => b.count - a.count)
   const style = learned.styles.find((s) => project?.styleIds.includes(s.id))
@@ -69,7 +69,7 @@ export function Emotions(): React.JSX.Element {
       </p>
       <div className="cards" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
         {emotions.concepts.map((c) => (
-          <ConceptCard key={c.name} concept={c} onForget={() => forgetEmotionNamed(c.name)} onForgetExample={(at) => forgetEmotionExample(c.name, at)} />
+          <ConceptCard key={c.name} concept={c} onForget={() => undoable(c.builtin ? `Forgot the examples of “${c.name}”.` : `Deleted “${c.name}”.`, () => forgetEmotionNamed(c.name))} onForgetExample={(at) => undoable('Removed the example.', () => forgetEmotionExample(c.name, at))} />
         ))}
       </div>
     </div>

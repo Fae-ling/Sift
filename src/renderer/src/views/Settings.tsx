@@ -175,13 +175,56 @@ function Updates(): React.JSX.Element {
       )}
 
       <h2>Your data</h2>
-      <p className="muted small">Everything learned and every project's decisions, as plain files. A backup can be put back on this or another computer.</p>
+      <p className="muted small">Everything learned and every project's decisions, as plain files. A backup can be put back on this or another computer.
+        Sift also keeps its own copies in the data folder, about once a day when something has changed: the last week day by day, then weekly for a month, and older ones are removed.</p>
       <div className="row">
         <button onClick={() => void window.studio.backup.save().then((f) => f && notify(`Backed up to ${f}.`)).catch(fail)}>Back up…</button>
         <button onClick={() => void window.studio.backup.restore().then((n) => n !== null && notify(`Restored ${n} files.`)).catch(fail)}>Restore from a backup…</button>
         <button className="ghost" onClick={() => void window.studio.backup.reveal()}>
           Open the data folder
         </button>
+      </div>
+      <AutoBackups notify={notify} fail={fail} />
+    </>
+  )
+}
+
+/** The learning backups Sift takes by itself before something wipes what it has learned. */
+function AutoBackups(props: { notify: (m: string) => void; fail: (e: unknown) => void }): React.JSX.Element | null {
+  const [list, setList] = useState<{ name: string; at: number; reason: string }[]>([])
+  const [sure, setSure] = useState<string | null>(null)
+  useEffect(() => void window.studio.backup.list().then(setList).catch(() => {}), [])
+  if (list.length === 0) return <p className="faint small">Before “forget all learning” and the like, Sift saves a copy of what it has learned here, so a slip can be put right.</p>
+  return (
+    <>
+      <h3>Saved automatically before something was forgotten</h3>
+      <p className="muted small">Only what was learned is put back; your projects are left as they are.</p>
+      <div className="list">
+        {list.map((b) => (
+          <div className="list-row" key={b.name}>
+            <div className="list-main">
+              <div className="list-title">{new Date(b.at).toLocaleString()}</div>
+              <div className="list-detail">Before: {b.reason}</div>
+            </div>
+            <div className="list-actions">
+              {sure === b.name ? (
+                <>
+                  <span className="small">Replace what is learned now with this?</span>
+                  <button className="primary sm" onClick={() => void window.studio.backup.restoreNamed(b.name).catch(props.fail)}>
+                    Yes, restore
+                  </button>
+                  <button className="ghost sm" onClick={() => setSure(null)}>
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button className="ghost sm" onClick={() => setSure(b.name)}>
+                  Restore
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
     </>
   )

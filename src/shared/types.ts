@@ -507,12 +507,17 @@ export interface StudioApi {
     /** Asks for a backup folder and restores from it. Returns the number of files, or null if cancelled. */
     restore(): Promise<number | null>
     reveal(): Promise<void>
+    /** Saves what has been learned to the data folder, just before something wipes it. Returns the backup's name. */
+    safety(reason: string): Promise<string>
+    /** The automatic learning backups, newest first. */
+    list(): Promise<{ name: string; at: number; reason: string }[]>
+    /** Puts one of them back, and reloads. Returns the number of files. */
+    restoreNamed(name: string): Promise<number>
   }
   ai: {
     story(req: StoryRequest): Promise<StoryAdvice>
     read(req: ReadRequest): Promise<ReadResult>
     essence(req: EssenceRequest): Promise<StyleEssence>
-    diagnose(req: DiagnoseRequest): Promise<DiagnosisAdvice>
     nameFaces(req: NameFacesRequest): Promise<NameFacesResult>
     developStyle(req: DevelopStyleRequest): Promise<StyleProposal>
     atmosphere(req: AtmosphereRequest): Promise<AtmosphereAdvice>
@@ -629,28 +634,6 @@ export interface AtmosphereAdvice {
   reading: string
   moves: { what: string; why: string }[]
   look: LookParams
-  usage?: Usage
-}
-
-export interface DiagnoseRequest {
-  /** Cache folder the preview lives in: a project id, or 'diagnose' for a photo opened by itself. */
-  cacheId: string
-  shotId: string
-  /** The brief, when the photo belongs to a project. */
-  brief: string
-  /** What the on-device analysis measured, in plain sentences. */
-  measured: string
-  /** What the app has learned about this photographer so far, in plain text. */
-  context?: string
-}
-
-/** Claude's reading of one photograph: what it is, what holds it back, what to do. */
-export interface DiagnosisAdvice {
-  description: string
-  diagnosis: string
-  adjustments: { what: string; where: string; strength: string; why: string }[]
-  /** The part that is a matter of taste and stays with the photographer. */
-  yours: string
   usage?: Usage
 }
 
