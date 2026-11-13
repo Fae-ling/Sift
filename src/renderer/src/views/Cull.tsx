@@ -33,7 +33,7 @@ const NONE = new Set<string>()
 const time = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
 export function Cull(): React.JSX.Element {
-  const { project, selectedId, select, filter, setFilter, decide, acceptSuggestions, setView, chapter, setChapter, setRating, undo, redo, tasteData, setSceneChapter, deep, cancelDeepRead, relook, marked, setMarked, asking, setAsking, setWhy, settings, chrome, setChrome } = useStore()
+  const { project, selectedId, select, filter, setFilter, decide, acceptSuggestions, setView, chapter, setChapter, setRating, undo, redo, tasteData, setSceneChapter, splitStack, joinStacks, splitScene, joinSceneAbove, deep, cancelDeepRead, relook, marked, setMarked, asking, setAsking, setWhy, settings, chrome, setChrome } = useStore()
   const [showTriage, setShowTriage] = useState(false)
   const [compare, setCompare] = useState(false)
   const [showRead, setShowRead] = useState(false)
@@ -422,6 +422,11 @@ export function Cull(): React.JSX.Element {
             marked={scene.stacks.some((st) => st.some((x) => markedSet.has(x.id))) ? markedSet : NONE}
             onSelect={onThumb}
             onChapter={setSceneChapter}
+            firstScene={shots[0]?.sceneId}
+            onSplitStack={splitStack}
+            onJoinStacks={joinStacks}
+            onSplitScene={splitScene}
+            onJoinSceneAbove={joinSceneAbove}
           />
         ))}
       </div>
@@ -816,14 +821,26 @@ const SceneBlock = memo(function SceneBlock(props: {
   marked: Set<string>
   onSelect: (id: string, mods: ClickMods) => void
   onChapter: (sceneId: number, chapter: string | null) => void
+  firstScene: number | undefined
+  onSplitStack: (shotId: string) => void
+  onJoinStacks: (fromStackId: number, intoStackId: number) => boolean
+  onSplitScene: (shotId: string) => void
+  onJoinSceneAbove: (sceneId: number) => void
 }): React.JSX.Element {
   const { scene, chapter, plan } = props
+  // The stack being dragged over, so that it can show it will take the one dropped on it.
+  const [over, setOver] = useState<number | null>(null)
   return (
     <div className="scene">
       <div className="scene-head">
         <span>
           Scene {scene.id} · {time(scene.stacks[0][0].time)}
         </span>
+        {scene.id !== props.firstScene && (
+          <button className="ghost scene-join" onClick={() => props.onJoinSceneAbove(scene.id)} title="The frames before this scene belong to it: join it to the scene above" aria-label={`Join scene ${scene.id} to the scene above`}>
+            ← join
+          </button>
+        )}
         <Menu
           size="sm"
           label={`Chapter of scene ${scene.id}`}
@@ -836,9 +853,40 @@ const SceneBlock = memo(function SceneBlock(props: {
       </div>
       <div className="scene-row">
         {scene.stacks.map((st) => (
-          <div className={`stack ${st.length > 1 ? 'multi' : ''}`} key={st[0].id}>
-            {st.map((x) => (
-              <Thumb key={x.id} projectId={props.projectId} shot={x} selected={x.id === props.selectedId} marked={props.marked.has(x.id)} onSelect={props.onSelect} hide={props.hidden.has(x.id)} />
+          <div
+            className={`stack ${st.length > 1 ? 'multi' : ''} ${over === st[0].stackId ? 'join-target' : ''}`}
+            key={st[0].id}
+            draggable
+            title="Drag onto the next stack to join them as one moment"
+            onDragStart={(e) => {
+              e.dataTransfer.effectAllowed = 'move'
+              e.dataTransfer.setData('text/plain', String(st[0].stackId))
+            }}
+            onDragOver={(e) => {
+              e.preventDefault()
+              setOver(st[0].stackId ?? null)
+            }}
+            onDragLeave={() => setOver((o) => (o === st[0].stackId ? null : o))}
+            onDrop={(e) => {
+              e.preventDefault()
+              setOver(null)
+              const from = Number(e.dataTransfer.getData('text/plain'))
+              if (Number.isFinite(from) && st[0].stackId !== undefined) props.onJoinStacks(from, st[0].stackId)
+            }}
+          >
+            {st.map((x, k) => (
+              <Thumb
+                key={x.id}
+                projectId={props.projectId}
+                shot={x}
+                selected={x.id === props.selectedId}
+                marked={props.marked.has(x.id)}
+                onSelect={props.onSelect}
+                hide={props.hidden.has(x.id)}
+                // Not the first frame of its stack: cut the stack here. The first frame of a stack that is not the scene's first: cut the scene.
+                onCut={k > 0 ? props.onSplitStack : x.id !== scene.stacks[0][0].id ? props.onSplitScene : undefined}
+                cutWhat={k > 0 ? 'stack' : 'scene'}
+              />
             ))}
           </div>
         ))}

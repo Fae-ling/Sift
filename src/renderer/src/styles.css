@@ -568,3 +568,10 @@ label.list-row.proposal:not(.on) .list-main { opacity: .55; }
 .confirm { max-width: 420px; }
 .confirm h3 { margin-top: 0; }
 .undo-bar { position: fixed; left: 24px; bottom: 24px; z-index: 20; display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--raised); border: 1px solid var(--line-strong); border-radius: var(--r-lg); box-shadow: var(--shadow); }
+.stack.join-target { background: color-mix(in srgb, var(--accent) 28%, transparent); outline: 2px dashed var(--accent); }
+.stack { cursor: grab; }
+.thumb .cut { position: absolute; left: 2px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; padding: 0; justify-content: center; border: 0; border-radius: 50%; font-size: 11px; line-height: 1; background: rgba(0, 0, 0, .75); color: #fff; opacity: 0; transition: opacity .12s; z-index: 3; }
+.thumb:hover .cut, .thumb .cut:focus-visible { opacity: 1; }
+.scene-join { padding: 0 6px; font-size: 11px; opacity: 0; transition: opacity .12s; }
+.scene:hover .scene-join, .scene-join:focus-visible { opacity: 1; }
+.toast { display: flex; align-items: center; gap: 12px; }

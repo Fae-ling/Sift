@@ -113,6 +113,20 @@ interface State {
   /** Progress of a reference gallery being analysed. */
   learning: { running: boolean; done: number; total: number }
   toast: string | null
+  /** When set, the toast offers to take back what it reports. */
+  toastUndo: (() => void) | null
+  /** Says something, with a button that takes it back for a few seconds. */
+  notifyUndo(message: string, undo: () => void): void
+  /** Runs a removal of something learned, and offers to bring it back. */
+  undoable(message: string, fn: () => void): void
+  /** Starts a new stack at this frame: it and the later frames of its stack, so a wrongly joined take can be set apart. */
+  splitStack(shotId: string): void
+  /** Joins a stack to the one next to it in the same scene: they were the same moment. Returns false when they are not neighbours. */
+  joinStacks(fromStackId: number, intoStackId: number): boolean
+  /** Starts a new scene at this frame. */
+  splitScene(shotId: string): void
+  /** Joins a scene to the one before it. */
+  joinSceneAbove(sceneId: number): void
   /** Stored examples of the photographer's decisions, across projects. */
   tasteData: LearningData
   /** The taste model trained from them, with its self-check. null until there is something to learn from. */
@@ -398,6 +412,35 @@ function rememberPeople(get: () => State, set: (p: Partial<State>) => void, labe
   set({ peopleUndo: [...get().peopleUndo.slice(-19), entry] })
 }
 
+/** Which scene and stack every frame was in, so a regrouping can be taken back. */
+function regroupSnapshot(get: () => State): { id: string; sceneId?: number; stackId?: number }[] {
+  return (get().project?.shots ?? []).map((x) => ({ id: x.id, sceneId: x.sceneId, stackId: x.stackId }))
+}
+
+function restoreGroups(get: () => State, was: { id: string; sceneId?: number; stackId?: number }[]): void {
+  const at = new Map(was.map((x) => [x.id, x]))
+  get().update((p) => ({ ...p, shots: scoreAndSuggest(p.shots.map((x) => (at.has(x.id) ? { ...x, sceneId: at.get(x.id)!.sceneId, stackId: at.get(x.id)!.stackId } : x)), scoring(p, get().learned)) }))
+  useStore.setState({ toast: null, toastUndo: null })
+}
+
+/** Scenes numbered 1, 2, 3 in the order they appear, whatever was done to them. */
+function renumberScenes(shots: Shot[]): Shot[] {
+  const order = new Map<number, number>()
+  let n = 0
+  // A split-off scene carries -1 until it is numbered: it follows the scene it came from.
+  let last = 0
+  return shots.map((x) => {
+    const id = x.sceneId ?? 0
+    if (id === -1) {
+      if (!order.has(-1000 - last)) order.set(-1000 - last, ++n)
+      return { ...x, sceneId: order.get(-1000 - last)! }
+    }
+    if (!order.has(id)) order.set(id, ++n)
+    last = id
+    return { ...x, sceneId: order.get(id)! }
+  })
+}
+
 function setKnowledge(set: (p: Partial<State>) => void, knowledge: Knowledge, save = true): void {
   currentKnowledge = knowledge
   set({ knowledge })
@@ -640,8 +683,87 @@ export const useStore = create<State>((set, get) => ({
   setView: (view) => set({ view }),
   setFilter: (filter) => set({ filter }),
   select: (selectedId) => set({ selectedId }),
+  toastUndo: null,
+  notifyUndo: (message, undo) => {
+    set({ toast: message, toastUndo: undo })
+    setTimeout(() => get().toast === message && set({ toast: null, toastUndo: null }), 9000)
+  },
+  undoable: (message, fn) => {
+    const was = { knowledge: get().knowledge, emotions: get().emotions, gestures: get().gestures, guidance: get().guidance }
+    fn()
+    get().notifyUndo(message, () => {
+      setKnowledge(set, was.knowledge)
+      setEmotions(set, was.emotions)
+      setGestures(set, was.gestures)
+      setGuidance(set, was.guidance)
+      get().relearn()
+      set({ toast: null, toastUndo: null })
+    })
+  },
+  splitStack: (shotId) => {
+    const before = regroupSnapshot(get)
+    get().update((p) => {
+      const i = p.shots.findIndex((x) => x.id === shotId)
+      const at = p.shots[i]
+      if (!at || (i > 0 ? p.shots[i - 1].stackId !== at.stackId : true)) return p
+      const fresh = Math.max(0, ...p.shots.map((x) => x.stackId ?? 0)) + 1
+      const shots = p.shots.map((x, j) => (j >= i && x.stackId === at.stackId ? { ...x, stackId: fresh } : x))
+      return { ...p, shots: scoreAndSuggest(shots, scoring(p, get().learned)) }
+    })
+    get().notifyUndo('Started a new stack here.', () => restoreGroups(get, before))
+  },
+  joinStacks: (fromStackId, intoStackId) => {
+    const p = get().project
+    if (!p || fromStackId === intoStackId) return false
+    const idx = (id: number): number[] => p.shots.flatMap((x, i) => (x.stackId === id ? [i] : []))
+    const a = idx(fromStackId)
+    const b = idx(intoStackId)
+    const next = a.length && b.length && (a[a.length - 1] + 1 === b[0] || b[b.length - 1] + 1 === a[0])
+    if (!next || p.shots[a[0]].sceneId !== p.shots[b[0]].sceneId) {
+      get().notify('Only neighbouring takes of the same scene can be joined.')
+      return false
+    }
+    const before = regroupSnapshot(get)
+    get().update((q) => ({ ...q, shots: scoreAndSuggest(q.shots.map((x) => (x.stackId === fromStackId ? { ...x, stackId: intoStackId } : x)), scoring(q, get().learned)) }))
+    get().notifyUndo('Joined the two stacks.', () => restoreGroups(get, before))
+    return true
+  },
+  splitScene: (shotId) => {
+    const before = regroupSnapshot(get)
+    get().update((p) => {
+      const i = p.shots.findIndex((x) => x.id === shotId)
+      const at = p.shots[i]
+      if (!at || i === 0 || p.shots[i - 1].sceneId === undefined || p.shots[i - 1].sceneId !== at.sceneId) return p
+      let fresh = Math.max(0, ...p.shots.map((x) => x.stackId ?? 0)) + 1
+      const shots = p.shots.map((x, j) => {
+        if (j < i || x.sceneId !== at.sceneId) return x
+        return { ...x, sceneId: -1 }
+      })
+      // Frames of a stack that straddles the split go with the new scene, as a stack of their own.
+      const cut = new Map<number, number>()
+      shots.forEach((x, j) => {
+        if (x.sceneId !== -1) return
+        const old = p.shots[j].stackId ?? 0
+        if (p.shots.some((y, k) => k < i && y.stackId === old) && !cut.has(old)) cut.set(old, fresh++)
+      })
+      return { ...p, shots: scoreAndSuggest(renumberScenes(shots.map((x, j) => (x.sceneId === -1 && cut.has(p.shots[j].stackId ?? 0) ? { ...x, stackId: cut.get(p.shots[j].stackId ?? 0) } : x))), scoring(p, get().learned)) }
+    })
+    get().notifyUndo('Started a new scene here.', () => restoreGroups(get, before))
+  },
+  joinSceneAbove: (sceneId) => {
+    const before = regroupSnapshot(get)
+    get().update((p) => {
+      const ids = [...new Set(p.shots.map((x) => x.sceneId))]
+      const k = ids.indexOf(sceneId)
+      if (k < 1) return p
+      const above = ids[k - 1]
+      return { ...p, shots: scoreAndSuggest(renumberScenes(p.shots.map((x) => (x.sceneId === sceneId ? { ...x, sceneId: above } : x))), scoring(p, get().learned)) }
+    })
+    get().notifyUndo('Joined the scene to the one above.', () => restoreGroups(get, before))
+  },
+
   notify: (toast) => {
-    set({ toast })
+    set({ toast, toastUndo: null })
     if (toast) setTimeout(() => get().toast === toast && set({ toast: null }), 5000)
   },
 
