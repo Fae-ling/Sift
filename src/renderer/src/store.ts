@@ -1116,6 +1116,15 @@ export const useStore = create<State>((set, get) => ({
     if (frames.length === 0) return
     cancelRead = false
     set({ reading: { running: true, done: 0, total: frames.length } })
+    // The briefing is frozen for the whole read: every chunk then starts with identical text, which lets the
+    // API serve it from its cache at a tenth of the price. Only the frames (and their decisions) change.
+    const briefing = {
+      styleNotes: styleNotes(activeStyles(start, get().learned)),
+      emotions: get().emotions.concepts.map((c) => c.name),
+      gestures: get().gestures.concepts.map((c) => c.name),
+      happenings: vocabulary(get().knowledge.concepts).slice(0, 60).map((t) => t.name),
+      context: claudeContext()
+    }
     const clock = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     try {
       for (let i = 0; i < frames.length && !cancelRead && get().project?.id === start.id; i += READ_CHUNK) {
@@ -1126,12 +1135,7 @@ export const useStore = create<State>((set, get) => ({
           genre: project.genre,
           brief: project.brief,
           beats: project.storyPlan,
-          styleNotes: styleNotes(activeStyles(project, get().learned)),
-          emotions: get().emotions.concepts.map((c) => c.name),
-          gestures: get().gestures.concepts.map((c) => c.name),
-          happenings: vocabulary(get().knowledge.concepts).slice(0, 60).map((t) => t.name),
-          // Everything learned so far, and what has been chosen in this shoot up to this moment.
-          context: claudeContext(),
+          ...briefing,
           frames: chunk.map((s) => ({
             people: namesIn(s, project.people).join(', ') || undefined,
             decided: s.decision === 'pick' ? 'kept' : s.decision === 'reject' ? 'rejected' : undefined,

@@ -345,6 +345,8 @@ export interface StoryAdvice {
 export interface Usage {
   model: string
   inputTokens: number
+  /** Part of inputTokens that was served from the API's cache (billed at a tenth). */
+  cachedTokens?: number
   outputTokens: number
   costUsd: number
 }

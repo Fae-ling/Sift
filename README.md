@@ -52,6 +52,10 @@ thumbnails of your picks. Reading a whole shoot (Cull with Claude) sends one to 
 small thumbnails per moment: by the app's own estimate, about 600 frames cost roughly
 $2 on the default model (Opus), $1 on Sonnet and 5 cents on Haiku. Each button shows
 an estimate before and the actual cost after, and the model is chosen in Settings.
+The briefing that opens every batch of a read (your brief, story plan and what the app has
+learned) is frozen for the run and sent with prompt caching, so after the first batch the
+API re-reads it at a tenth of the input price. The actual cost shown already counts this;
+the estimate does not, so the real figure can come in lower.
 With no key, everything else still works.
 
 ## Updating without losing anything

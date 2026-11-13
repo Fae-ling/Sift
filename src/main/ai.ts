@@ -73,12 +73,17 @@ async function image(projectId: string, file: string): Promise<Anthropic.ImageBl
 
 function usage(model: string, u: Anthropic.Usage): Usage {
   const price = MODELS.find((m) => m.id === model) ?? MODELS[0]
-  const input = u.input_tokens + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0)
+  const written = u.cache_creation_input_tokens ?? 0
+  const cached = u.cache_read_input_tokens ?? 0
+  const input = u.input_tokens + written + cached
+  // Writing to the cache costs 1.25x the input price, reading from it 0.1x.
+  const billed = u.input_tokens + written * 1.25 + cached * 0.1
   return {
     model,
     inputTokens: input,
+    cachedTokens: cached,
     outputTokens: u.output_tokens,
-    costUsd: (input * price.inPerM + u.output_tokens * price.outPerM) / 1_000_000
+    costUsd: (billed * price.inPerM + u.output_tokens * price.outPerM) / 1_000_000
   }
 }
 
@@ -186,10 +191,17 @@ const ReadSchema = z.object({
  */
 export async function narrativeRead(req: ReadRequest): Promise<ReadResult> {
   const plan = req.beats.map((b) => `- ${b.name}: ${b.look}`).join('\n')
+  // Everything up to the cache marker is identical for every chunk of a shoot, so the API can reuse it.
+  // Anything that differs per chunk (like how many frames follow) must come after it.
   const content: Anthropic.ContentBlockParam[] = [
     {
       type: 'text',
-      text: `${briefText(req.genre, req.brief)}\n\nStory plan for this shoot:\n${plan}\n\nEmotions the app already knows by name: ${req.emotions.join(', ')}.${req.gestures?.length ? `\nGestures it knows: ${req.gestures.join(', ')}.` : ''}${req.happenings?.length ? `\nWords already used for what is happening: ${req.happenings.join(', ')}.` : ''}${learnedText(req.context)}${req.styleNotes ? `\n\nThe photographer is culling for a particular feeling. Let it shape what you value, without overriding the brief:\n${req.styleNotes}` : ''}\n\nBelow are ${req.frames.length} frames in capture order, each labelled with a number, scene, time, shot type and any technical flaws already measured.`
+      text: `${briefText(req.genre, req.brief)}\n\nStory plan for this shoot:\n${plan}\n\nEmotions the app already knows by name: ${req.emotions.join(', ')}.${req.gestures?.length ? `\nGestures it knows: ${req.gestures.join(', ')}.` : ''}${req.happenings?.length ? `\nWords already used for what is happening: ${req.happenings.join(', ')}.` : ''}${learnedText(req.context)}${req.styleNotes ? `\n\nThe photographer is culling for a particular feeling. Let it shape what you value, without overriding the brief:\n${req.styleNotes}` : ''}`,
+      cache_control: { type: 'ephemeral' }
+    },
+    {
+      type: 'text',
+      text: `Below are ${req.frames.length} frames in capture order, each labelled with a number, scene, time, shot type and any technical flaws already measured.`
     }
   ]
   for (const [i, f] of req.frames.entries()) {
