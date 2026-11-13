@@ -198,6 +198,24 @@ try {
   await photo.click({ position: { x: 300, y: 200 } })
   await until(() => photo.locator('img').evaluate((img) => img.getBoundingClientRect().width), (w) => Math.abs(w - fitted) < 2, 'a second click fits it again')
 
+  // The photo is never stretched: whichever frame is open, it is shown in the proportions of the image itself,
+  // also when coming back to a frame whose full-size image was loaded for zooming, from one of another shape.
+  const squashed = () =>
+    photo.locator('img').evaluate((img) => {
+      const r = img.getBoundingClientRect()
+      return Math.abs(r.width / r.height / (img.naturalWidth / img.naturalHeight) - 1)
+    })
+  const thumbs = page.locator('.strip .thumb')
+  await thumbs.first().click()
+  await photo.click({ position: { x: 300, y: 200 } })
+  await until(() => photo.locator('img').getAttribute('src'), (src) => src.startsWith('blob:'), 'the full-size image is loaded again')
+  await photo.click({ position: { x: 300, y: 200 } })
+  for (const at of [(await thumbs.count()) - 1, 0, 1, (await thumbs.count()) - 1, 0]) {
+    await thumbs.nth(at).click()
+    await page.waitForTimeout(500)
+    assert.ok((await squashed()) < 0.02, `the photo keeps its proportions (frame ${at})`)
+  }
+
   // The cull settings open over the photo, with the style chosen from Sift's own menu.
   await page.locator('.popover-wrap > button').click()
   await page.getByRole('dialog', { name: 'Cull settings' }).waitFor()

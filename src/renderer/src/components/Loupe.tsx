@@ -67,6 +67,11 @@ export function Loupe({ projectId, shot }: { projectId: string; shot: Shot }): R
   const drag = useRef<{ x: number; y: number; moved: boolean; start: View } | null>(null)
   const faces = shot.analysis?.faces ?? []
 
+  // Another frame: its own proportions from the start, until its image has loaded and says exactly.
+  useEffect(() => {
+    if (shot.width && shot.height) setAspect(shot.width / shot.height)
+  }, [shot.id, shot.width, shot.height])
+
   useLayoutEffect(() => {
     const el = box.current
     if (!el) return
@@ -172,8 +177,9 @@ export function Loupe({ projectId, shot }: { projectId: string; shot: Shot }): R
         src={highRes?.url ?? previewUrl(projectId, shot.id)}
         alt={shot.name}
         draggable={false}
-        onLoad={(e) => !highRes && setAspect(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight)}
-        style={{ left, top, width: W, height: H }}
+        // The proportions come from the image on show, whichever it is, so it can never be stretched to another's.
+        onLoad={(e) => setAspect(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight)}
+        style={{ left, top, width: W, height: H, objectFit: 'contain' }}
       />
       {!zoomed &&
         faces.map((f, i) => (
