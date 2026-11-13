@@ -10,6 +10,12 @@
 //   before-update   made just before an installer runs. The newest 3 stay.
 //   before-restore  made just before a backup is put back. The newest 2 stay.
 //
+// Space: a file that has not changed since the previous backup is not copied again but
+// hard-linked to that backup's copy, so it takes no extra room (a shoot's analysis.json can
+// be large and only changes during import). Removing an old backup is still safe: the data
+// stays until the last backup pointing at it is gone. Where linking is not possible (another
+// disk, a file system without it) the file is copied instead.
+//
 // Nothing here depends on Electron, so it can be tested on its own.
 
 import { promises as fs } from 'node:fs'
@@ -44,13 +50,15 @@ export async function dataFiles(root: string): Promise<string[]> {
 /**
  * Copies the data files into a folder and checks each copy came out the same size,
  * so a full disk or an interrupted copy is an error, not a backup that looks fine.
- * Returns how many files.
+ * With `previous` (the newest finished backup and when it began), files unchanged since then
+ * are linked to its copy instead of copied. Returns how many files.
  */
-export async function backupTo(root: string, folder: string, version: string): Promise<number> {
+export async function backupTo(root: string, folder: string, version: string, previous?: { folder: string; time: number }): Promise<number> {
   const files = await dataFiles(root)
   for (const rel of files) {
     const to = join(folder, rel)
     await fs.mkdir(join(to, '..'), { recursive: true })
+    if (previous && (await linkUnchanged(join(root, rel), join(previous.folder, rel), to, previous.time))) continue
     await fs.copyFile(join(root, rel), to)
     const [a, b] = await Promise.all([fs.stat(join(root, rel)), fs.stat(to)])
     // The source may have been legitimately rewritten while copying; only a short copy is wrong.
@@ -59,6 +67,21 @@ export async function backupTo(root: string, folder: string, version: string): P
   // The marker goes last: a folder without it is an unfinished backup, and is cleared away.
   await fs.writeFile(join(folder, MARKER), `Sift ${version} backup, ${new Date().toISOString()}\n`)
   return files.length
+}
+
+/**
+ * Links `to` to the earlier backup's copy when the file has not been touched since that backup
+ * began (and is the same size). Any doubt, or any failure to link, means false: copy it.
+ */
+async function linkUnchanged(source: string, earlier: string, to: string, earlierTime: number): Promise<boolean> {
+  try {
+    const [a, b] = await Promise.all([fs.stat(source), fs.stat(earlier)])
+    if (a.size !== b.size || a.mtimeMs > earlierTime) return false
+    await fs.link(earlier, to)
+    return true
+  } catch {
+    return false
+  }
 }
 
 interface Found {
@@ -117,7 +140,15 @@ export async function prune(dir: string, now = Date.now()): Promise<string[]> {
 export async function makeBackup(root: string, kind: BackupKind, version: string, now = Date.now()): Promise<string> {
   const dir = join(root, 'backups')
   const folder = join(dir, kind === 'before-update' ? `${kind}-${version}-${now}` : `${kind}-${now}`)
-  await backupTo(root, folder, version)
+  // Unchanged files are linked to the newest finished backup instead of copied again.
+  let previous: { folder: string; time: number } | undefined
+  for (const b of await listBackups(dir)) {
+    if (await exists(join(dir, b.name, MARKER))) {
+      previous = { folder: join(dir, b.name), time: b.time }
+      break
+    }
+  }
+  await backupTo(root, folder, version, previous)
   await prune(dir, now).catch(() => {
     // Trimming is housekeeping; a failure must not turn a good backup into an error.
   })

@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readdir, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -81,5 +81,38 @@ describe('backups on disk', () => {
   it('never lets automatic backups pile up', async () => {
     for (let d = 0; d < 120; d++) await makeBackup(root, 'auto', '0.2.12', NOW + d * DAY)
     expect((await listBackups(join(root, 'backups'))).length).toBeLessThanOrEqual(13)
+  })
+
+  it('links files unchanged since the last backup instead of copying them, and copies the ones that changed', async () => {
+    const first = await makeBackup(root, 'auto', '0.2.12', NOW)
+    const later = new Date(NOW + DAY)
+    await writeFile(join(root, 'projects', 'p1', 'project.json'), '{"id":"p1","edited":true}')
+    await utimes(join(root, 'projects', 'p1', 'project.json'), later, later)
+    const second = await makeBackup(root, 'auto', '0.2.12', NOW + DAY + 2000)
+    const same = async (f: string): Promise<boolean> => (await stat(join(first, f))).ino === (await stat(join(second, f))).ino
+    expect(await same('projects/p1/analysis.json')).toBe(true) // unchanged: shared on disk
+    expect(await same('learned.json')).toBe(true)
+    expect(await same('projects/p1/project.json')).toBe(false) // changed: its own copy
+    expect(await readFile(join(first, 'projects/p1/project.json'), 'utf8')).toBe('{"id":"p1"}') // the old one is untouched
+    expect(await readFile(join(second, 'projects/p1/project.json'), 'utf8')).toContain('edited')
+  })
+
+  it('keeps a backup whole after the older one it shares files with is removed', async () => {
+    await makeBackup(root, 'before-restore', '0.2.12', NOW)
+    await makeBackup(root, 'before-restore', '0.2.12', NOW + 1000)
+    const last = await makeBackup(root, 'before-restore', '0.2.12', NOW + 2000) // the first is pruned now
+    expect(await readdir(join(root, 'backups'))).toHaveLength(2)
+    expect(await readFile(join(last, 'projects/p1/analysis.json'), 'utf8')).toBe('{}')
+    expect(await readFile(join(last, 'learned.json'), 'utf8')).toBe('{"styles":[]}')
+  })
+
+  it('does not link to a file changed after the previous backup began', async () => {
+    const first = await makeBackup(root, 'auto', '0.2.12', NOW)
+    const later = new Date(NOW + DAY - 500)
+    await writeFile(join(root, 'learned.json'), '{"styles":[1]}') // same size, newer
+    await utimes(join(root, 'learned.json'), later, later)
+    const second = await makeBackup(root, 'auto', '0.2.12', NOW + DAY)
+    expect(await readFile(join(second, 'learned.json'), 'utf8')).toBe('{"styles":[1]}')
+    expect(await readFile(join(first, 'learned.json'), 'utf8')).toBe('{"styles":[]}')
   })
 })
