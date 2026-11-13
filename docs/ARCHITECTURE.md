@@ -34,6 +34,7 @@ reloads it without saving back (`reloadChanged`).
 | 5 Hand off | `views/Export.tsx` | Ratings and labels to XMP; copy picks |
 | Workshop: overview | `views/Workshop.tsx` | Everything learned at a glance; re-estimate all projects |
 | Workshop: your eye, gestures, words, mistakes and reasons, Claude | `views/Workshop.tsx` | Look through what was learned; remove it or switch it off |
+| Workshop: review with Claude | `views/Review.tsx` | See what Claude is sent; ask for a review; approve proposals; see whether they helped; remove guidance |
 | Workshop: teach with photos | `views/Training.tsx` | Past shoots (`PastShootForm`), finished work, before/after pairs; training log |
 | Workshop: shoot styles | `views/Profiles.tsx` | Kinds of work: chapters, must-haves, emotion weights, markers; Claude development |
 | Workshop: emotions | `views/Emotions.tsx` | What the app reads on faces; naming expressions; removing single examples |
@@ -76,6 +77,7 @@ reloads it without saving back (`reloadChanged`).
 | `people.ts` | Gathers alike faces into people within one shoot; joining, corrections, key people | none |
 | `describe.ts` | The sentence saying what is happening; what a frame brings and what is against it | none |
 | `knowledge.ts` | What Claude's descriptions taught (words tied to measurements); the ledger of mistakes against assets; the record with Claude; the briefing Claude is given | prototypes and counts, learned locally |
+| `guidance.ts` | Claude's review: the digest of everything collected, turning its answer into proposals, the guidance in use (starting weights, forgiveness rules) | none |
 | `estimate.ts` | Re-estimating a culled project: calls right then and now, frames worth another look | none |
 | `style.ts` | Shoot styles: chapters, emotion weights and how decisions shift them, measured profile, atmosphere words | none |
 | `learner.ts` | The photographer's taste: examples, training, held-back self-check | linear model, trained locally |
@@ -100,6 +102,7 @@ the app in `out/renderer/mediapipe`.
 | `learned.json` | Shoot styles and what each has learned |
 | `emotions.json` | Emotion concepts, their examples, unnamed expressions waiting for a name |
 | `gestures.json` | Gesture concepts and their examples |
+| `guidance.json` | Claude's reviews, what was approved from each, and the guidance in use |
 | `knowledge.json` | Words for what is happening with their examples; per project, the ledger of mistakes against assets and the record with Claude; advice acted on |
 | `learning.json` | Examples of the photographer's decisions, per project |
 | `training.json` | Norms of finished photographs, editing habits, house look, feedback, log |
@@ -118,6 +121,7 @@ the app in `out/renderer/mediapipe`.
 | `developStyle` | A style as it stands, evidence from the photographer's culling, optionally kept frames | Chapters, emotion weights, markers, balance, notes |
 | `atmosphere` | One photo, the measured look, the concept | How to shape the look, as words and as numbers |
 | `essence` | Up to 36 thumbnails of a gallery, measured facts | How that photographer chooses |
+| `tune` (Review with Claude) | A text digest of everything collected: decisions, the taste model and its self-check, kept-against-not-kept means of every measurement, the ledger, reject reasons, Claude's record, styles, emotions. No images, no names | A reading, starting weights, forgiveness rules, things to stop using, style changes, questions (high effort) |
 | `diagnose` | One preview, the diagnosis findings, brief | Description, diagnosis, ordered adjustments, what stays the photographer's |
 
 All use structured output, report their cost, and add it to the spend ledger.

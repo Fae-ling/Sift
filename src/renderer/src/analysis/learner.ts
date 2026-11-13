@@ -228,14 +228,37 @@ function pairsOf(examples: Example[], keyOf: (e: Example) => string): Pair[] {
  * gradient descent with a little shrinkage, so that with few examples the
  * weights stay small and the built-in rules keep the say.
  */
-export function train(examples: Example[], keyOf: (e: Example) => string): Model {
+/**
+ * A starting point for the weights, from Claude's review of the collected data:
+ * for each measurement a weight and how many examples' worth of belief it
+ * carries. The model starts there and is pulled toward it, so with few
+ * decisions it follows the guidance, and as decisions pile up they take over.
+ */
+export interface Prior {
+  w: number[]
+  /** Pseudo-examples per measurement; 0 means no guidance for it. */
+  strength: number[]
+}
+
+/**
+ * Weights usually differ by a few units, and one decision pulls on a weight with a force of at most 1.
+ * Dividing the guidance's pull by this spread makes "worth N decisions" mean what it says: a guided
+ * weight several units off resists about as hard as N decisions that disagree with it.
+ */
+const PRIOR_SPREAD = 4
+
+export function train(examples: Example[], keyOf: (e: Example) => string, prior?: Prior): Model {
   const n = FEATURES.length
-  const w = new Array<number>(n).fill(0)
+  const guided = (i: number): boolean => !!prior && (prior.strength[i] ?? 0) > 0
+  const w = new Array<number>(n).fill(0).map((_, i) => (guided(i) ? prior!.w[i] : 0))
   const decided = examples.filter((e) => e.y !== -1)
   const pairs = pairsOf(examples, keyOf)
   const total = decided.reduce((s, e) => s + e.w, 0) + pairs.reduce((s, p) => s + p.w, 0)
   if (total === 0) return { weights: w, trainedOn: 0 }
-  const shrink = 2 / total
+  // The guidance counts as extra examples, so the steps are scaled by evidence plus guidance; that keeps
+  // gradient descent stable however strong the guidance is against little data.
+  const extra = prior ? Math.max(0, ...prior.strength) / PRIOR_SPREAD : 0
+  const denom = total + extra
   const rate = 0.8
   const grad = new Array<number>(n)
   for (let step = 0; step < 300; step++) {
@@ -250,7 +273,12 @@ export function train(examples: Example[], keyOf: (e: Example) => string): Model
       const err = (sigmoid(z) - 1) * p.w
       for (let i = 0; i < n; i++) grad[i] += err * (p.kept.x[i] - p.passed.x[i])
     }
-    for (let i = 0; i < n; i++) w[i] -= rate * (grad[i] / total + (i === 0 ? 0 : shrink * w[i]))
+    for (let i = 0; i < n; i++) {
+      // Without guidance a weight is pulled gently toward zero; with it, toward the guided value,
+      // as firmly as the guidance's worth in examples against the evidence there is.
+      const pull = guided(i) ? (prior!.strength[i] / PRIOR_SPREAD) * (w[i] - prior!.w[i]) : i === 0 ? 0 : 2 * w[i]
+      w[i] -= rate * ((grad[i] + pull) / denom)
+    }
   }
   return { weights: w.map((v) => Math.round(v * 10000) / 10000), trainedOn: examples.length }
 }
@@ -270,6 +298,11 @@ export interface Report {
   trust: number
   /** Unprompted choices collected so far. */
   blindDecisions: number
+  /**
+   * Whether Claude's guidance helped, judged on the held-back bursts: agreement of the
+   * model learned with it and without it. Guidance that makes the model worse is set aside.
+   */
+  guidance?: { used: boolean; guided: number; unguided: number; pairs: number }
 }
 
 export interface Learned {
@@ -297,7 +330,7 @@ export const isBlindBurst = (projectId: string, stackId: number): boolean => has
  * the held-back bursts, and none at all until there are enough of them.
  * Recent projects count more than old ones, so the model follows a changing eye.
  */
-export function learn(data: LearningData, genre: Genre): Learned {
+export function learn(data: LearningData, genre: Genre, prior?: Prior): Learned {
   const projects = Object.entries(data.projects).sort((a, b) => b[1].updatedAt - a[1].updatedAt)
   const all: { e: Example; key: string }[] = []
   // A measurement the photographer ruled out is invisible to the model: always zero, so its weight stays zero.
@@ -314,12 +347,25 @@ export function learn(data: LearningData, genre: Genre): Learned {
   const training = all.filter(({ key: k }) => !held(k)).map(({ e }) => e)
   const testing = all.filter(({ key: k }) => held(k)).map(({ e }) => e)
 
-  const model = train(training, key)
   const pairs = pairsOf(testing, key)
   const agree = (scoreOf: (e: Example) => number): number => {
     const weight = pairs.reduce((s, p) => s + p.w, 0)
     return weight ? pairs.reduce((s, p) => s + (scoreOf(p.kept) > scoreOf(p.passed) ? p.w : 0), 0) / weight : 0
   }
+  // Claude's guidance is tested like everything else: on bursts neither it nor the model learned from.
+  const plain = train(training, key)
+  let usePrior = false
+  let guidance: Report['guidance']
+  if (prior && prior.strength.some((s) => s > 0)) {
+    const guidedModel = train(training, key, prior)
+    const unguided = agree((e) => predict(plain, e.x))
+    const guidedAgree = agree((e) => predict(guidedModel, e.x))
+    // Kept unless it measurably hurts; with too few held-back comparisons to tell, the photographer's approval stands.
+    const noise = pairs.length ? 1.64 * Math.sqrt(Math.max(0.01, unguided * (1 - unguided)) / pairs.length) : 1
+    usePrior = pairs.length < 10 || guidedAgree >= unguided - noise
+    guidance = { used: usePrior, guided: guidedAgree, unguided, pairs: pairs.length }
+  }
+  const model = usePrior ? train(training, key, prior) : plain
   const rules = (e: Example): number => e.h
   const learnedScore = (e: Example): number => 100 * predict(model, e.x)
   const blend = (t: number) => (e: Example): number => (1 - t) * rules(e) + t * learnedScore(e)
@@ -343,7 +389,7 @@ export function learn(data: LearningData, genre: Genre): Learned {
     }
   }
   // The model that is used is then refitted on everything, held-back bursts included.
-  const final = trust > 0 ? train(all.map(({ e }) => e), key) : model
+  const final = trust > 0 ? train(all.map(({ e }) => e), key, usePrior ? prior : undefined) : model
   return {
     model: final,
     trust,
@@ -356,7 +402,8 @@ export function learn(data: LearningData, genre: Genre): Learned {
       learnedAgree: agree(learnedScore),
       blendedAgree,
       trust,
-      blindDecisions: all.filter(({ e }) => e.blind).length
+      blindDecisions: all.filter(({ e }) => e.blind).length,
+      guidance
     }
   }
 }

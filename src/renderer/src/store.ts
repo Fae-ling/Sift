@@ -35,9 +35,10 @@ import { appearances, assignPeople, mergePeople, namesIn } from './analysis/peop
 import { estimateOf, relookOf, type Relook } from './analysis/estimate'
 import { faceThumb } from './analysis/pipeline'
 import { FEATURES, tendencies } from './analysis/learner'
+import { digest, emptyGuidance, forgivePriors, GUIDANCE_VERSION, priorOf, toProposals, type Check, type Guidance, type Review } from './analysis/guidance'
 
 type ViewBase = 'projects' | 'profiles' | 'emotions' | 'training' | 'look' | 'diagnose' | 'brief' | 'import' | 'cull' | 'story' | 'export' | 'learn' | 'settings'
-export type View = ViewBase | 'people' | 'overview' | 'taste' | 'gestures' | 'words' | 'reasons' | 'claude'
+export type View = ViewBase | 'people' | 'overview' | 'taste' | 'gestures' | 'words' | 'reasons' | 'claude' | 'review'
 export type Filter = 'all' | 'suggested' | 'undecided' | 'picks' | 'rejects' | 'warnings' | 'gems' | 'unkept' | 'must' | 'relook' | 'key'
 
 interface IngestState {
@@ -160,6 +161,19 @@ interface State {
   /** What it has learned from Claude's descriptions, from mistakes weighed against assets, and its record with Claude. */
   knowledge: Knowledge
   loadKnowledge(): Promise<void>
+  /** Claude's reviews of the collected data, and the guidance in use. */
+  guidance: Guidance
+  reviewing: boolean
+  /** What would be sent to Claude for a review, for the photographer to see first. */
+  reviewDigest(): ReturnType<typeof digest>
+  /** Asks Claude to review everything collected and propose settings. */
+  reviewLearning(): Promise<void>
+  /** Applies the proposals the photographer approved from the latest review, then retrains and checks. */
+  applyReview(ids: string[]): void
+  dismissReview(): void
+  forgetPrior(feature: string): void
+  forgetForgive(flaw: string, asset: string | null): void
+  forgetGuidance(): void
   /** Teaches that a body (its stored measurements) shows a named gesture. */
   teachGestureNamed(name: string, g: number[], source?: 'you' | 'claude'): void
   forgetGestureNamed(name: string): void
@@ -276,6 +290,7 @@ function scoring(p: Pick<Project, 'genre' | 'balance' | 'styleIds' | 'storyPlan'
     gestures: { store: currentGestures, centroids: gestureCentroids() },
     concepts: { store: currentKnowledge.concepts, directions: directionsNow() },
     reasons: reasonsNow(),
+    forgive: forgiveNow(),
     ledger: ledgerFor(p.styleIds[0] ?? '', without?.projectId),
     people: p.people,
     emotions: { store: currentEmotions, weights: emotionWeights(active[0]) },
@@ -287,6 +302,26 @@ function scoring(p: Pick<Project, 'genre' | 'balance' | 'styleIds' | 'storyPlan'
     learned: taste ? { model: taste.model, trust: taste.trust } : undefined
   }
 }
+
+/** Claude's review, and the guidance from it the photographer approved. */
+let currentGuidance: Guidance = emptyGuidance()
+let forgiveCache: { of: Guidance; list: ReturnType<typeof forgivePriors> } | null = null
+function forgiveNow(): ReturnType<typeof forgivePriors> {
+  if (forgiveCache?.of !== currentGuidance) forgiveCache = { of: currentGuidance, list: forgivePriors(currentGuidance) }
+  return forgiveCache.list
+}
+function setGuidance(set: (p: Partial<State>) => void, g: Guidance, save = true): void {
+  currentGuidance = g
+  set({ guidance: g })
+  if (save) void window.studio.data.save('guidance', g)
+}
+const checkOf = (t: Taste | null): Check => ({
+  trust: t?.trust ?? 0,
+  testedPairs: t?.report.testedPairs ?? 0,
+  learnedAgree: t?.report.learnedAgree ?? 0,
+  rulesAgree: t?.report.rulesAgree ?? 0,
+  guidance: t?.report.guidance
+})
 
 /** The gesture machine and the knowledge in use. Kept beside the store so the scoring helper can reach them. */
 let currentGestures: GestureStore = emptyGestures()
@@ -353,7 +388,7 @@ function freshLook(project: Project, get: () => State): Shot[] {
   const projects = { ...get().tasteData.projects }
   delete projects[project.id]
   const has = Object.values(projects).some((p) => p.examples.length)
-  const taste = has ? learnTaste({ ...get().tasteData, projects }, project.genre) : null
+  const taste = has ? learnTaste({ ...get().tasteData, projects }, project.genre, priorOf(currentGuidance)) : null
   return scoreAndSuggest(project.shots, scoring(project, { ...learned, styles }, { projectId: project.id, taste }))
 }
 
@@ -546,6 +581,8 @@ export const useStore = create<State>((set, get) => ({
   relook: null,
   marked: [],
   asking: null,
+  guidance: emptyGuidance(),
+  reviewing: false,
   chrome: { inspector: true, film: true, focus: false },
   estimating: { running: false, done: 0, total: 0 },
   training: emptyTraining(),
@@ -1012,7 +1049,7 @@ export const useStore = create<State>((set, get) => ({
     // The same decisions, filed as mistakes against assets, and held against what Claude said of each frame.
     if (project) setKnowledge(set, absorb(get().knowledge, project.id, project.shots, project.styleIds[0] ?? ''))
     const total = Object.values(learning.projects).reduce((n, p) => n + p.examples.length, 0)
-    const taste = total ? learnTaste(learning, project?.genre ?? 'other') : null
+    const taste = total ? learnTaste(learning, project?.genre ?? 'other', priorOf(currentGuidance)) : null
     currentTaste = taste
     set({ tasteData: learning, taste })
     void window.studio.learning.save(learning)
@@ -1280,8 +1317,15 @@ export const useStore = create<State>((set, get) => ({
     if (name === 'emotions') {
       const stored = (await window.studio.data.get('emotions')) as EmotionStore | null
       if (stored && stored.version === EMOTION_VERSION) setEmotions(set, stored, false)
-    } else if (name === 'knowledge' || name === 'gestures') {
+    } else if (name === 'knowledge' || name === 'gestures' || name === 'guidance') {
       await get().loadKnowledge()
+      if (name === 'guidance') {
+        // The taste model is retrained with the new guidance, without saving anything back.
+        const data = get().tasteData
+        const total = Object.values(data.projects).reduce((n, p) => n + p.examples.length, 0)
+        currentTaste = total ? learnTaste(data, get().project?.genre ?? 'other', priorOf(currentGuidance)) : null
+        set({ taste: currentTaste })
+      }
     } else if (name === 'learned') {
       const learned = await window.studio.learned.get()
       set({ learned: { ...learned, styles: learned.styles.map(upgradeStyle) } })
@@ -1290,7 +1334,7 @@ export const useStore = create<State>((set, get) => ({
       if (!stored || stored.version !== FEATURE_VERSION) return
       for (const p of Object.values(stored.projects)) for (const e of p.examples) while (e.x.length < FEATURES.length) e.x.push(0)
       const total = Object.values(stored.projects).reduce((n, p) => n + p.examples.length, 0)
-      currentTaste = total ? learnTaste(stored, get().project?.genre ?? 'other') : null
+      currentTaste = total ? learnTaste(stored, get().project?.genre ?? 'other', priorOf(currentGuidance)) : null
       set({ tasteData: stored, taste: currentTaste })
     } else if (name === 'training') {
       await get().loadTraining()
@@ -1309,6 +1353,108 @@ export const useStore = create<State>((set, get) => ({
     const gestures = g as GestureStore | null
     setKnowledge(set, knowledge && knowledge.version === KNOWLEDGE_VERSION ? { ...emptyKnowledge(), ...knowledge } : emptyKnowledge(), false)
     setGestures(set, gestures && gestures.version === GESTURE_VERSION ? gestures : emptyGestures(), false)
+    const stored = (await window.studio.data.get('guidance')) as Guidance | null
+    setGuidance(set, stored && stored.version === GUIDANCE_VERSION ? { ...emptyGuidance(), ...stored } : emptyGuidance(), false)
+  },
+
+  reviewDigest: () =>
+    digest({
+      learning: get().tasteData,
+      taste: get().taste,
+      knowledge: get().knowledge,
+      styles: get().learned.styles,
+      emotions: get().emotions,
+      gestures: get().gestures.concepts.map((c) => c.name),
+      guidance: get().guidance
+    }),
+
+  reviewLearning: async () => {
+    if (get().reviewing) return
+    set({ reviewing: true })
+    try {
+      // Learn from everything first, so the review sees the model as it stands.
+      get().relearn()
+      const req = get().reviewDigest()
+      const result = await window.studio.ai.tune(req)
+      const review: Review = {
+        at: Date.now(),
+        model: result.usage?.model ?? '',
+        costUsd: result.usage?.costUsd ?? 0,
+        reading: result.reading,
+        questions: result.questions.slice(0, 4),
+        proposals: toProposals(result, req, { weights: get().taste?.model.weights, styles: get().learned.styles })
+      }
+      setGuidance(set, { ...get().guidance, reviews: [...get().guidance.reviews, review].slice(-12) })
+    } catch (err) {
+      get().notify(errorText(err))
+    } finally {
+      set({ reviewing: false })
+    }
+  },
+
+  applyReview: (ids) => {
+    const g = get().guidance
+    const review = g.reviews.at(-1)
+    if (!review || review.applied) return
+    const chosen = review.proposals.filter((p) => ids.includes(p.id))
+    const before = checkOf(get().taste)
+    const priors = { ...g.priors }
+    let forgive = [...g.forgive]
+    const at = Date.now()
+    for (const p of chosen) {
+      if (p.prior) priors[p.prior.feature] = { weight: p.prior.weight, confidence: p.confidence, why: p.why, at }
+      if (p.forgive) forgive = [...forgive.filter((f) => !(f.flaw === p.forgive!.flaw && f.asset === p.forgive!.asset)), { ...p.forgive, why: p.why, at }]
+    }
+    setGuidance(set, { ...g, priors, forgive })
+    // Patterns to stop using, and style changes, go where the photographer would have set them by hand.
+    for (const p of chosen) {
+      if (p.exclude) {
+        if (p.exclude.key.startsWith('feature:')) {
+          const data = get().tasteData
+          set({ tasteData: { ...data, ignored: [...new Set([...(data.ignored ?? []), p.exclude.key.slice(8)])] } })
+        } else {
+          const k = get().knowledge
+          setKnowledge(set, { ...k, excluded: [...new Set([...(k.excluded ?? []), p.exclude.key])] })
+        }
+      }
+      if (p.style) {
+        const style = get().learned.styles.find((x) => x.id === p.style!.styleId)
+        if (style) {
+          const emotions = { ...style.emotions, ...Object.fromEntries(p.style.emotions.map((e) => [e.name, e.weight])) }
+          void get().editProfile(style.id, { emotions, ...(p.style.balance !== null ? { balance: p.style.balance } : {}) })
+        }
+      }
+    }
+    // What Claude read in the data is kept, and shown to it before later assessments.
+    if (chosen.length) get().remember({ source: 'review', text: review.reading.slice(0, 600) })
+    get().relearn()
+    const after = checkOf(get().taste)
+    const reviews = get().guidance.reviews.map((r) => (r === review || r.at === review.at ? { ...r, applied: chosen.map((p) => p.id), check: { before, after } } : r))
+    setGuidance(set, { ...get().guidance, reviews })
+  },
+
+  dismissReview: () => {
+    const g = get().guidance
+    const last = g.reviews.at(-1)
+    if (!last || last.applied) return
+    setGuidance(set, { ...g, reviews: g.reviews.map((r) => (r.at === last.at ? { ...r, applied: [] } : r)) })
+  },
+
+  forgetPrior: (feature) => {
+    const priors = { ...get().guidance.priors }
+    delete priors[feature]
+    setGuidance(set, { ...get().guidance, priors })
+    get().relearn()
+  },
+
+  forgetForgive: (flaw, asset) => {
+    setGuidance(set, { ...get().guidance, forgive: get().guidance.forgive.filter((f) => !(f.flaw === flaw && f.asset === asset)) })
+    rescore(get)
+  },
+
+  forgetGuidance: () => {
+    setGuidance(set, { ...get().guidance, priors: {}, forgive: [] })
+    get().relearn()
   },
 
   teachGestureNamed: (name, g, source = 'you') => {
@@ -1434,7 +1580,7 @@ export const useStore = create<State>((set, get) => ({
       void window.studio.learned.save(learned)
       void window.studio.data.save('knowledge', knowledge)
       const total = Object.values(learning.projects).reduce((n, p) => n + p.examples.length, 0)
-      currentTaste = total ? learnTaste(learning, 'other') : null
+      currentTaste = total ? learnTaste(learning, 'other', priorOf(currentGuidance)) : null
       set({ taste: currentTaste })
       // Second pass: how well today's app, without each project's own lessons, predicts that project.
       for (const [i, summary] of list.entries()) {

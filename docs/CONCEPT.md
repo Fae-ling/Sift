@@ -70,6 +70,18 @@ Claude's own description of those frames), what has been kept and rejected in
 this shoot so far, and who the key people are. So Claude judges for this
 photographer, and its reads improve as the record grows.
 
+**Claude can review what was collected.** Counting is slow with few decisions and
+cannot tell taste from coincidence. On request, everything collected is summarised as
+numbers and words (no photographs) for Claude, which reasons about it like a picture
+editor and a statistician at once, explains the pattern back to the photographer, and
+proposes settings. Each proposal is approved or not by the photographer. Approved
+starting weights for the taste model count for 10, 25 or 50 decisions by confidence, so
+real decisions outweigh them as they accumulate; approved forgiveness rules count for 4,
+8 or 16 frames. The weights are tested like everything else, on decisions held back from
+learning, and set aside automatically if they make the model worse there. The self-check
+still decides when the learned taste gets any say in suggestions: Claude can speed the
+learning up, not skip the test.
+
 **The app checks itself on old work.** A culled project can be re-estimated:
 scored again with everything known today except what was learned from that
 project, and compared with the decisions made in it. The share of calls it gets

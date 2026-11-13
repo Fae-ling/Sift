@@ -514,7 +514,36 @@ export interface StudioApi {
     nameFaces(req: NameFacesRequest): Promise<NameFacesResult>
     developStyle(req: DevelopStyleRequest): Promise<StyleProposal>
     atmosphere(req: AtmosphereRequest): Promise<AtmosphereAdvice>
+    /** Claude reads what the app has collected and proposes how it should shape the cull. */
+    tune(req: TuneRequest): Promise<TuneResult>
   }
+}
+
+/** Everything the app has learned, summarised as text (no photographs), with the names Claude may refer to. */
+export interface TuneRequest {
+  digest: string
+  allowed: {
+    /** Measurements of the taste model, by key, with what they mean. */
+    features: { key: string; meaning: string }[]
+    flaws: string[]
+    assets: string[]
+    /** Entries of the mistakes-and-assets ledger that can be switched off. */
+    ledgerKeys: string[]
+    styles: { id: string; name: string }[]
+  }
+}
+
+export type Confidence = 'low' | 'medium' | 'high'
+
+/** What Claude proposes after reviewing the collected data. Nothing is applied until the photographer approves it. */
+export interface TuneResult {
+  reading: string
+  priors: { feature: string; weight: number; confidence: Confidence; why: string }[]
+  forgive: { flaw: string; asset: string | null; factor: number; confidence: Confidence; why: string }[]
+  exclude: { key: string; why: string }[]
+  styles: { styleId: string; emotions: { name: string; weight: number; why: string }[]; balance: number | null; why: string }[]
+  questions: string[]
+  usage?: Usage
 }
 
 export interface StoryRequest {

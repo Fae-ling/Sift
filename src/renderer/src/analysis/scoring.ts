@@ -1,7 +1,7 @@
 import type { Analysis, FaceInfo, Genre, MomentTag, NarrativeRead, Person, Score, Shot, ShotType, StyleProfile, Suggestion, Warning } from '@shared/types'
 import { assetsOf, describeFrame, flawsOf } from './describe'
 import { gestureCentroid, leadGesture, type GestureStore } from './gesture'
-import { assetLift, cleanTag, forgiveness, recogniseTags, sceneVector, tagDirections, type Concepts, type ProjectLedger } from './knowledge'
+import { assetLift, cleanTag, forgiveness, recogniseTags, sceneVector, tagDirections, type Concepts, type ForgivePrior, type ProjectLedger } from './knowledge'
 import { keyPeopleIn } from './people'
 import { centroid, DEFAULT_EMOTION_VALUE, FAMILY_EMOTIONS, readEmotion, toCues, UNNAMED_EMOTION_VALUE, type EmotionRead, type EmotionStore } from './emotion'
 import { featuresOf, predict, reasonsFor, type Model } from './learner'
@@ -160,6 +160,8 @@ export interface ScoreOptions {
   concepts?: { store: Concepts; directions?: ReturnType<typeof tagDirections> }
   /** Why the photographer has rejected frames before, as something that can be recognised. */
   reasons?: { store: Concepts; directions?: ReturnType<typeof tagDirections> }
+  /** Forgiveness rules from Claude's review that the photographer approved. */
+  forgive?: ForgivePrior[]
   /** The photographer's decisions so far, filed by mistake and asset. */
   ledger?: ProjectLedger
   /** The people of this shoot; the key ones count for more. */
@@ -527,20 +529,25 @@ export function scoreAndSuggest(shots: Shot[], options: ScoreOptions): Shot[] {
         const lead = shift > 0 ? up[0] : down
         if (lead) score.momentNotes.push(`${shift > 0 ? 'You keep' : 'You tend to pass over'} frames with ${lead.asset} ${shift > 0 ? 'more often than others' : ''} (kept ${Math.round(lead.k)} of ${Math.round(lead.n)}).`.replace('  ', ' '))
       }
-      const f = forgiveness(ledger, flaws, assets)
+      const f = forgiveness(ledger, flaws, assets, options.forgive)
       if (!f) continue
       const said = `${Math.round(f.k)} of ${Math.round(f.n)} frames with ${f.flaw}${f.asset ? ` that also had ${f.asset}` : ''}`
+      // With little evidence of its own the rule is Claude's reading of your culls, and says so.
+      const thin = f.guided && f.n < 4
+      const what = `${f.flaw}${f.asset ? ` when there is ${f.asset}` : ''}`
       if (f.factor >= 0.6 && isFlawed(score) && !score.warnings.includes('misfire') && !score.warnings.includes('blurred')) {
-        score.tradeoff = `You have kept ${said}. Here the mistake is worth less to you than what the frame brings.`
+        score.tradeoff = thin
+          ? `From the review of your culls: ${what} is worth less to you than what the frame brings.`
+          : `You have kept ${said}. Here the mistake is worth less to you than what the frame brings.`
         score.overall = Math.min(100, score.overall + f.factor * 0.5 * Math.max(0, 75 - score.craft) * (1 - effectiveBalance(options)))
         if (!score.gem) {
           score.gem = true
           score.momentNotes.unshift(score.tradeoff)
         }
       } else if (f.factor <= 0.3) {
-        score.tradeoff = `You have kept only ${said}. To you this mistake usually outweighs what a frame brings.`
+        score.tradeoff = thin ? `From the review of your culls: ${what} usually outweighs what a frame brings.` : `You have kept only ${said}. To you this mistake usually outweighs what a frame brings.`
       } else {
-        score.tradeoff = `You have kept ${said}: a close call, yours to make.`
+        score.tradeoff = thin ? `From the review of your culls: ${what} is a close call, yours to make.` : `You have kept ${said}: a close call, yours to make.`
       }
     }
     // What the photographer's own past choices say about each frame of this moment.

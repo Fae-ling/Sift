@@ -18,6 +18,7 @@ import { SettingsView } from './views/Settings'
 import { Story } from './views/Story'
 import { TrainingView } from './views/Training'
 import { ClaudeRecord, Gestures, Overview, Reasons, Taste, Words } from './views/Workshop'
+import { ReviewView } from './views/Review'
 
 type Item = { view: View; label: string; icon: string; hint: string }
 
@@ -50,7 +51,13 @@ const WORKSHOP: { group: string; items: Item[] }[] = [
       { view: 'claude', label: 'Claude', icon: 'sparkle', hint: 'Where you and Claude agreed and differed' }
     ]
   },
-  { group: 'Teach', items: [{ view: 'training', label: 'Teach with photos', icon: 'import', hint: 'Past shoots, finished work, your colour' }] }
+  {
+    group: 'Teach',
+    items: [
+      { view: 'training', label: 'Teach with photos', icon: 'import', hint: 'Past shoots, finished work, your colour' },
+      { view: 'review', label: 'Review with Claude', icon: 'sparkle', hint: 'Claude reads what has been collected and proposes how it should shape the cull' }
+    ]
+  }
 ]
 
 const IS_WORKSHOP = location.hash.startsWith('#workshop')
@@ -223,6 +230,7 @@ function WorkshopApp(): React.JSX.Element {
         {view === 'reasons' && <Reasons />}
         {view === 'claude' && <ClaudeRecord />}
         {view === 'training' && <TrainingView />}
+        {view === 'review' && <ReviewView />}
       </main>
       <Toast />
     </div>

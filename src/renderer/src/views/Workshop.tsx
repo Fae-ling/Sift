@@ -28,7 +28,7 @@ function Search({ value, onChange, placeholder }: { value: string; onChange: (v:
 // --- overview ---------------------------------------------------------------------
 
 export function Overview(): React.JSX.Element {
-  const { knowledge, taste, emotions, gestures, training, setView, reestimateAll, estimating, notify } = useStore()
+  const { knowledge, taste, emotions, gestures, training, guidance, setView, reestimateAll, estimating, notify } = useStore()
   const [history, setHistory] = useState<{ summary: ProjectSummary; estimates: Estimate[] }[]>([])
   useEffect(() => {
     if (estimating.running) return
@@ -55,7 +55,8 @@ export function Overview(): React.JSX.Element {
     { view: 'words', label: 'What is happening', value: String(words.length), note: `words · ${words.filter((w) => w.usable).length} recognised by itself` },
     { view: 'reasons', label: 'Mistakes and reasons', value: String(Object.keys(knowledge.ledger.projects).length), note: `projects filed · ${reasonCounts(knowledge.reasons ?? emptyReasons()).length} reject reason${reasonCounts(knowledge.reasons ?? emptyReasons()).length === 1 ? '' : 's'}` },
     { view: 'claude', label: 'Claude', value: String(Object.values(knowledge.claude).reduce((k, r) => k + r.agreed + r.disagreed, 0)), note: 'judgements compared with yours' },
-    { view: 'training', label: 'Teach with photos', value: String(training.log.length), note: 'training runs' }
+    { view: 'training', label: 'Teach with photos', value: String(training.log.length), note: 'training runs' },
+    { view: 'review', label: "Claude's review", value: String(Object.keys(guidance.priors).length + guidance.forgive.length), note: guidance.reviews.length ? `guidance in use · last review ${new Date(guidance.reviews.at(-1)!.at).toLocaleDateString()}` : 'not reviewed yet' }
   ]
   return (
     <div className="page wide">

@@ -146,7 +146,7 @@ export const removeStyleSamples = (styleId: string): Promise<void> => removeProj
 
 // --- named stores of what the app has learned ---
 
-const DATA_NAMES = ['emotions', 'gestures', 'knowledge']
+const DATA_NAMES = ['emotions', 'gestures', 'knowledge', 'guidance']
 
 export async function getData(name: string): Promise<unknown> {
   if (!DATA_NAMES.includes(name)) throw new Error(`Unknown store: ${name}`)

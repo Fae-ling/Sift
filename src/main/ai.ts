@@ -8,6 +8,8 @@ import {
   styleCacheId,
   type AtmosphereAdvice,
   type AtmosphereRequest,
+  type TuneRequest,
+  type TuneResult,
   type DevelopStyleRequest,
   type DiagnoseRequest,
   type NameFacesRequest,
@@ -84,7 +86,8 @@ function usage(model: string, u: Anthropic.Usage): Usage {
 
 async function ask<T>(
   schema: z.ZodType<T>,
-  content: Anthropic.ContentBlockParam[]
+  content: Anthropic.ContentBlockParam[],
+  effort: 'medium' | 'high' = 'medium'
 ): Promise<{ value: T; usage: Usage }> {
   const model = await getModel()
   const anthropic = await client()
@@ -94,7 +97,7 @@ async function ask<T>(
       model,
       max_tokens: 16000,
       system: MENTOR,
-      output_config: { effort: 'medium', format: zodOutputFormat(schema) },
+      output_config: { effort, format: zodOutputFormat(schema) },
       messages: [{ role: 'user', content }]
     })
   } catch (err) {
@@ -391,4 +394,57 @@ export async function atmosphere(req: AtmosphereRequest): Promise<AtmosphereAdvi
     },
     usage
   }
+}
+
+const confidence = z.enum(['low', 'medium', 'high']).describe('How sure the evidence lets you be. "high" only for patterns with plenty of decisions behind them.')
+const TuneSchema = z.object({
+  reading: z.string().describe('Four to six plain sentences for the photographer: what their decisions show they value and forgive, where the evidence is thin or contradictory, and what you propose and why.'),
+  priors: z
+    .array(z.object({ feature: z.string().describe('A measurement key exactly as listed.'), weight: z.number().describe('Proposed weight in log-odds per unit of the measurement (measurements run 0 to 1); typical values -3 to 3; 0 means it should not matter.'), confidence, why: z.string() }))
+    .describe('Measurements the taste model should lean on, or stop leaning on, and how much. Only where the evidence or the photographer\'s stated aims support it; leave out the rest.'),
+  forgive: z
+    .array(z.object({ flaw: z.string().describe('A flaw exactly as listed.'), asset: z.string().nullable().describe('An asset exactly as listed, or null for the flaw by itself.'), factor: z.number().describe('0 = the mistake counts fully; 1 = with this asset such frames are kept as often as clean ones.'), confidence, why: z.string() }))
+    .describe('Rules for which mistakes this photographer forgives, and when.'),
+  exclude: z.array(z.object({ key: z.string().describe('A ledger key as listed, or feature:<key> to stop the taste model using a measurement.'), why: z.string() })).describe('Patterns that look like coincidence or a measuring artefact rather than taste, and should not be used.'),
+  styles: z
+    .array(z.object({ styleId: z.string(), emotions: z.array(z.object({ name: z.string(), weight: z.number().describe('-1 works against the picture, 1 is what it is for.'), why: z.string() })), balance: z.number().nullable().describe('0..1, how much the moment counts against craft; null to leave it.'), why: z.string() }))
+    .describe('Changes to shoot styles where the decisions made in them disagree with how the style is set.'),
+  questions: z.array(z.string()).describe('Up to four questions only the photographer can settle, where the data cannot.')
+})
+
+/**
+ * Claude reviews what the culling software has collected about one
+ * photographer, reasons about it, and proposes settings. Text only: no
+ * photographs are sent. The photographer approves each proposal before it is used.
+ */
+export async function tuneLearning(req: TuneRequest): Promise<TuneResult> {
+  const list = (items: string[]): string => (items.length ? items.join(', ') : 'none yet')
+  const { value, usage } = await ask(
+    TuneSchema,
+    [
+      {
+        type: 'text',
+        text: `You are reviewing what a culling app has learned about one photographer, so that it learns their taste faster and more soundly than it can from counting alone. Below is everything it has collected, as numbers and words.
+
+How the app works:
+- Each frame gets a craft score (focus, eyes, exposure, composition) and a moment score (emotion on faces weighed by the shoot style, closeness, gesture, rarity, key people), blended by a balance.
+- A small logistic model ("the taste model") learns from the photographer's decisions over the listed measurements. Your proposed weights become its starting point and are pulled on with a strength of 10, 25 or 50 decisions' worth (low, medium, high confidence); real decisions outweigh them as they accumulate. Guidance that makes the model worse on held-back decisions is set aside automatically.
+- A ledger files each decided frame by its flaws and assets; forgiveness rules say which flaws this photographer forgives, and with which asset. Your rules count as 4, 8 or 16 frames of evidence.
+- Shoot styles weigh emotions from -1 to 1.
+
+Your job: reason like an experienced picture editor and a careful statistician at once. Separate real taste from coincidence and small numbers. Explain the photographer's pattern back to them. Propose only what the evidence supports, prefer few strong proposals to many weak ones, and mark confidence honestly. Where evidence is thin, you may still propose what this kind of work generally calls for, at low confidence, and say so.
+
+Measurement keys: ${req.allowed.features.map((f) => `${f.key} (${f.meaning})`).join('; ')}
+Flaws: ${list(req.allowed.flaws)}
+Assets: ${list(req.allowed.assets)}
+Ledger keys: ${list(req.allowed.ledgerKeys)}
+Styles: ${req.allowed.styles.map((s) => `${s.id} = ${s.name}`).join('; ')}
+
+THE DATA
+${req.digest}`
+      }
+    ],
+    'high'
+  )
+  return { ...value, usage }
 }

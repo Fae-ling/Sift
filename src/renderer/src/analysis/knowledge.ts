@@ -221,7 +221,7 @@ export function ledgerOf(shots: Shot[], style: string): ProjectLedger {
 }
 
 /** Everything filed so far as one ledger: projects of the same style count fully, others for less. */
-export function mergedLedger(ledger: Ledger, style: string, except?: string): ProjectLedger {
+export function mergedLedger(ledger: Ledger, style: string, except?: string, otherStyles = 0.4): ProjectLedger {
   const out: ProjectLedger = { style, all: tally(), clean: tally(), assets: {}, flaws: {} }
   const sum = (into: Tally, t: Tally, w: number): void => {
     into.k += t.k * w
@@ -229,7 +229,7 @@ export function mergedLedger(ledger: Ledger, style: string, except?: string): Pr
   }
   for (const [id, p] of Object.entries(ledger.projects)) {
     if (id === except) continue
-    const w = p.style === style ? 1 : 0.4
+    const w = p.style === style ? 1 : otherStyles
     sum(out.all, p.all, w)
     sum(out.clean, p.clean, w)
     for (const [a, t] of Object.entries(p.assets)) sum((out.assets[a] ??= tally()), t, w)
@@ -257,26 +257,56 @@ export interface Forgiveness {
   asset: string | null
   k: number
   n: number
+  /** Claude's review contributed to this figure. */
+  guided?: boolean
 }
 
-/** How far this photographer's past choices forgive a frame's mistakes, given what it brings. */
-export function forgiveness(l: ProjectLedger, flaws: string[], assets: string[]): Forgiveness | null {
-  if (l.clean.n < 10 || !flaws.length) return null
-  const cleanRate = Math.max(0.05, l.clean.k / l.clean.n)
+/** A forgiveness rule from Claude's review, approved by the photographer. */
+export interface ForgivePrior {
+  flaw: string
+  asset: string | null
+  factor: number
+  confidence: 'low' | 'medium' | 'high'
+}
+/** How many frames' worth of evidence an approved rule counts for. */
+export const FORGIVE_PSEUDO = { low: 4, medium: 8, high: 16 } as const
+
+/**
+ * How far this photographer's past choices forgive a frame's mistakes, given
+ * what it brings. Rules approved from Claude's review count as a few frames of
+ * evidence each, so they act at once and are outweighed as real decisions pile up.
+ */
+export function forgiveness(l: ProjectLedger, flaws: string[], assets: string[], priors: ForgivePrior[] = []): Forgiveness | null {
+  if (!flaws.length) return null
+  const hasClean = l.clean.n >= 10
+  const cleanRate = hasClean ? Math.max(0.05, l.clean.k / l.clean.n) : 0.5
+  const blend = (evidence: number | null, n: number, p: ForgivePrior | undefined): number | null => {
+    if (!p) return evidence
+    const m = FORGIVE_PSEUDO[p.confidence]
+    return evidence === null ? p.factor : (evidence * n + p.factor * m) / (n + m)
+  }
   let worst: Forgiveness | null = null
   for (const flaw of flaws) {
     const row = l.flaws[flaw]
     const base = row?.['*']
-    if (!base || base.n < MIN_EVIDENCE) return null
-    let best: Forgiveness = { factor: clamp(base.k / base.n / cleanRate), flaw, asset: null, k: base.k, n: base.n }
+    const enough = hasClean && !!base && base.n >= MIN_EVIDENCE
+    const pFlaw = priors.find((p) => p.flaw === flaw && p.asset === null)
+    const baseFactor = blend(enough ? clamp(base!.k / base!.n / cleanRate) : null, enough ? base!.n : 0, pFlaw)
+    let best: Forgiveness | null = baseFactor === null ? null : { factor: baseFactor, flaw, asset: null, k: base?.k ?? 0, n: base?.n ?? 0, guided: !!pFlaw || undefined }
     for (const a of assets) {
-      const t = row[a]
-      if (!t || t.n < MIN_EVIDENCE) continue
-      // Pulled toward the mistake's own rate while examples are few.
-      const rate = (t.k + 3 * (base.k / base.n)) / (t.n + 3)
-      const factor = clamp(rate / cleanRate)
-      if (factor > best.factor) best = { factor, flaw, asset: a, k: t.k, n: t.n }
+      const t = row?.[a]
+      const pa = priors.find((p) => p.flaw === flaw && p.asset === a)
+      let evidence: number | null = null
+      if (enough && t && t.n >= MIN_EVIDENCE) {
+        // Pulled toward the mistake's own rate while examples are few.
+        const rate = (t.k + 3 * (base!.k / base!.n)) / (t.n + 3)
+        evidence = clamp(rate / cleanRate)
+      }
+      const factor = blend(evidence, evidence === null ? 0 : t!.n, pa)
+      if (factor !== null && (!best || factor > best.factor)) best = { factor, flaw, asset: a, k: t?.k ?? 0, n: t?.n ?? 0, guided: !!pa || undefined }
     }
+    // Nothing known about this mistake: nothing can be said about the frame.
+    if (!best) return null
     // A frame is only as forgiven as its least forgiven mistake.
     if (!worst || best.factor < worst.factor) worst = best
   }
@@ -412,7 +442,7 @@ export function claudeRecord(shots: Shot[]): ClaudeRecord {
 /** Advice from Claude worth remembering beyond the call it came from. */
 export interface Note {
   at: number
-  source: 'story' | 'style' | 'essence' | 'diagnose'
+  source: 'story' | 'style' | 'essence' | 'diagnose' | 'review'
   text: string
   project?: string
 }

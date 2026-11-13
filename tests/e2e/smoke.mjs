@@ -63,6 +63,16 @@ try {
       feeling: 'Stand-in feeling.', tags: ['stand-in'], chapters: [{ name: 'Only chapter', look: 'Anything.', must: true }],
       emotions: [{ name: 'triumph', weight: 0.9, why: '' }], lookFor: ['A marker'], forgive: ['Blur'], balance: 0.6, notes: `Stand-in notes for ${req.name}.`
     }))
+    ipcMain.removeHandler('ai:tune')
+    ipcMain.handle('ai:tune', (_event, req) => ({
+      reading: 'Stand-in review of your culls.',
+      questions: ['Do you keep closed eyes when someone laughs?'],
+      priors: [{ feature: 'laughing', weight: 1.5, confidence: 'medium', why: 'Stand-in.' }],
+      forgive: [{ flaw: 'closed eyes', asset: 'laughter', factor: 0.8, confidence: 'medium', why: 'Stand-in.' }],
+      exclude: [{ key: 'feature:bright', why: 'Stand-in.' }],
+      styles: [{ styleId: req.allowed.styles[0].id, emotions: [{ name: 'joy', weight: 0.9, why: 'Stand-in.' }], balance: null, why: 'Stand-in.' }],
+      usage: { model: 'stand-in', inputTokens: 4000, outputTokens: 1500, costUsd: 0.05 }
+    }))
     ipcMain.removeHandler('ai:atmosphere')
     ipcMain.handle('ai:atmosphere', () => ({
       reading: 'Stand-in reading.', moves: [{ what: 'Cool the shadows.', why: 'Stand-in.' }],
@@ -353,6 +363,22 @@ try {
   await reasonRow.waitFor({ state: 'detached' })
   await ws.locator('.sidebar .nav', { hasText: 'Overview' }).click()
   await ws.getByRole('button', { name: 'Re-estimate all projects' }).waitFor()
+
+  // Claude reviews what was collected; the photographer approves its proposals and they are put to use.
+  await ws.locator('.sidebar .nav', { hasText: 'Review with Claude' }).click()
+  await ws.getByText('What Claude is sent').click()
+  await ws.locator('.review-data pre').getByText('## Decisions').waitFor()
+  await ws.getByRole('button', { name: /Ask Claude to review/ }).click()
+  await ws.getByText('Stand-in review of your culls.').waitFor()
+  await wsnap('w-review')
+  await ws.getByRole('button', { name: /^Apply 4 of 4/ }).click()
+  await ws.getByText(/You applied 4 of 4 proposals/).waitFor()
+  await ws.locator('.list-title', { hasText: 'open laughter' }).waitFor()
+  await wsnap('w-review-applied')
+  const guidance = JSON.parse(readFileSync(join(userData, 'guidance.json'), 'utf8'))
+  assert.equal(guidance.priors.laughing.weight, 1.5, 'the approved starting weight is stored')
+  assert.equal(guidance.forgive[0].flaw, 'closed eyes', 'the approved forgiveness rule is stored')
+  assert.ok(JSON.parse(readFileSync(join(userData, 'learning.json'), 'utf8')).ignored.includes('bright'), 'the measurement Claude flagged is switched off')
   const knowledge = JSON.parse(readFileSync(join(userData, 'knowledge.json'), 'utf8'))
   assert.ok(knowledge.concepts.tags.some((t) => t.name === 'portrait sitting'), "Claude's description is stored for learning")
   assert.ok(Object.keys(knowledge.ledger.projects).length >= 1, 'decisions are filed as mistakes against assets')
