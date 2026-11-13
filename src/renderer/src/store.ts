@@ -192,6 +192,8 @@ interface State {
   peopleLearning(): TuningReport
   editPerson(id: string, patch: Partial<Pick<Person, 'name' | 'key'>>): void
   mergePerson(fromId: string, intoId: string): void
+  /** Takes someone off the list (a passer-by, or a mistake): their faces become nobody in particular and stay that way. */
+  removePerson(id: string): void
   /** Says who a face is: an existing person, 'new' for someone not listed yet, or null for nobody in particular. */
   setFacePerson(shotId: string, face: number, personId: string | 'new' | null): void
   /** What surrounds the photo in Cull: the side panel, the filmstrip, and everything at once (focus). */
@@ -1569,6 +1571,19 @@ export const useStore = create<State>((set, get) => ({
       // With more faces known of the person, look again for others that are theirs.
       const found = assignPeople(merged.shots, merged.people.filter((x) => x.name || x.key || x.id === intoId), tuningNow().tuning)
       return { ...p, people: found.people, shots: scoreAndSuggest(found.shots, scoring({ ...p, people: found.people }, get().learned)) }
+    })
+  },
+
+  removePerson: (id) => {
+    get().update((p) => {
+      const people = (p.people ?? []).filter((x) => x.id !== id)
+      const shots = p.shots.map((s) => {
+        if (!s.people?.includes(id)) return s
+        const peopleSet = new Set(s.peopleSet ?? [])
+        s.people.forEach((who, i) => who === id && peopleSet.add(i))
+        return { ...s, people: s.people.map((who) => (who === id ? null : who)), peopleSet: [...peopleSet] }
+      })
+      return { ...p, people, shots: scoreAndSuggest(shots, scoring({ ...p, people }, get().learned)) }
     })
   },
 

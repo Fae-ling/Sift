@@ -7,11 +7,14 @@ import { useStore } from '../store'
 
 /** The people of the open shoot: who they are, who matters most, and how well each is covered. */
 export function People(): React.JSX.Element {
-  const { project, readIdentities, editPerson, mergePerson, setFacePerson, setFilter, setView, identifying, peopleLearning } = useStore()
+  const { project, readIdentities, editPerson, mergePerson, removePerson, setFacePerson, setFilter, setView, identifying, peopleLearning } = useStore()
   const shots = project?.shots ?? []
   const seen = useMemo(() => appearances(shots), [shots])
   const people = useMemo(() => [...(project?.people ?? [])].sort((a, b) => Number(b.key) - Number(a.key) || (seen.get(b.id)?.frames ?? 0) - (seen.get(a.id)?.frames ?? 0)), [project?.people, seen])
   const [showAll, setShowAll] = useState(false)
+  // The card being dragged, and the card or the bin it is over.
+  const [drag, setDrag] = useState<string | null>(null)
+  const [over, setOver] = useState<string | null>(null)
   if (!project) return <div className="page" />
 
   const hasIds = shots.some((s) => s.analysis?.faces.some((f) => f.id))
@@ -93,9 +96,42 @@ export function People(): React.JSX.Element {
                 onNotThem={(shotId, face) => setFacePerson(shotId, face, null)}
                 onEdit={(patch) => editPerson(p.id, patch)}
                 onMerge={(into) => mergePerson(p.id, into)}
+                onRemove={() => removePerson(p.id)}
+                dragging={drag === p.id}
+                target={!!drag && drag !== p.id && over === p.id}
+                onDragStart={() => setDrag(p.id)}
+                onDragEnd={() => {
+                  setDrag(null)
+                  setOver(null)
+                }}
+                onDragOver={() => drag && drag !== p.id && setOver(p.id)}
+                onDragLeave={() => setOver((o) => (o === p.id ? null : o))}
+                onDropHere={() => {
+                  if (drag && drag !== p.id) mergePerson(drag, p.id)
+                  setDrag(null)
+                  setOver(null)
+                }}
               />
             ))}
           </div>
+          {drag && (
+            <div
+              className={`person-bin ${over === 'bin' ? 'over' : ''}`}
+              onDragOver={(e) => {
+                e.preventDefault()
+                setOver('bin')
+              }}
+              onDragLeave={() => setOver((o) => (o === 'bin' ? null : o))}
+              onDrop={(e) => {
+                e.preventDefault()
+                removePerson(drag)
+                setDrag(null)
+                setOver(null)
+              }}
+            >
+              Drop here to remove this person
+            </div>
+          )}
           {people.length > listed.length && (
             <button className="link" style={{ marginTop: 12 }} onClick={() => setShowAll(true)}>
               Show {people.length - listed.length} more who appear only a few times
@@ -119,8 +155,8 @@ export function People(): React.JSX.Element {
           </section>
           <p className="faint small" style={{ marginTop: 16 }}>
             Telling people apart is approximate: the same person in different light or seen from the side can be listed
-            twice, and two people who look and dress alike can be taken for one. Giving two entries the same name joins
-            them. To correct a single face, open the frame in Cull and choose who it is under the face.
+            twice, and two people who look and dress alike can be taken for one. Drag one person onto another to join them, or onto the bin
+            that appears to remove them. Giving two entries the same name joins them too. To correct a single face, open the frame in Cull and choose who it is under the face.
           </p>
         </>
       )}
@@ -144,7 +180,7 @@ function faceCrop(shot: Shot, face: number): React.CSSProperties {
   return { backgroundSize: `${W * 100}% auto`, backgroundPosition: `${pos(cx, W)} ${pos(cy, H)}` }
 }
 
-function PersonCard(props: { person: Person; label: string; frames: number; kept: number; others: Person[]; shots: Shot[]; onNotThem: (shotId: string, face: number) => void; onEdit: (patch: Partial<Pick<Person, 'name' | 'key'>>) => void; onMerge: (intoId: string) => void }): React.JSX.Element {
+function PersonCard(props: { person: Person; label: string; frames: number; kept: number; others: Person[]; shots: Shot[]; onNotThem: (shotId: string, face: number) => void; onEdit: (patch: Partial<Pick<Person, 'name' | 'key'>>) => void; onMerge: (intoId: string) => void; onRemove: () => void; dragging: boolean; target: boolean; onDragStart: () => void; onDragEnd: () => void; onDragOver: () => void; onDragLeave: () => void; onDropHere: () => void }): React.JSX.Element {
   const { person: p } = props
   const [name, setName] = useState(p.name)
   const [open, setOpen] = useState(false)
@@ -155,7 +191,29 @@ function PersonCard(props: { person: Person; label: string; frames: number; kept
   )
   const projectId = useStore((x) => x.project?.id ?? '')
   return (
-    <div className={`card person ${p.key ? 'key' : ''}`}>
+    <div
+      className={`card person ${p.key ? 'key' : ''} ${props.dragging ? 'dragging' : ''} ${props.target ? 'merge-target' : ''}`}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move'
+        e.dataTransfer.setData('text/plain', p.id)
+        props.onDragStart()
+      }}
+      onDragEnd={props.onDragEnd}
+      onDragOver={(e) => {
+        e.preventDefault()
+        props.onDragOver()
+      }}
+      onDragLeave={props.onDragLeave}
+      onDrop={(e) => {
+        e.preventDefault()
+        props.onDropHere()
+      }}
+    >
+      {props.target && <div className="merge-hint">Let go to join as the same person</div>}
+      <button className="person-x" onClick={props.onRemove} aria-label={`Remove ${props.label}`} title="Remove this person">
+        ×
+      </button>
       <div className="row" style={{ alignItems: 'flex-start', gap: 12 }}>
         {p.thumb ? <img src={p.thumb} alt={props.label} className="person-face" /> : <div className="person-face" />}
         <div style={{ flex: 1, minWidth: 0 }}>

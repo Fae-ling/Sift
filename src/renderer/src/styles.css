@@ -335,6 +335,15 @@ details.insp-section[open] > summary { margin-bottom: var(--s2); }
 .chip-x:hover { color: var(--reject); background: none; }
 .person-face { width: 64px; height: 64px; border-radius: var(--r); object-fit: cover; background: var(--panel-2); flex: none; }
 .card.person.key { border-color: var(--pick); }
+.card.person { position: relative; cursor: grab; transition: transform .12s, opacity .12s; }
+.card.person.dragging { opacity: .45; cursor: grabbing; }
+.card.person.merge-target { border-color: var(--pick); transform: scale(1.02); box-shadow: 0 0 0 2px var(--pick); }
+.merge-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 12px; font-weight: 600; background: color-mix(in srgb, var(--pick) 22%, var(--panel)); border-radius: inherit; pointer-events: none; z-index: 2; }
+.person-x { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; padding: 0; justify-content: center; border-radius: 50%; font-size: 14px; line-height: 1; background: transparent; border: 0; color: var(--muted, inherit); opacity: 0; transition: opacity .12s; }
+.card.person:hover .person-x, .person-x:focus-visible { opacity: 1; }
+.person-x:hover:not(:disabled) { background: var(--reject); color: var(--sunk); }
+.person-bin { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 16px 32px; border: 2px dashed var(--reject); border-radius: var(--r); background: var(--panel); font-weight: 600; z-index: 20; }
+.person-bin.over { background: var(--reject); color: var(--sunk); }
 .trend { display: flex; align-items: flex-end; gap: 6px; height: 72px; margin-top: var(--s3); }
 .trend > div { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; width: 34px; }
 .trend i { display: block; width: 14px; background: var(--focus); border-radius: 2px 2px 0 0; }
