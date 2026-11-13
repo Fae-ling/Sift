@@ -175,7 +175,8 @@ function Updates(): React.JSX.Element {
       )}
 
       <h2>Your data</h2>
-      <p className="muted small">Everything learned and every project's decisions, as plain files. A backup can be put back on this or another computer.</p>
+      <p className="muted small">Everything learned and every project's decisions, as plain files. A backup can be put back on this or another computer.
+        Sift also keeps its own copies in the data folder, about once a day when something has changed: the last week day by day, then weekly for a month, and older ones are removed.</p>
       <div className="row">
         <button onClick={() => void window.studio.backup.save().then((f) => f && notify(`Backed up to ${f}.`)).catch(fail)}>Back up…</button>
         <button onClick={() => void window.studio.backup.restore().then((n) => n !== null && notify(`Restored ${n} files.`)).catch(fail)}>Restore from a backup…</button>

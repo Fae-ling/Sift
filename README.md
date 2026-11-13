@@ -69,6 +69,14 @@ Settings → Updates either finds it for you (add a fine-grained GitHub token wi
 `%APPDATA%\Sift\backups`. Settings → Your data also backs everything up to a
 folder of your choice and restores it.
 
+Backups are also made automatically, at most once a day and only when something
+has changed, into the same `backups` folder. They do not pile up: the newest of each
+of the last 7 days stays, then the newest of each of the 4 weeks after that.
+The copies made before an update (newest 3) and before a restore (newest 2) are
+trimmed the same way, so the folder stays at roughly a dozen copies of the data
+(never the preview caches). Backups you save to a folder of your own are yours to
+manage.
+
 ## Install (Windows)
 
 Every push builds an installer. In GitHub: **Actions → Build → latest run →

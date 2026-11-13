@@ -108,7 +108,7 @@ the app in `out/renderer/mediapipe`.
 | `training.json` | Norms of finished photographs, editing habits, house look, feedback, log |
 | `spend.json` | What Claude has cost, by month |
 | `update.json` | The GitHub token for updates, encrypted |
-| `backups/` | Copies of all of the above made before each update (the newest three) |
+| `backups/` | Copies of all of the above (`src/main/backups.ts`): `auto-<ms>` daily when something changed (last 7 days, then one per week for 4 weeks), `before-update-<version>-<ms>` (newest 3), `before-restore-<ms>` (newest 2). A folder without `sift-backup.txt` is unfinished and is removed |
 | `settings.json` | Model choice; encrypted API key |
 
 ## Calls to Claude (`src/main/ai.ts`)

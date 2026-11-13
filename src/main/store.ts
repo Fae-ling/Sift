@@ -210,7 +210,7 @@ export async function recordSpend(usd: number): Promise<void> {
   const spend = await getSpend()
   const month = new Date().toISOString().slice(0, 7)
   spend[month] = (spend[month] ?? 0) + usd
-  await fs.writeFile(spendFile(), JSON.stringify(spend))
+  await writeAtomic(spendFile(), JSON.stringify(spend))
 }
 
 // --- settings ---------------------------------------------------------------
@@ -272,6 +272,6 @@ export async function setSettings(patch: { apiKey?: string; model?: string; guid
       else sessionKey = key
     }
   }
-  await fs.writeFile(settingsFile(), JSON.stringify(s))
+  await writeAtomic(settingsFile(), JSON.stringify(s))
   return getSettings()
 }

@@ -7,7 +7,7 @@ import { atmosphere, developStyle, diagnose, nameFaces, narrativeRead, storyAdvi
 import { promises as fs } from 'node:fs'
 import { copySelects, exportXmp, readRatings, saveFiles } from './exporter'
 import { exiftool, extractPreview, savePreview, scanFolder } from './ingest'
-import { appVersion, backupTo, checkForUpdate, downloadAndInstall, installFromFile, restoreFrom, setUpdateToken } from './updater'
+import { appVersion, backupTo, checkForUpdate, downloadAndInstall, installFromFile, restoreFrom, setUpdateToken, startAutoBackup } from './updater'
 import {
   getData,
   saveData,
@@ -218,6 +218,7 @@ void app.whenReady().then(() => {
   })
   registerIpc()
   createWindow()
+  startAutoBackup()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
