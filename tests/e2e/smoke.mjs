@@ -358,6 +358,56 @@ try {
     await until(() => personCards.count(), (n) => n === peopleBefore, 'undo brings both profiles back')
   } else console.log('note: fewer than two people in these samples, so the multi-select join was not exercised')
 
+  // The other ways of correcting who is who: dragging a profile onto another, dragging one to the bin, the x on a profile, and splitting a mixed-up one.
+  if (peopleBefore >= 2) {
+    const count = () => personCards.count()
+    const undoBar = page.locator('.undo-bar')
+    // Dragging a profile onto another asks first, then joins them. Ctrl+Z undoes it.
+    await personCards.nth(1).locator('p.small').first().dragTo(personCards.nth(0), { targetPosition: { x: 60, y: 30 } })
+    await page.getByText(/will be folded into/).waitFor()
+    await page.getByRole('button', { name: /^Join (them|all)/ }).click()
+    await until(count, (n) => n === peopleBefore - 1, 'dragging a profile onto another joins them')
+    await undoBar.getByText('Joined two people.').waitFor()
+    await page.keyboard.press('Control+z')
+    await until(count, (n) => n === peopleBefore, 'Ctrl+Z brings the profile back')
+    // Dragging a profile to the bin that appears removes it, after asking.
+    const grip = personCards.nth(1).locator('p.small').first()
+    await grip.hover()
+    await page.mouse.down()
+    const box = (await grip.boundingBox())
+    for (let i = 1; i <= 6; i++) await page.mouse.move(box.x + 6 * i, box.y + 6 * i)
+    const bin = page.locator('.person-bin')
+    await bin.waitFor()
+    await bin.hover()
+    await page.mouse.up()
+    await page.getByRole('heading', { name: /^Remove / }).waitFor()
+    await page.getByRole('button', { name: 'Remove', exact: true }).click()
+    await until(count, (n) => n === peopleBefore - 1, 'dragging a profile to the bin removes it')
+    await undoBar.getByRole('button', { name: 'Undo' }).click()
+    await until(count, (n) => n === peopleBefore, 'undo brings the removed profile back')
+    // The x on a profile does the same.
+    await personCards.nth(1).getByRole('button', { name: /^Remove / }).click()
+    await page.getByRole('button', { name: 'Remove', exact: true }).click()
+    await until(count, (n) => n === peopleBefore - 1, 'the x on a profile removes it')
+    await undoBar.getByRole('button', { name: 'Undo' }).click()
+    await until(count, (n) => n === peopleBefore, 'undo brings it back again')
+
+    // A profile that mixes people: pick some of its faces and split them off as a new person, which can be undone.
+    const mixed = personCards.nth(0)
+    const mixedFaces = mixed.locator('.face-tile')
+    if (!(await mixedFaces.count())) await mixed.getByRole('button', { name: 'Check their faces' }).click()
+    await mixedFaces.first().waitFor()
+    const judgementsNow = JSON.parse(readFileSync(join(userData, 'knowledge.json'), 'utf8')).people?.length ?? 0
+    await mixedFaces.first().click()
+    await mixed.getByRole('button', { name: /^Split 1 face off as a new person/ }).click()
+    await until(count, (n) => n === peopleBefore + 1, 'splitting faces off makes a new profile')
+    await until(() => readFileSync(join(userData, 'knowledge.json'), 'utf8'), (t) => (JSON.parse(t).people?.length ?? 0) > judgementsNow, 'the split is learned from as judgements about faces')
+    await undoBar.getByText('Split a person.').waitFor()
+    await undoBar.getByRole('button', { name: 'Undo' }).click()
+    await until(count, (n) => n === peopleBefore, 'undo puts the split-off faces back')
+    await snap('7-people-corrected')
+  }
+
   // An older project: imported quickly, so its faces were found but people were not told apart. They can be read afterwards.
   await page.getByRole('button', { name: 'All projects' }).click()
   await page.getByLabel('Project name').fill('Older project')
