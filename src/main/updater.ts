@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { newer } from '@shared/version'
+import { MARKER, autoBackup, backupTo as backupFiles, makeBackup } from './backups'
 
 /** Where releases are published. */
 export const UPDATE_REPO = 'Fae-ling/symmetrical-goggles'
@@ -83,41 +84,18 @@ export async function checkForUpdate(): Promise<UpdateStatus> {
 }
 
 // --- keeping the data safe -----------------------------------------------------------
-
-/** Everything learned and decided, without the preview caches (which can be rebuilt). */
-async function dataFiles(): Promise<string[]> {
-  const root = app.getPath('userData')
-  const out: string[] = []
-  for (const name of await fs.readdir(root)) if (name.endsWith('.json') && name !== 'update.json') out.push(name)
-  const projects = join(root, 'projects')
-  for (const id of await fs.readdir(projects).catch(() => [] as string[])) {
-    for (const f of ['project.json', 'analysis.json']) {
-      const rel = join('projects', id, f)
-      if (await fs.stat(join(root, rel)).then(() => true, () => false)) out.push(rel)
-    }
-  }
-  return out
-}
+// The copying and trimming live in backups.ts; here they are pointed at the data folder.
 
 /** Copies what the app has learned and every project's decisions into a folder. Returns how many files. */
-export async function backupTo(folder: string): Promise<number> {
-  const root = app.getPath('userData')
-  const files = await dataFiles()
-  for (const rel of files) {
-    await fs.mkdir(join(folder, rel, '..'), { recursive: true })
-    await fs.copyFile(join(root, rel), join(folder, rel))
-  }
-  await fs.writeFile(join(folder, 'sift-backup.txt'), `Sift ${appVersion()} backup, ${new Date().toISOString()}\n`)
-  return files.length
-}
+export const backupTo = (folder: string): Promise<number> => backupFiles(app.getPath('userData'), folder, appVersion())
 
 /** Puts a backup back. The app then reloads, since everything it holds in memory is out of date. */
 export async function restoreFrom(folder: string): Promise<number> {
   const marked = async (name: string): Promise<boolean> => fs.stat(join(folder, name)).then(() => true, () => false)
-  if (!(await marked('sift-backup.txt')) && !(await marked('atelier-backup.txt'))) throw new Error('That folder is not a Sift backup.')
+  if (!(await marked(MARKER)) && !(await marked('atelier-backup.txt'))) throw new Error('That folder is not a Sift backup.')
   const root = app.getPath('userData')
   // The present state is kept too, in case the restore was a mistake.
-  await backupTo(join(root, 'backups', `before-restore-${Date.now()}`))
+  await makeBackup(root, 'before-restore', appVersion())
   let n = 0
   const walk = async (dir: string): Promise<void> => {
     for (const entry of await fs.readdir(join(folder, dir), { withFileTypes: true })) {
@@ -135,12 +113,17 @@ export async function restoreFrom(folder: string): Promise<number> {
   return n
 }
 
-/** A backup inside the data folder before every update; the three newest are kept. */
-async function autoBackup(): Promise<void> {
-  const dir = join(app.getPath('userData'), 'backups')
-  await backupTo(join(dir, `before-update-${appVersion()}-${Date.now()}`))
-  const old = (await fs.readdir(dir)).filter((d) => d.startsWith('before-update-')).sort()
-  for (const d of old.slice(0, -3)) await fs.rm(join(dir, d), { recursive: true, force: true })
+/** A backup before every update; the newest three are kept. */
+const preUpdateBackup = (): Promise<string> => makeBackup(app.getPath('userData'), 'before-update', appVersion())
+
+/**
+ * The daily backup. Runs shortly after start and every few hours while the app stays open;
+ * it only does anything when a day has passed and something has changed.
+ */
+export function startAutoBackup(): void {
+  const run = (): void => void autoBackup(app.getPath('userData'), appVersion()).catch((err) => console.warn('Automatic backup failed:', err))
+  setTimeout(run, 60 * 1000)
+  setInterval(run, 4 * 60 * 60 * 1000).unref()
 }
 
 // --- installing --------------------------------------------------------------------
@@ -154,7 +137,7 @@ function runInstaller(file: string): void {
 
 export async function installFromFile(file: string): Promise<void> {
   if (!/\.exe$/i.test(file)) throw new Error('Choose the Sift installer (a .exe file).')
-  await autoBackup()
+  await preUpdateBackup()
   runInstaller(file)
 }
 
@@ -177,6 +160,6 @@ export async function downloadAndInstall(assetId: number, sender: Electron.WebCo
     }
   })
   await pipeline(body, createWriteStream(file))
-  await autoBackup()
+  await preUpdateBackup()
   runInstaller(file)
 }
