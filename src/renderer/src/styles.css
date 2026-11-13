@@ -334,6 +334,9 @@ details.insp-section[open] > summary { margin-bottom: var(--s2); }
 .chip-x { border: 0; background: none; color: var(--faint); padding: 0 0 0 4px; min-height: 0; height: auto; font-size: 13px; line-height: 1; cursor: pointer; }
 .chip-x:hover { color: var(--reject); background: none; }
 .person-face { width: 64px; height: 64px; border-radius: var(--r); object-fit: cover; background: var(--panel-2); flex: none; }
+.card.person[draggable=true] { cursor: grab; }
+.card.person.dragging { opacity: 0.45; }
+.card.person.drop-over { outline: 2px dashed var(--pick); outline-offset: 2px; }
 .card.person.key { border-color: var(--pick); }
 .trend { display: flex; align-items: flex-end; gap: 6px; height: 72px; margin-top: var(--s3); }
 .trend > div { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; width: 34px; }

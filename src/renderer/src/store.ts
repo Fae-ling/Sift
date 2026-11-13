@@ -1547,6 +1547,7 @@ export const useStore = create<State>((set, get) => ({
     if (!project?.people) return
     const name = patch.name?.trim()
     // Giving someone the name of a person already listed says they are the same person.
+    if (!project.people.some((x) => x.id === id)) return
     const twin = name ? project.people.find((x) => x.id !== id && x.name.toLowerCase() === name.toLowerCase()) : undefined
     if (twin) return get().mergePerson(id, twin.id)
     get().update((p) => {
@@ -1559,7 +1560,8 @@ export const useStore = create<State>((set, get) => ({
     const before = get().project
     const from = before?.people?.find((x) => x.id === fromId)
     const into = before?.people?.find((x) => x.id === intoId)
-    if (from && into) {
+    if (!from || !into || from.id === into.id) return
+    {
       // "These are the same person": every face known of one against the faces known of the other.
       const more = from.faces.slice(-6).flatMap((id, i) => judge({ id, wear: from.wear[from.faces.length - Math.min(6, from.faces.length) + i] }, into, true, 4))
       if (more.length) setKnowledge(set, { ...get().knowledge, people: addJudgements(get().knowledge.people, more) })
@@ -1567,9 +1569,11 @@ export const useStore = create<State>((set, get) => ({
     get().update((p) => {
       const merged = mergePeople(p.shots, p.people ?? [], fromId, intoId)
       // With more faces known of the person, look again for others that are theirs.
-      const found = assignPeople(merged.shots, merged.people.filter((x) => x.name || x.key || x.id === intoId), tuningNow().tuning)
+      // Everyone else keeps their identity: only the faces nobody fixed are looked at again.
+      const found = assignPeople(merged.shots, merged.people, tuningNow().tuning)
       return { ...p, people: found.people, shots: scoreAndSuggest(found.shots, scoring({ ...p, people: found.people }, get().learned)) }
     })
+    void picturePeople(get)
   },
 
   setFacePerson: (shotId, face, personId) => {

@@ -12,6 +12,7 @@ export function People(): React.JSX.Element {
   const seen = useMemo(() => appearances(shots), [shots])
   const people = useMemo(() => [...(project?.people ?? [])].sort((a, b) => Number(b.key) - Number(a.key) || (seen.get(b.id)?.frames ?? 0) - (seen.get(a.id)?.frames ?? 0)), [project?.people, seen])
   const [showAll, setShowAll] = useState(false)
+  const [dragId, setDragId] = useState<string | null>(null)
   if (!project) return <div className="page" />
 
   const hasIds = shots.some((s) => s.analysis?.faces.some((f) => f.id))
@@ -93,6 +94,13 @@ export function People(): React.JSX.Element {
                 onNotThem={(shotId, face) => setFacePerson(shotId, face, null)}
                 onEdit={(patch) => editPerson(p.id, patch)}
                 onMerge={(into) => mergePerson(p.id, into)}
+                dragging={dragId}
+                onDragStart={() => setDragId(p.id)}
+                onDragEnd={() => setDragId(null)}
+                onDropOn={(fromId) => {
+                  setDragId(null)
+                  if (fromId && fromId !== p.id) mergePerson(fromId, p.id)
+                }}
               />
             ))}
           </div>
@@ -120,7 +128,7 @@ export function People(): React.JSX.Element {
           <p className="faint small" style={{ marginTop: 16 }}>
             Telling people apart is approximate: the same person in different light or seen from the side can be listed
             twice, and two people who look and dress alike can be taken for one. Giving two entries the same name joins
-            them. To correct a single face, open the frame in Cull and choose who it is under the face.
+            them, and so does dragging one onto the other. To correct a single face, open the frame in Cull and choose who it is under the face.
           </p>
         </>
       )}
@@ -144,7 +152,7 @@ function faceCrop(shot: Shot, face: number): React.CSSProperties {
   return { backgroundSize: `${W * 100}% auto`, backgroundPosition: `${pos(cx, W)} ${pos(cy, H)}` }
 }
 
-function PersonCard(props: { person: Person; label: string; frames: number; kept: number; others: Person[]; shots: Shot[]; onNotThem: (shotId: string, face: number) => void; onEdit: (patch: Partial<Pick<Person, 'name' | 'key'>>) => void; onMerge: (intoId: string) => void }): React.JSX.Element {
+function PersonCard(props: { person: Person; label: string; frames: number; kept: number; others: Person[]; shots: Shot[]; onNotThem: (shotId: string, face: number) => void; onEdit: (patch: Partial<Pick<Person, 'name' | 'key'>>) => void; onMerge: (intoId: string) => void; dragging: string | null; onDragStart: () => void; onDragEnd: () => void; onDropOn: (fromId: string) => void }): React.JSX.Element {
   const { person: p } = props
   const [name, setName] = useState(p.name)
   const [open, setOpen] = useState(false)
@@ -154,8 +162,37 @@ function PersonCard(props: { person: Person; label: string; frames: number; kept
     [open, props.shots, p.id]
   )
   const projectId = useStore((x) => x.project?.id ?? '')
+  const [over, setOver] = useState(false)
+  const target = props.dragging !== null && props.dragging !== p.id
   return (
-    <div className={`card person ${p.key ? 'key' : ''}`}>
+    <div
+      className={`card person ${p.key ? 'key' : ''} ${props.dragging === p.id ? 'dragging' : ''} ${over && target ? 'drop-over' : ''}`}
+      draggable
+      onDragStart={(e) => {
+        // Dragging inside the name field must still select text.
+        if ((e.target as HTMLElement).tagName === 'INPUT') return e.preventDefault()
+        e.dataTransfer.setData('text/plain', p.id)
+        e.dataTransfer.effectAllowed = 'move'
+        props.onDragStart()
+      }}
+      onDragEnd={() => {
+        setOver(false)
+        props.onDragEnd()
+      }}
+      onDragOver={(e) => {
+        if (!target) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        setOver(true)
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        e.preventDefault()
+        setOver(false)
+        props.onDropOn(props.dragging ?? e.dataTransfer.getData('text/plain'))
+      }}
+      title={target ? `Drop to join with ${props.label}` : undefined}
+    >
       <div className="row" style={{ alignItems: 'flex-start', gap: 12 }}>
         {p.thumb ? <img src={p.thumb} alt={props.label} className="person-face" /> : <div className="person-face" />}
         <div style={{ flex: 1, minWidth: 0 }}>
