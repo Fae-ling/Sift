@@ -234,6 +234,19 @@ describe('people', () => {
     expect(joined.people[0].faces.length).toBe(a.faces.length + b.faces.length + c.faces.length)
     expect(joined.shots.every((s) => s.people![0] === a.id)).toBe(true)
   })
+  it('keeps joined people joined when the faces are looked at again, even if they look unlike the rest', () => {
+    // idB stands for the same person seen from the side: nothing like idA to the matcher.
+    const shots = [...Array.from({ length: 40 }, () => withFaces(idA)), withFaces(idB), withFaces(idB), withFaces(idB)]
+    const first = assignPeople(shots, [])
+    expect(first.people).toHaveLength(2)
+    const [a, b] = first.people
+    // Someone seen many times already has all the faces the app will hold.
+    const full = first.people.map((p) => (p === a ? { ...p, faces: Array.from({ length: 20 }, () => a.faces[0]), wear: Array.from({ length: 20 }, () => a.wear[0]) } : p))
+    const joined = mergePeople(first.shots, full, b.id, a.id)
+    const again = assignPeople(joined.shots, joined.people)
+    expect(again.people).toHaveLength(1)
+    expect(again.shots.every((s) => s.people![0] === a.id)).toBe(true)
+  })
   it('joining a person with itself changes nothing', () => {
     const first = assignPeople([withFaces(idA), withFaces(idA)], [])
     const same = mergePeople(first.shots, first.people, first.people[0].id, first.people[0].id)

@@ -204,10 +204,21 @@ export function mergePeople(shots: Shot[], people: Person[], fromId: string, int
   const from = people.find((p) => p.id === fromId)
   const into = people.find((p) => p.id === intoId)
   if (!from || !into || from === into) return { shots, people }
-  const merged: Person = { ...into, key: into.key || from.key, faces: [...into.faces, ...from.faces].slice(0, MAX_FACES + 6), wear: [...into.wear, ...from.wear].slice(0, MAX_FACES + 6), thumb: into.thumb ?? from.thumb, not: [...(into.not ?? []), ...(from.not ?? [])].slice(-20) }
+  // Both keep a share of the faces: when the one they join is already full, the newcomer's must not be cut off,
+  // or the app would no longer know what it looks like and would split it off again.
+  const room = MAX_FACES + 6
+  const share = Math.min(from.faces.length, Math.max(8, room - into.faces.length))
+  const keepInto = Math.min(into.faces.length, room - share)
+  const merged: Person = { ...into, key: into.key || from.key, faces: [...into.faces.slice(0, keepInto), ...from.faces.slice(-share)], wear: [...into.wear.slice(0, keepInto), ...from.wear.slice(-share)], thumb: into.thumb ?? from.thumb, not: [...(into.not ?? []), ...(from.not ?? [])].slice(-20) }
   return {
     people: people.filter((p) => p !== from).map((p) => (p === into ? merged : p)),
-    shots: shots.map((s) => (s.people?.includes(fromId) ? { ...s, people: s.people.map((id) => (id === fromId ? intoId : id)) } : s))
+    // The faces that were theirs are now settled as the other person's: "same person" is the photographer's word,
+    // so looking again must not split them off because they look unlike the rest (side view, other light).
+    shots: shots.map((s) => {
+      if (!s.people?.includes(fromId)) return s
+      const moved = s.people.flatMap((id, i) => (id === fromId ? [i] : []))
+      return { ...s, people: s.people.map((id) => (id === fromId ? intoId : id)), peopleSet: [...new Set([...(s.peopleSet ?? []), ...moved])] }
+    })
   }
 }
 
