@@ -49,7 +49,7 @@ const api: StudioApi = {
     installFile: call('update:installFile')
   },
   backup: { save: call('data:backup'), restore: call('data:restore'), reveal: call('data:folder') },
-  ai: { story: call('ai:story'), read: call('ai:read'), essence: call('ai:essence'), diagnose: call('ai:diagnose'), nameFaces: call('ai:nameFaces'), developStyle: call('ai:developStyle'), atmosphere: call('ai:atmosphere'), tune: call('ai:tune') }
+  ai: { story: call('ai:story'), read: call('ai:read'), essence: call('ai:essence'), nameFaces: call('ai:nameFaces'), developStyle: call('ai:developStyle'), atmosphere: call('ai:atmosphere'), tune: call('ai:tune') }
 }
 
 contextBridge.exposeInMainWorld('studio', api)

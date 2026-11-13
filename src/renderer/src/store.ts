@@ -38,7 +38,7 @@ import { faceThumb } from './analysis/pipeline'
 import { FEATURES, tendencies } from './analysis/learner'
 import { digest, emptyGuidance, forgivePriors, GUIDANCE_VERSION, priorOf, toProposals, type Check, type Guidance, type Review } from './analysis/guidance'
 
-type ViewBase = 'projects' | 'profiles' | 'emotions' | 'training' | 'look' | 'diagnose' | 'brief' | 'import' | 'cull' | 'story' | 'export' | 'learn' | 'settings'
+type ViewBase = 'projects' | 'profiles' | 'emotions' | 'training' | 'look' | 'brief' | 'import' | 'cull' | 'story' | 'export' | 'learn' | 'settings'
 export type View = ViewBase | 'people' | 'overview' | 'taste' | 'gestures' | 'words' | 'reasons' | 'claude' | 'review'
 export type Filter = 'all' | 'suggested' | 'undecided' | 'picks' | 'rejects' | 'warnings' | 'gems' | 'unkept' | 'must' | 'relook' | 'key'
 

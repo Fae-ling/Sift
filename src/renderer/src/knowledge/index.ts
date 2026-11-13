@@ -251,10 +251,10 @@ The rule of thirds, the golden ratio, and complementary colours as a guarantee o
 5. Skin: even? Face and hands the same colour?
 6. Only now decide the mood. That part cannot be measured, and it is yours.
 
-Diagnose a photo does steps 1 to 5 for you, with pictures.
+The app measures steps 1 to 5 for you when it culls.
 `,
     sources: [
-      { label: 'Stanislav Petera, Light Garden Academy: article on building a retouching assistant (the starting point for this page and for Diagnose a photo)' },
+      { label: 'Stanislav Petera, Light Garden Academy: article on building a retouching assistant (the starting point for this page)' },
       { label: 'Alfred Yarbus, "Eye Movements and Vision" (1967)' },
       { label: 'Laurent Itti & Christof Koch, "Computational modelling of visual attention", Nature Reviews Neuroscience (2001)' },
       { label: 'Moran Cerf et al., "Predicting human gaze using low-level saliency combined with face detection", NIPS (2007)' },

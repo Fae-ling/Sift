@@ -285,14 +285,6 @@ details.insp-section[open] > summary { margin-bottom: var(--s2); }
 .two-up figcaption { font-size: 12px; color: var(--muted); margin: 6px 0; text-align: center; }
 .two-up .closeups { justify-content: center; }
 
-/* Diagnose */
-.diag-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0; }
-.diag-grid figure { margin: 0; }
-.diag-grid canvas { width: 100%; display: block; border-radius: 4px; background: #000; }
-.diag-grid figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
-.diag-grid figcaption b { color: var(--text); }
-.trial { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(280px, 380px); gap: 20px; align-items: start; }
-.trial canvas { width: 100%; border-radius: 4px; display: block; }
 
 /* Styles and emotions */
 .emo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2px 20px; }

@@ -1,5 +1,5 @@
 // Runs every measurement of the photo diagnosis on one preview and gathers the
-// results. Shared by the Diagnose screen and by training on finished photos.
+// results. Used by the cull and by training on finished photos.
 
 import type { FaceInfo } from '@shared/types'
 import {
