@@ -268,6 +268,8 @@ export interface Person {
   /** A few faces known to be theirs (id vectors), and what they wore. */
   faces: number[][]
   wear: number[][]
+  /** Faces the photographer said are not this person: they keep similar faces away. */
+  not?: { id: number[]; wear: number[] }[]
   /** A small picture of them, as a data URL. */
   thumb?: string
 }

@@ -6,6 +6,14 @@
 // photographer names the ones that matter and marks the key people. Every
 // correction ("this is her too", "these two are the same person") adds a
 // known face to that person, so the gathering improves within the shoot.
+//
+// The corrections also teach how to tell people apart in general. Every merge
+// ("these are the same person") and every removal ("this is not them") is a
+// judgement about two faces, kept with how alike the app found them. From
+// those judgements the app fits how much to trust the face against hair and
+// clothes, and how alike two faces must be to count as one person, and it only
+// uses what it fitted if that does better than its defaults on judgements it
+// was not fitted on.
 
 import type { FaceInfo, Person, Shot } from '@shared/types'
 
@@ -29,19 +37,114 @@ function wearLikeness(a: number[] | undefined, b: number[] | undefined): number 
   return 1 - clamp(d / 6 / 255 / 0.22)
 }
 
-/** How alike two faces are, 0..1: mostly the face itself, partly hair and clothes. */
-export function likeness(a: { id?: number[]; wear?: number[] }, b: { id?: number[]; wear?: number[] }): number {
-  if (!a.id || !b.id) return 0
-  return 0.75 * clamp(cosine(a.id, b.id)) + 0.25 * wearLikeness(a.wear, b.wear)
+/** What decides whether two faces are one person: the weight of the face against hair and clothes, and how alike they must be. */
+export interface Tuning {
+  faceWeight: number
+  threshold: number
+}
+export const DEFAULT_TUNING: Tuning = { faceWeight: 0.75, threshold: 0.74 }
+
+/** The two ingredients of how alike two faces are, each 0..1. */
+export function parts(a: { id?: number[]; wear?: number[] }, b: { id?: number[]; wear?: number[] }): { face: number; wear: number } | null {
+  if (!a.id || !b.id) return null
+  return { face: clamp(cosine(a.id, b.id)), wear: wearLikeness(a.wear, b.wear) }
 }
 
-/** Likeness above which two faces are taken for the same person. */
-export const SAME_PERSON = 0.74
+/** How alike two faces are, 0..1: mostly the face itself, partly hair and clothes. */
+export function likeness(a: { id?: number[]; wear?: number[] }, b: { id?: number[]; wear?: number[] }, tuning: Tuning = DEFAULT_TUNING): number {
+  const p = parts(a, b)
+  return p ? tuning.faceWeight * p.face + (1 - tuning.faceWeight) * p.wear : 0
+}
+
+/** Likeness above which two faces are taken for the same person, unless the photographer's corrections say otherwise. */
+export const SAME_PERSON = DEFAULT_TUNING.threshold
+
+/** One judgement by the photographer about two faces: how alike they looked, and whether they are the same person. */
+export interface Judgement {
+  face: number
+  wear: number
+  same: boolean
+}
+
+const MAX_JUDGEMENTS = 3000
+const MIN_JUDGEMENTS = 16
+
+/** Judgements about a face against a few of the faces known of a person (the most recent first). */
+export function judge(face: { id?: number[]; wear?: number[] }, of: { faces: number[][]; wear: number[][] }, same: boolean, limit = 8): Judgement[] {
+  const out: Judgement[] = []
+  for (let i = of.faces.length - 1; i >= 0 && out.length < limit; i--) {
+    const p = parts(face, { id: of.faces[i], wear: of.wear[i] })
+    if (p) out.push({ ...p, same })
+  }
+  return out
+}
+
+export const addJudgements = (list: Judgement[] | undefined, more: Judgement[]): Judgement[] =>
+  [...(list ?? []), ...more.map((j) => ({ face: Math.round(j.face * 1000) / 1000, wear: Math.round(j.wear * 1000) / 1000, same: j.same }))].slice(-MAX_JUDGEMENTS)
+
+const accuracy = (js: Judgement[], t: Tuning): number =>
+  js.length ? js.filter((j) => (t.faceWeight * j.face + (1 - t.faceWeight) * j.wear >= t.threshold) === j.same).length / js.length : 0
+
+/** A stable split of judgements: about one in five is held back from fitting, and chosen the same way every time. */
+const held = (i: number): boolean => (i * 2654435761) % 5 === 0
+
+/** Best settings for a set of judgements, among a grid; ties go to the one nearest the defaults. */
+function fit(js: Judgement[]): Tuning {
+  let best = DEFAULT_TUNING
+  let bestScore = accuracy(js, DEFAULT_TUNING)
+  for (const faceWeight of [0.5, 0.6, 0.7, 0.75, 0.85, 1]) {
+    for (let t = 40; t <= 98; t++) {
+      const tuning = { faceWeight, threshold: t / 100 }
+      const a = accuracy(js, tuning)
+      const nearer = Math.abs(t / 100 - DEFAULT_TUNING.threshold) + Math.abs(faceWeight - DEFAULT_TUNING.faceWeight) < Math.abs(best.threshold - DEFAULT_TUNING.threshold) + Math.abs(best.faceWeight - DEFAULT_TUNING.faceWeight)
+      if (a > bestScore + 1e-9 || (Math.abs(a - bestScore) < 1e-9 && nearer)) {
+        best = tuning
+        bestScore = a
+      }
+    }
+  }
+  return best
+}
+
+export interface TuningReport {
+  tuning: Tuning
+  /** Judgements it was fitted from, and those held back to test the fit on. */
+  judgements: number
+  tested: number
+  /** Share of held-back judgements got right by the defaults and by the fitted settings. */
+  defaults: number
+  fitted: number
+  /** True when the fitted settings are in use: they beat the defaults on the held-back judgements. */
+  used: boolean
+}
+
+/**
+ * Learns how to tell people apart from the photographer's corrections. The
+ * settings are fitted on four fifths of the judgements and used only if they do
+ * better than the defaults on the fifth held back, by more than chance.
+ */
+export function learnTuning(judgements: Judgement[] | undefined): TuningReport {
+  const all = judgements ?? []
+  const training = all.filter((_, i) => !held(i))
+  const testing = all.filter((_, i) => held(i))
+  const base: TuningReport = { tuning: DEFAULT_TUNING, judgements: all.length, tested: testing.length, defaults: accuracy(testing, DEFAULT_TUNING), fitted: accuracy(testing, DEFAULT_TUNING), used: false }
+  const same = all.filter((j) => j.same).length
+  if (all.length < MIN_JUDGEMENTS || same < 4 || all.length - same < 4 || testing.length < 4) return base
+  const fitted = fit(training)
+  const fittedAcc = accuracy(testing, fitted)
+  const noise = Math.sqrt((base.defaults * (1 - base.defaults)) / testing.length)
+  const better = fittedAcc > base.defaults + Math.max(0.03, noise * 0.5)
+  if (!better) return { ...base, fitted: fittedAcc }
+  // The settings in use are then refitted on everything, held-back judgements included.
+  return { ...base, tuning: fit(all), fitted: fittedAcc, used: true }
+}
 const MAX_FACES = 14
 /** Someone must appear in at least this many frames to be listed, unless the photographer named them. */
 export const MIN_APPEARANCES = 2
 
-const bestMatch = (f: FaceInfo, p: Person): number => p.faces.reduce((m, id, i) => Math.max(m, likeness(f, { id, wear: p.wear[i] })), 0)
+const bestMatch = (f: FaceInfo, p: Person, t: Tuning): number => p.faces.reduce((m, id, i) => Math.max(m, likeness(f, { id, wear: p.wear[i] }, t)), 0)
+/** How like a face is to the faces the photographer said are not this person. */
+const worstMatch = (f: FaceInfo, p: Person, t: Tuning): number => (p.not ?? []).reduce((m, n) => Math.max(m, likeness(f, n, t)), 0)
 
 let counter = 0
 const newPersonId = (): string => `p${Date.now().toString(36)}${(counter++).toString(36)}`
@@ -51,8 +154,8 @@ const newPersonId = (): string => `p${Date.now().toString(36)}${(counter++).toSt
  * (`shot.peopleSet`) are left alone. People nobody named who turn out to
  * appear only once are dropped again.
  */
-export function assignPeople(shots: Shot[], known: Person[]): { shots: Shot[]; people: Person[] } {
-  const people = known.map((p) => ({ ...p, faces: [...p.faces], wear: [...p.wear] }))
+export function assignPeople(shots: Shot[], known: Person[], tuning: Tuning = DEFAULT_TUNING): { shots: Shot[]; people: Person[] } {
+  const people: Person[] = known.map((p) => ({ ...p, faces: [...p.faces], wear: [...p.wear], not: [...(p.not ?? [])] }))
   const seen = new Map<string, number>()
   const out = shots.map((s) => {
     const faces = s.analysis?.faces ?? []
@@ -67,13 +170,15 @@ export function assignPeople(shots: Shot[], known: Person[]): { shots: Shot[]; p
       for (const p of people) {
         // One person cannot be two faces of the same frame.
         if (taken.has(p.id)) continue
-        const m = bestMatch(f, p)
+        const m = bestMatch(f, p, tuning)
+        // A face the photographer has said is not this person stays out, however alike it looks to the rest of them.
+        if (p.not?.length && worstMatch(f, p, tuning) >= m - 0.02) continue
         if (m > score) {
           score = m
           best = p
         }
       }
-      if (!best || score < SAME_PERSON) {
+      if (!best || score < tuning.threshold) {
         best = { id: newPersonId(), name: '', key: false, faces: [f.id], wear: [f.wear ?? []] }
         people.push(best)
       } else if (score < 0.92 && best.faces.length < MAX_FACES) {
@@ -99,7 +204,7 @@ export function mergePeople(shots: Shot[], people: Person[], fromId: string, int
   const from = people.find((p) => p.id === fromId)
   const into = people.find((p) => p.id === intoId)
   if (!from || !into || from === into) return { shots, people }
-  const merged: Person = { ...into, key: into.key || from.key, faces: [...into.faces, ...from.faces].slice(0, MAX_FACES + 6), wear: [...into.wear, ...from.wear].slice(0, MAX_FACES + 6), thumb: into.thumb ?? from.thumb }
+  const merged: Person = { ...into, key: into.key || from.key, faces: [...into.faces, ...from.faces].slice(0, MAX_FACES + 6), wear: [...into.wear, ...from.wear].slice(0, MAX_FACES + 6), thumb: into.thumb ?? from.thumb, not: [...(into.not ?? []), ...(from.not ?? [])].slice(-20) }
   return {
     people: people.filter((p) => p !== from).map((p) => (p === into ? merged : p)),
     shots: shots.map((s) => (s.people?.includes(fromId) ? { ...s, people: s.people.map((id) => (id === fromId ? intoId : id)) } : s))
@@ -136,4 +241,25 @@ export function keyPeopleIn(shot: Shot, people: Person[] | undefined): { name: s
 export function namesIn(shot: Shot, people: Person[] | undefined): string[] {
   if (!people?.length || !shot.people) return []
   return [...new Set(shot.people.flatMap((id) => (id ? [people.find((x) => x.id === id)?.name ?? ''] : [])).filter(Boolean))]
+}
+
+/**
+ * Takes a face out of a person: the face stops being one of those known of them
+ * (any copy of it), and becomes one of the faces said not to be them, so that
+ * similar faces are kept away too.
+ */
+export function removeFromPerson(person: Person, face: { id?: number[]; wear?: number[] }): Person {
+  if (!face.id) return person
+  const keep: number[] = []
+  person.faces.forEach((id, i) => {
+    // Only the very same face is removed as an example, not the others that merely look like it:
+    // those are the person's other faces, and the removed one is kept away through `not`.
+    if (!id.every((v, k) => v === face.id![k])) keep.push(i)
+  })
+  return {
+    ...person,
+    faces: keep.map((i) => person.faces[i]),
+    wear: keep.map((i) => person.wear[i]),
+    not: [...(person.not ?? []), { id: face.id, wear: face.wear ?? [] }].slice(-20)
+  }
 }

@@ -344,7 +344,43 @@ try {
     await snap('7-key-person')
   } else console.log('note: no people were told apart in these samples')
 
+  // Check a person's faces: one is removed as "not them", and the correction is learned from.
+  await page.locator('.sidebar .nav', { hasText: 'People' }).click()
+  const firstPerson = page.locator('.card.person').first()
+  if (await firstPerson.count()) {
+    await firstPerson.getByRole('button', { name: 'Check their faces' }).click()
+    const tiles = firstPerson.locator('.face-tile')
+    await tiles.first().waitFor()
+    const tilesBefore = await tiles.count()
+    await snap('7-people-faces')
+    await tiles.first().hover()
+    await tiles.first().getByRole('button').click()
+    await until(() => page.locator('.card.person').first().locator('.face-tile').count(), (n) => n < tilesBefore, 'removing a face takes it out of the person')
+    await page.getByText(/judgements? from your corrections/).waitFor()
+    assert.ok(JSON.parse(readFileSync(join(userData, 'knowledge.json'), 'utf8')).people?.length > 0, 'the correction is stored as a judgement about faces')
+  }
+
+  // An older project: imported quickly, so its faces were found but people were not told apart. They can be read afterwards.
+  await page.getByRole('button', { name: 'All projects' }).click()
+  await page.getByLabel('Project name').fill('Older project')
+  await page.getByLabel('Shoot style').selectOption({ label: 'Wedding' })
+  await page.getByRole('button', { name: 'Create project' }).click()
+  await page.getByRole('button', { name: /import the shoot/ }).click()
+  await page.getByLabel(/Fast import/).check()
+  await page.getByRole('button', { name: /Choose shoot folder/ }).click()
+  await page.getByRole('button', { name: 'Start culling' }).waitFor({ timeout: 300_000 })
+  await page.waitForFunction(() => !/Analys/.test(document.body.innerText), null, { timeout: 300_000 })
+  await page.locator('.sidebar .nav', { hasText: 'People' }).click()
+  await page.getByText(/not been read for people yet/).waitFor()
+  assert.equal(await page.locator('.card.person').count(), 0, 'a quick import found no people')
+  await snap('7-people-unread')
+  await page.getByRole('button', { name: 'Read the faces now' }).click()
+  await page.locator('.card.person').first().waitFor({ timeout: 120_000 })
+  await snap('7-people-read')
+
   // The shoot can be re-estimated from the cull settings.
+  await page.getByRole('button', { name: 'All projects' }).click()
+  await page.getByText('Smoke test').first().click()
   await page.locator('.sidebar .nav', { hasText: 'Cull' }).click()
   await page.locator('.popover-wrap > button').click()
   await page.getByRole('button', { name: 'Re-estimate this shoot' }).click()

@@ -31,7 +31,8 @@ import { buildProfile, emotionLifts, emotionWeights, feelOf, mergeLifts, mergePr
 import type { StyleProfile } from '@shared/types'
 import { emptyGestures, forgetGesture, GESTURE_VERSION, gestureCentroid, readGesture, teachGesture, type GestureStore } from './analysis/gesture'
 import { absorb, addNote, briefing, cleanTag, emptyKnowledge, emptyReasons, KNOWLEDGE_VERSION, learnTags, mergedLedger, READ_WEIGHT, reasonConcepts, sceneVector, tagDirections, vocabulary, withoutExcluded, type Knowledge, type Note, type ProjectLedger } from './analysis/knowledge'
-import { appearances, assignPeople, mergePeople, namesIn } from './analysis/people'
+import { addJudgements, appearances, assignPeople, judge, learnTuning, mergePeople, namesIn, removeFromPerson, type TuningReport } from './analysis/people'
+import { identify } from './analysis/body'
 import { estimateOf, relookOf, type Relook } from './analysis/estimate'
 import { faceThumb } from './analysis/pipeline'
 import { FEATURES, tendencies } from './analysis/learner'
@@ -184,6 +185,11 @@ interface State {
   remember(note: Omit<Note, 'at'>): void
   /** Tells the people of the open shoot apart (again). */
   findPeople(): Promise<void>
+  /** Reads the faces of frames that were imported before people could be told apart, or with the quick import. */
+  identifying: { running: boolean; done: number; total: number }
+  readIdentities(): Promise<void>
+  /** How the app tells people apart, as learned from the photographer's merges and removals, and how well that tested. */
+  peopleLearning(): TuningReport
   editPerson(id: string, patch: Partial<Pick<Person, 'name' | 'key'>>): void
   mergePerson(fromId: string, intoId: string): void
   /** Says who a face is: an existing person, 'new' for someone not listed yet, or null for nobody in particular. */
@@ -310,6 +316,14 @@ function forgiveNow(): ReturnType<typeof forgivePriors> {
   if (forgiveCache?.of !== currentGuidance) forgiveCache = { of: currentGuidance, list: forgivePriors(currentGuidance) }
   return forgiveCache.list
 }
+/** How to tell people apart, learned from the photographer's corrections. Worked out again only when they change. */
+let tuningCache: { of: unknown; report: TuningReport } | null = null
+function tuningNow(): TuningReport {
+  const of = currentKnowledge.people
+  if (!tuningCache || tuningCache.of !== of) tuningCache = { of, report: learnTuning(of) }
+  return tuningCache.report
+}
+
 function setGuidance(set: (p: Partial<State>) => void, g: Guidance, save = true): void {
   currentGuidance = g
   set({ guidance: g })
@@ -581,6 +595,7 @@ export const useStore = create<State>((set, get) => ({
   relook: null,
   marked: [],
   asking: null,
+  identifying: { running: false, done: 0, total: 0 },
   guidance: emptyGuidance(),
   reviewing: false,
   chrome: { inspector: true, film: true, focus: false },
@@ -1490,10 +1505,41 @@ export const useStore = create<State>((set, get) => ({
     if (!project) return
     get().update((p) => {
       // People nobody named are gathered afresh; named and key people keep what is known of them.
-      const found = assignPeople(p.shots, (p.people ?? []).filter((x) => x.name || x.key))
+      const found = assignPeople(p.shots, (p.people ?? []).filter((x) => x.name || x.key), tuningNow().tuning)
       return { ...p, people: found.people, shots: scoreAndSuggest(found.shots, scoring({ ...p, people: found.people }, get().learned)) }
     })
     await picturePeople(get)
+  },
+
+  peopleLearning: () => tuningNow(),
+
+  readIdentities: async () => {
+    const start = get().project
+    if (!start || get().identifying.running) return
+    // Frames with faces that have no signature yet: imported before it existed, or with the quick import.
+    const todo = start.shots.filter((s) => s.analysis?.faces.some((f) => f.h >= 0.06 && !f.id))
+    if (!todo.length) return get().findPeople()
+    set({ identifying: { running: true, done: 0, total: todo.length } })
+    try {
+      for (const [i, shot] of todo.entries()) {
+        if (get().project?.id !== start.id) break
+        try {
+          const blob = await (await fetch(previewUrl(start.id, shot.id))).blob()
+          const preview = await loadOriented(blob, 1, PREVIEW_EDGE)
+          // The faces were found at import and are kept; only what tells them apart is added.
+          const faces = shot.analysis!.faces.map((f) => ({ ...f }))
+          await identify(preview, rgba(preview), faces)
+          analysisDirty = true
+          get().updateShot(shot.id, { analysis: { ...get().project!.shots.find((x) => x.id === shot.id)!.analysis!, faces } })
+        } catch {
+          // A frame whose preview cannot be read is left as it was.
+        }
+        set({ identifying: { running: true, done: i + 1, total: todo.length } })
+      }
+      if (get().project?.id === start.id) await get().findPeople()
+    } finally {
+      set((x) => ({ identifying: { ...x.identifying, running: false } }))
+    }
   },
 
   editPerson: (id, patch) => {
@@ -1509,33 +1555,57 @@ export const useStore = create<State>((set, get) => ({
     })
   },
 
-  mergePerson: (fromId, intoId) =>
+  mergePerson: (fromId, intoId) => {
+    const before = get().project
+    const from = before?.people?.find((x) => x.id === fromId)
+    const into = before?.people?.find((x) => x.id === intoId)
+    if (from && into) {
+      // "These are the same person": every face known of one against the faces known of the other.
+      const more = from.faces.slice(-6).flatMap((id, i) => judge({ id, wear: from.wear[from.faces.length - Math.min(6, from.faces.length) + i] }, into, true, 4))
+      if (more.length) setKnowledge(set, { ...get().knowledge, people: addJudgements(get().knowledge.people, more) })
+    }
     get().update((p) => {
       const merged = mergePeople(p.shots, p.people ?? [], fromId, intoId)
       // With more faces known of the person, look again for others that are theirs.
-      const found = assignPeople(merged.shots, merged.people.filter((x) => x.name || x.key || x.id === intoId))
+      const found = assignPeople(merged.shots, merged.people.filter((x) => x.name || x.key || x.id === intoId), tuningNow().tuning)
       return { ...p, people: found.people, shots: scoreAndSuggest(found.shots, scoring({ ...p, people: found.people }, get().learned)) }
-    }),
+    })
+  },
 
-  setFacePerson: (shotId, face, personId) =>
+  setFacePerson: (shotId, face, personId) => {
+    const project = get().project
+    const shot = project?.shots.find((x) => x.id === shotId)
+    const f = shot?.analysis?.faces[face]
+    if (!project || !shot || !f) return
+    const oldId = shot.people?.[face] ?? null
+    const old = oldId ? project.people?.find((x) => x.id === oldId) : undefined
+    const target = personId && personId !== 'new' ? project.people?.find((x) => x.id === personId) : undefined
+    // What this correction says about faces: it is the same person as the one chosen, and not the one it was taken from.
+    let more = [] as ReturnType<typeof judge>
+    if (target && target.id !== oldId) more = more.concat(judge(f, target, true))
+    if (old && old.id !== personId) more = more.concat(judge(f, old, false))
+    if (more.length) setKnowledge(set, { ...get().knowledge, people: addJudgements(get().knowledge.people, more) })
     get().update((p) => {
-      const shot = p.shots.find((x) => x.id === shotId)
-      const f = shot?.analysis?.faces[face]
-      if (!shot || !f) return p
       let people = p.people ?? []
       let id: string | null = personId
+      if (old && old.id !== personId) people = people.map((x) => (x.id === old.id ? removeFromPerson(x, f) : x))
       if (personId === 'new') {
         id = `p${Date.now().toString(36)}`
         people = [...people, { id, name: '', key: false, faces: f.id ? [f.id] : [], wear: f.id ? [f.wear ?? []] : [] }]
       } else if (personId && f.id) {
-        // The corrected face becomes one of the faces known to be theirs.
-        people = people.map((x) => (x.id === personId ? { ...x, faces: [...x.faces, f.id!].slice(-20), wear: [...x.wear, f.wear ?? []].slice(-20) } : x))
+        // The corrected face becomes one of the faces known to be theirs, and no longer one said not to be.
+        people = people.map((x) =>
+          x.id === personId
+            ? { ...x, faces: [...x.faces, f.id!].slice(-20), wear: [...x.wear, f.wear ?? []].slice(-20), not: (x.not ?? []).filter((n) => !n.id.every((v, k) => v === f.id![k])) }
+            : x
+        )
       }
       const who = shot.analysis!.faces.map((_, i) => (i === face ? id : (shot.people?.[i] ?? null)))
       const shots = p.shots.map((x) => (x.id === shotId ? { ...x, people: who, peopleSet: [...new Set([...(x.peopleSet ?? []), face])] } : x))
-      const found = assignPeople(shots, people.filter((x) => x.name || x.key || x.id === id))
+      const found = assignPeople(shots, people.filter((x) => x.name || x.key || x.id === id), tuningNow().tuning)
       return { ...p, people: found.people, shots: scoreAndSuggest(found.shots, scoring({ ...p, people: found.people }, get().learned)) }
-    }),
+    })
+  },
 
   reestimate: () => {
     const project = get().project

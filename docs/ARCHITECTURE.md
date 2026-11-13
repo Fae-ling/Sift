@@ -74,7 +74,7 @@ reloads it without saving back (`reloadChanged`).
 | `emotion.ts` | The emotion machine: concepts over 51 face measurements, teaching, pointers for unnamed expressions | prototypes, taught locally |
 | `body.ts` | Bodies and their joints; numbers that tell one face from another; hair and clothes colour | MediaPipe Pose Landmarker (lite), MobileNet V3 image embedder |
 | `gesture.ts` | The gesture machine: 16 body measurements, named gestures, teaching | prototypes, taught locally |
-| `people.ts` | Gathers alike faces into people within one shoot; joining, corrections, key people | none |
+| `people.ts` | Gathers alike faces into people within one shoot; joining, removing, key people; learns how alike faces must be from the photographer's corrections, tested on held-back ones | fitted locally |
 | `describe.ts` | The sentence saying what is happening; what a frame brings and what is against it | none |
 | `knowledge.ts` | What Claude's descriptions taught (words tied to measurements); the ledger of mistakes against assets; the record with Claude; the briefing Claude is given | prototypes and counts, learned locally |
 | `guidance.ts` | Claude's review: the digest of everything collected, turning its answer into proposals, the guidance in use (starting weights, forgiveness rules) | none |

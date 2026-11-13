@@ -7,7 +7,7 @@ import { learn as learnTaste, FEATURES } from '../src/renderer/src/analysis/lear
 import { absorbReasons, emptyReasons, ledgerEntries, reasonConcepts, withoutExcluded, tagDirections } from '../src/renderer/src/analysis/knowledge'
 import { absorb, assetLift, briefing, claudeRecord, emptyKnowledge, forgiveness, learnTags, ledgerOf, mergedLedger, recogniseTags, settleTags, verdictOf, vocabulary, type Concepts } from '../src/renderer/src/analysis/knowledge'
 import { scoreAndSuggest } from '../src/renderer/src/analysis/scoring'
-import { assignPeople, keyPeopleIn, likeness, mergePeople } from '../src/renderer/src/analysis/people'
+import { addJudgements, assignPeople, DEFAULT_TUNING, judge, keyPeopleIn, learnTuning, likeness, mergePeople, removeFromPerson, type Judgement } from '../src/renderer/src/analysis/people'
 
 // A body facing the camera: left shoulder on the image's right.
 function body(over: Record<number, [number, number]> = {}): Mark[] {
@@ -358,5 +358,65 @@ describe('updates', () => {
     expect(newer('0.2.9', '0.2.14')).toBe(false)
     expect(newer('0.3.0', '0.2.99')).toBe(true)
     expect(newer('0.2.5', '0.2.5')).toBe(false)
+  })
+})
+
+describe('learning from corrections to who is who', () => {
+  const vec = (seed: number): number[] => Array.from({ length: 48 }, (_, i) => Math.round(Math.sin(seed * 12.9898 + i * 78.233) * 90))
+  const near = (id: number[], n: number): number[] => id.map((v, i) => v + Math.round(Math.sin(n * 3.1 + i) * 14))
+  const wear = [30, 20, 10, 240, 240, 240]
+  const face = (id: number[]): FaceInfo => face0({ id, wear })
+  const face0 = (over: Partial<FaceInfo>): FaceInfo => ({ x: 0.3, y: 0.2, w: 0.2, h: 0.3, blink: 0, smile: 0, sharpness: 100, skinHue: 20, skinSat: 0.3, ...over })
+  const frame = (...ids: number[][]): Shot => shot({ analysis: analysis({ faces: ids.map((id, i) => ({ ...face(id), x: 0.1 + i * 0.3 })) }) })
+  const A = vec(1)
+
+  it('takes a face out of a person, and keeps similar faces away from them', () => {
+    const shots = [frame(near(A, 1)), frame(near(A, 2)), frame(near(A, 3))]
+    const first = assignPeople(shots, [])
+    const person = first.people[0]
+    const odd = { id: near(A, 3), wear }
+    const after = removeFromPerson({ ...person, faces: [...person.faces, odd.id], wear: [...person.wear, wear] }, odd)
+    expect(after.faces.length).toBe(person.faces.length)
+    expect(after.not).toHaveLength(1)
+    // A new frame that looks like the removed face is no longer put with this person.
+    const again = assignPeople([frame(near(A, 3))], [{ ...after, name: 'her' }])
+    expect(again.shots[0].people![0]).not.toBe(person.id)
+    // Without the correction it would have been.
+    const without = assignPeople([frame(near(A, 3))], [{ ...person, name: 'her' }])
+    expect(without.shots[0].people![0]).toBe(person.id)
+  })
+
+  it('turns merges and removals into judgements about pairs of faces', () => {
+    const person = { id: 'p', name: '', key: false, faces: [vec(2), vec(2).map((v) => v + 3)], wear: [wear, wear] }
+    expect(judge({ id: vec(2), wear }, person, true)).toHaveLength(2)
+    expect(judge({ id: vec(2), wear }, person, true)[0].face).toBeGreaterThan(0.95)
+    expect(addJudgements(undefined, [{ face: 0.123456, wear: 0.5, same: true }])[0].face).toBe(0.123)
+  })
+
+  // The photographer's people look alike only a little (face .6): the standard settings call them different.
+  const jitter = (i: number): number => Math.sin(i * 7.7) * 0.05
+  const corrections = (n: number): Judgement[] =>
+    Array.from({ length: n }, (_, i) => (i % 2 ? { face: 0.62 + jitter(i), wear: 0.55 + jitter(i + 1), same: true } : { face: 0.3 + jitter(i), wear: 0.4 + jitter(i + 2), same: false }))
+
+  it('does nothing with too few corrections', () => {
+    const r = learnTuning(corrections(8))
+    expect(r.used).toBe(false)
+    expect(r.tuning).toEqual(DEFAULT_TUNING)
+  })
+  it('fits how alike faces must be, and uses it when it does better on corrections held back', () => {
+    const r = learnTuning(corrections(120))
+    expect(r.tested).toBeGreaterThan(10)
+    expect(r.defaults).toBeLessThan(0.7)
+    expect(r.fitted).toBeGreaterThan(0.95)
+    expect(r.used).toBe(true)
+    expect(r.tuning.threshold).toBeLessThan(0.6)
+    // The new setting says what the corrections said.
+    expect(likeness({ id: vec(5), wear }, { id: near(vec(5), 1), wear }, r.tuning)).toBeGreaterThan(r.tuning.threshold)
+  })
+  it('keeps the standard settings when they already do as well', () => {
+    const fine: Judgement[] = Array.from({ length: 120 }, (_, i) => (i % 2 ? { face: 0.95 + jitter(i) / 5, wear: 0.9, same: true } : { face: 0.2 + jitter(i), wear: 0.3, same: false }))
+    const r = learnTuning(fine)
+    expect(r.used).toBe(false)
+    expect(r.tuning).toEqual(DEFAULT_TUNING)
   })
 })

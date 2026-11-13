@@ -459,6 +459,8 @@ export interface Knowledge {
    * 'trade:<flaw>|<asset>'. Excluded entries are left out of scoring and of what Claude is told.
    */
   excluded: string[]
+  /** The photographer's judgements about whether two faces are the same person, from merges and removals. */
+  people?: import('./people').Judgement[]
 }
 
 export const KNOWLEDGE_VERSION = 1

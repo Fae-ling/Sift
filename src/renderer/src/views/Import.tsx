@@ -57,7 +57,7 @@ export function Import(): React.JSX.Element {
           <label className="check" style={{ justifyContent: 'center', marginTop: 16 }}>
             <input type="checkbox" checked={!!project.fastImport} onChange={(e) => setFastImport(e.target.checked)} />
             <span>
-              Fast import <span className="faint">· for very large shoots: quicker, skips small faces in wide shots</span>
+              Fast import <span className="faint">· for very large shoots: quicker; skips small faces in wide shots and telling people apart (People can do that afterwards)</span>
             </span>
           </label>
         </div>
