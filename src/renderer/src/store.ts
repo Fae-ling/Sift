@@ -50,6 +50,15 @@ interface IngestState {
   startedAt: number
 }
 
+/** The people of a shoot, and who each face was, before a change to them. */
+interface PeopleBefore {
+  label: string
+  projectId: string
+  people: Person[] | undefined
+  shots: { id: string; people: Shot['people']; peopleSet: Shot['peopleSet'] }[]
+  learned: Knowledge['people']
+}
+
 /** A frame's decision and rating before a change, so the change can be undone. */
 interface Before {
   id: string
@@ -118,6 +127,10 @@ interface State {
   undoStack: Before[][]
   redoStack: Before[][]
 
+  /** Changes to who is who, each as the people and faces before it, so the last can be taken back. */
+  peopleUndo: PeopleBefore[]
+  /** Takes back the last change to the people of the shoot. */
+  undoPeople(): void
   setView(view: View): void
   setFilter(filter: Filter): void
   select(id: string | null): void
@@ -192,6 +205,8 @@ interface State {
   peopleLearning(): TuningReport
   editPerson(id: string, patch: Partial<Pick<Person, 'name' | 'key'>>): void
   mergePerson(fromId: string, intoId: string): void
+  /** Takes some faces out of a person and makes them a person of their own: for two people the app took for one. */
+  splitPerson(id: string, faces: { shotId: string; face: number }[]): void
   /** Takes someone off the list (a passer-by, or a mistake): their faces become nobody in particular and stay that way. */
   removePerson(id: string): void
   /** Says who a face is: an existing person, 'new' for someone not listed yet, or null for nobody in particular. */
@@ -368,6 +383,19 @@ function reasonsNow(): { store: ReturnType<typeof reasonConcepts>; directions: R
     reasonCache = { of: r, value: { store, directions: tagDirections(store) } }
   }
   return reasonCache.value
+}
+
+function rememberPeople(get: () => State, set: (p: Partial<State>) => void, label: string): void {
+  const project = get().project
+  if (!project) return
+  const entry: PeopleBefore = {
+    label,
+    projectId: project.id,
+    people: project.people,
+    shots: project.shots.filter((x) => x.people || x.peopleSet).map((x) => ({ id: x.id, people: x.people, peopleSet: x.peopleSet })),
+    learned: get().knowledge.people
+  }
+  set({ peopleUndo: [...get().peopleUndo.slice(-19), entry] })
 }
 
 function setKnowledge(set: (p: Partial<State>) => void, knowledge: Knowledge, save = true): void {
@@ -605,6 +633,7 @@ export const useStore = create<State>((set, get) => ({
   training: emptyTraining(),
   teaching: { running: false, done: 0, total: 0, label: '' },
   chapter: null,
+  peopleUndo: [],
   undoStack: [],
   redoStack: [],
 
@@ -657,7 +686,7 @@ export const useStore = create<State>((set, get) => ({
     if (loaded.balance === undefined) project.shots = scoreAndSuggest(project.shots, scoring(project, get().learned))
     const has = project.shots.length > 0
     // Open on the frames the cull would keep; everything else is one click away.
-    set({ project, view: has ? 'cull' : 'brief', selectedId: null, filter: has ? 'suggested' : 'all', chapter: null, undoStack: [], redoStack: [], relook: null, marked: [], asking: null })
+    set({ project, view: has ? 'cull' : 'brief', selectedId: null, filter: has ? 'suggested' : 'all', chapter: null, undoStack: [], redoStack: [], peopleUndo: [], relook: null, marked: [], asking: null })
     // Score the project with the taste model as it stands, tuned to this kind of shoot.
     get().relearn()
   },
@@ -1557,7 +1586,23 @@ export const useStore = create<State>((set, get) => ({
     })
   },
 
+  undoPeople: () => {
+    const last = get().peopleUndo.at(-1)
+    set({ peopleUndo: get().peopleUndo.slice(0, -1) })
+    if (!last || get().project?.id !== last.projectId) return
+    get().update((p) => {
+      const was = new Map(last.shots.map((x) => [x.id, x]))
+      const shots = p.shots.map((x) => {
+        const b = was.get(x.id)
+        return b ? { ...x, people: b.people, peopleSet: b.peopleSet } : x.people || x.peopleSet ? { ...x, people: undefined, peopleSet: undefined } : x
+      })
+      return { ...p, people: last.people, shots: scoreAndSuggest(shots, scoring({ ...p, people: last.people }, get().learned)) }
+    })
+    setKnowledge(set, { ...get().knowledge, people: last.learned })
+  },
+
   mergePerson: (fromId, intoId) => {
+    rememberPeople(get, set, 'Joined two people')
     const before = get().project
     const from = before?.people?.find((x) => x.id === fromId)
     const into = before?.people?.find((x) => x.id === intoId)
@@ -1574,7 +1619,41 @@ export const useStore = create<State>((set, get) => ({
     })
   },
 
+  splitPerson: (id, faces) => {
+    const project = get().project
+    const old = project?.people?.find((x) => x.id === id)
+    if (!project || !old || !faces.length) return
+    const picked = faces.flatMap(({ shotId, face }) => {
+      const shot = project.shots.find((x) => x.id === shotId)
+      const f = shot?.analysis?.faces[face]
+      return shot && f && shot.people?.[face] === id ? [{ shotId, face, f }] : []
+    })
+    if (!picked.length) return
+    rememberPeople(get, set, 'Split a person')
+    // "Not the same person": each picked face against the faces known of the one it came from.
+    const more = picked.flatMap(({ f }) => judge(f, old, false))
+    if (more.length) setKnowledge(set, { ...get().knowledge, people: addJudgements(get().knowledge.people, more) })
+    const newId = `p${Date.now().toString(36)}`
+    get().update((p) => {
+      const withId = picked.filter((x) => x.f.id)
+      let from: Person = p.people!.find((x) => x.id === id)!
+      for (const { f } of withId) from = removeFromPerson(from, f)
+      const fresh: Person = { id: newId, name: '', key: false, faces: withId.map((x) => x.f.id!).slice(-20), wear: withId.map((x) => x.f.wear ?? []).slice(-20) }
+      const people = [...p.people!.map((x) => (x.id === id ? from : x)), fresh]
+      const at = new Map<string, number[]>()
+      for (const x of picked) at.set(x.shotId, [...(at.get(x.shotId) ?? []), x.face])
+      const shots = p.shots.map((s) => {
+        const hit = at.get(s.id)
+        if (!hit || !s.people) return s
+        return { ...s, people: s.people.map((who, i) => (hit.includes(i) ? newId : who)), peopleSet: [...new Set([...(s.peopleSet ?? []), ...hit])] }
+      })
+      const found = assignPeople(shots, people.filter((x) => x.name || x.key || x.id === newId), tuningNow().tuning)
+      return { ...p, people: found.people, shots: scoreAndSuggest(found.shots, scoring({ ...p, people: found.people }, get().learned)) }
+    })
+  },
+
   removePerson: (id) => {
+    rememberPeople(get, set, 'Removed a person')
     get().update((p) => {
       const people = (p.people ?? []).filter((x) => x.id !== id)
       const shots = p.shots.map((s) => {
@@ -1588,6 +1667,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   setFacePerson: (shotId, face, personId) => {
+    rememberPeople(get, set, 'Corrected a face')
     const project = get().project
     const shot = project?.shots.find((x) => x.id === shotId)
     const f = shot?.analysis?.faces[face]
