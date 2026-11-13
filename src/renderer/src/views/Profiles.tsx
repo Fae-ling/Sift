@@ -137,7 +137,7 @@ const TABS: { id: Tab; label: string }[] = [
 
 function StyleEditor({ style }: { style: Style }): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('overview')
-  const { project, settings, learning, emotions, taste, editProfile, addGallery, rememberPicks, distil, removeStyle, chooseStyle, notify } = useStore()
+  const { project, settings, learning, emotions, taste, editProfile, addGallery, rememberPicks, distil, removeStyle, chooseStyle, notify, notifyUndo } = useStore()
   const [confirm, setConfirm] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [proposal, setProposal] = useState<StyleProposal | null>(null)
@@ -330,7 +330,11 @@ function StyleEditor({ style }: { style: Style }): React.JSX.Element {
               </span>
               <input value={c.name} aria-label="Chapter name" onChange={(ev) => setChapter(i, { name: ev.target.value })} />
               <textarea value={c.look} rows={2} aria-label="What makes a keeper" onChange={(ev) => setChapter(i, { look: ev.target.value })} />
-              <button className="ghost remove" onClick={() => edit({ chapters: style.chapters.filter((_, j) => j !== i) })} aria-label={`Remove ${c.name}`} title="Remove chapter">
+              <button className="ghost remove" onClick={() => {
+                  const was = style.chapters
+                  edit({ chapters: was.filter((_, j) => j !== i) })
+                  notifyUndo(`Removed the chapter “${c.name}”.`, () => edit({ chapters: was }))
+                }} aria-label={`Remove ${c.name}`} title="Remove chapter">
                 ×
               </button>
             </div>

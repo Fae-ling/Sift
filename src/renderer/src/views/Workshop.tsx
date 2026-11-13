@@ -112,7 +112,7 @@ export function Overview(): React.JSX.Element {
 // --- your eye ---------------------------------------------------------------------
 
 export function Taste(): React.JSX.Element {
-  const { taste, tasteData, setBlindBursts, relearn, forgetLearning, setIgnoredMeasurement, forgetProjectDecisions } = useStore()
+  const { taste, tasteData, setBlindBursts, relearn, forgetLearning, setIgnoredMeasurement, forgetProjectDecisions, notify } = useStore()
   const [confirm, setConfirm] = useState(false)
   const [allLeans, setAllLeans] = useState(false)
   const [names, setNames] = useState<Record<string, string>>({})
@@ -189,7 +189,7 @@ export function Taste(): React.JSX.Element {
         {projects.length === 0 && <p className="faint small">No projects yet.</p>}
         {projects.map(([id, p]) => (
           <Row key={id} title={names[id] ?? 'A deleted project'} detail={`${p.examples.length} frames · ${p.genre} · ${new Date(p.updatedAt).toLocaleDateString()}`}>
-            <button className="ghost sm" onClick={() => forgetProjectDecisions(id)}>
+            <button className="ghost sm" onClick={() => void forgetProjectDecisions(id).then(() => notify('Forgotten. A copy was saved first: Settings, Your data, Restore.'))}>
               Forget
             </button>
           </Row>
@@ -198,7 +198,7 @@ export function Taste(): React.JSX.Element {
       <div style={{ marginTop: 24 }}>
         {confirm ? (
           <div className="row">
-            <button className="danger" onClick={() => void forgetLearning().then(() => setConfirm(false))}>
+            <button className="danger" onClick={() => void forgetLearning().then(() => (setConfirm(false), notify('Forgotten. A copy was saved first: Settings, Your data, Restore.')))}>
               Forget every decision learned
             </button>
             <button onClick={() => setConfirm(false)}>Keep</button>
@@ -218,7 +218,7 @@ export function Taste(): React.JSX.Element {
 // --- gestures ---------------------------------------------------------------------
 
 export function Gestures(): React.JSX.Element {
-  const { gestures, forgetGestureNamed } = useStore()
+  const { gestures, forgetGestureNamed, undoable } = useStore()
   const [q, setQ] = useState('')
   const list = gestures.concepts.filter((g) => g.name.includes(q.toLowerCase()))
   return (
@@ -238,7 +238,7 @@ export function Gestures(): React.JSX.Element {
             detail={`${g.description || 'Learned from examples.'} ${g.examples.length ? `${g.examples.filter((e) => e.source === 'you').length} examples from you, ${g.examples.filter((e) => e.source === 'claude').length} from Claude.` : 'From its description only.'}`}
           >
             {(g.examples.length > 0 || !g.builtin) && (
-              <button className="ghost sm" onClick={() => forgetGestureNamed(g.name)}>
+              <button className="ghost sm" onClick={() => undoable(g.builtin ? `Forgot the examples of “${g.name}”.` : `Deleted “${g.name}”.`, () => forgetGestureNamed(g.name))}>
                 {g.builtin ? 'Forget examples' : 'Delete'}
               </button>
             )}
@@ -252,7 +252,7 @@ export function Gestures(): React.JSX.Element {
 // --- what is happening ---------------------------------------------------------------
 
 export function Words(): React.JSX.Element {
-  const { knowledge, forgetTag } = useStore()
+  const { knowledge, forgetTag, undoable } = useStore()
   const [q, setQ] = useState('')
   const words = useMemo(() => vocabulary(knowledge.concepts).filter((w) => w.name.includes(q.toLowerCase())), [knowledge.concepts, q])
   return (
@@ -277,7 +277,7 @@ export function Words(): React.JSX.Element {
               }
               detail={`${w.examples} example${w.examples === 1 ? '' : 's'}, ${w.confirmed} confirmed by your decisions`}
             >
-              <button className="ghost sm" onClick={() => forgetTag(w.name)}>
+              <button className="ghost sm" onClick={() => undoable(`Removed “${w.name}”.`, () => forgetTag(w.name))}>
                 Remove
               </button>
             </Row>
@@ -293,7 +293,7 @@ export function Words(): React.JSX.Element {
 const KIND_LABEL: Record<LedgerEntry['kind'], string> = { flaw: 'Mistakes', trade: 'Mistakes forgiven with an asset', asset: 'Assets' }
 
 export function Reasons(): React.JSX.Element {
-  const { knowledge, forgetReason, setExcluded } = useStore()
+  const { knowledge, forgetReason, setExcluded, undoable } = useStore()
   const entries = useMemo(() => ledgerEntries(mergedLedger(knowledge.ledger, '')), [knowledge.ledger])
   const excluded = new Set(knowledge.excluded ?? [])
   const reasons = reasonCounts(knowledge.reasons ?? emptyReasons())
@@ -307,7 +307,7 @@ export function Reasons(): React.JSX.Element {
         {reasons.length === 0 && <p className="faint small">No reasons given yet. When you reject a frame in Cull, a row of reasons appears.</p>}
         {reasons.map((r) => (
           <Row key={r.name} title={r.name} detail={`${r.count} frame${r.count === 1 ? '' : 's'}`}>
-            <button className="ghost sm" onClick={() => forgetReason(r.name)}>
+            <button className="ghost sm" onClick={() => undoable(`Removed “${r.name}”.`, () => forgetReason(r.name))}>
               Forget
             </button>
           </Row>
@@ -340,7 +340,7 @@ export function Reasons(): React.JSX.Element {
 // --- Claude --------------------------------------------------------------------------
 
 export function ClaudeRecord(): React.JSX.Element {
-  const { knowledge, forgetClaudeRecord, forgetNote } = useStore()
+  const { knowledge, forgetClaudeRecord, forgetNote, undoable } = useStore()
   const [names, setNames] = useState<Record<string, string>>({})
   useEffect(() => void window.studio.projects.list().then((l) => setNames(Object.fromEntries(l.map((p) => [p.id, p.name])))), [])
   const records = Object.entries(knowledge.claude)
@@ -362,7 +362,7 @@ export function ClaudeRecord(): React.JSX.Element {
               </>
             }
           >
-            <button className="ghost sm" onClick={() => forgetClaudeRecord(id)}>
+            <button className="ghost sm" onClick={() => undoable('Removed the record.', () => forgetClaudeRecord(id))}>
               Remove
             </button>
           </Row>
@@ -373,7 +373,7 @@ export function ClaudeRecord(): React.JSX.Element {
         {knowledge.notes.length === 0 && <p className="faint small">None yet. A story lesson is kept when you use Claude's sequence.</p>}
         {[...knowledge.notes].reverse().map((note) => (
           <Row key={note.at} title={note.text} detail={new Date(note.at).toLocaleDateString()}>
-            <button className="ghost sm" onClick={() => forgetNote(note.at)}>
+            <button className="ghost sm" onClick={() => undoable('Removed the advice.', () => forgetNote(note.at))}>
               Remove
             </button>
           </Row>

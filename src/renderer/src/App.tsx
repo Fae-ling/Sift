@@ -96,9 +96,19 @@ export function App(): React.JSX.Element {
 
 function Toast(): React.JSX.Element {
   const toast = useStore((s) => s.toast)
+  const undo = useStore((s) => s.toastUndo)
   return (
     <div className="toast-region" role="status" aria-live="polite">
-      {toast && <div className="toast">{toast}</div>}
+      {toast && (
+        <div className="toast">
+          <span>{toast}</span>
+          {undo && (
+            <button className="link" onClick={undo}>
+              Undo
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

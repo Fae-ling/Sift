@@ -184,6 +184,48 @@ function Updates(): React.JSX.Element {
           Open the data folder
         </button>
       </div>
+      <AutoBackups notify={notify} fail={fail} />
+    </>
+  )
+}
+
+/** The learning backups Sift takes by itself before something wipes what it has learned. */
+function AutoBackups(props: { notify: (m: string) => void; fail: (e: unknown) => void }): React.JSX.Element | null {
+  const [list, setList] = useState<{ name: string; at: number; reason: string }[]>([])
+  const [sure, setSure] = useState<string | null>(null)
+  useEffect(() => void window.studio.backup.list().then(setList).catch(() => {}), [])
+  if (list.length === 0) return <p className="faint small">Before “forget all learning” and the like, Sift saves a copy of what it has learned here, so a slip can be put right.</p>
+  return (
+    <>
+      <h3>Saved automatically before something was forgotten</h3>
+      <p className="muted small">Only what was learned is put back; your projects are left as they are.</p>
+      <div className="list">
+        {list.map((b) => (
+          <div className="list-row" key={b.name}>
+            <div className="list-main">
+              <div className="list-title">{new Date(b.at).toLocaleString()}</div>
+              <div className="list-detail">Before: {b.reason}</div>
+            </div>
+            <div className="list-actions">
+              {sure === b.name ? (
+                <>
+                  <span className="small">Replace what is learned now with this?</span>
+                  <button className="primary sm" onClick={() => void window.studio.backup.restoreNamed(b.name).catch(props.fail)}>
+                    Yes, restore
+                  </button>
+                  <button className="ghost sm" onClick={() => setSure(null)}>
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button className="ghost sm" onClick={() => setSure(b.name)}>
+                  Restore
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </>
   )
 }

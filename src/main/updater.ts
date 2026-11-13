@@ -113,6 +113,38 @@ export async function restoreFrom(folder: string): Promise<number> {
   return n
 }
 
+/**
+ * A small backup of what has been learned (not the projects), taken just before something
+ * that wipes learning. The ten newest are kept. Returns its folder name.
+ */
+export async function safetyBackup(reason: string): Promise<string> {
+  const root = app.getPath('userData')
+  const dir = join(root, 'backups')
+  const name = `learning-${reason.replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 30)}-${Date.now()}`
+  const folder = join(dir, name)
+  await fs.mkdir(folder, { recursive: true })
+  for (const f of await fs.readdir(root)) {
+    if (f.endsWith('.json') && f !== 'update.json') await fs.copyFile(join(root, f), join(folder, f))
+  }
+  await fs.writeFile(join(folder, 'sift-backup.txt'), `Sift ${appVersion()} learning backup (${reason}), ${new Date().toISOString()}\n`)
+  const old = (await fs.readdir(dir)).filter((d) => d.startsWith('learning-')).sort((a, b) => Number(a.split('-').pop()) - Number(b.split('-').pop()))
+  for (const d of old.slice(0, -10)) await fs.rm(join(dir, d), { recursive: true, force: true })
+  return name
+}
+
+/** The automatic learning backups, newest first. */
+export async function listSafetyBackups(): Promise<{ name: string; at: number; reason: string }[]> {
+  const dir = join(app.getPath('userData'), 'backups')
+  const names = (await fs.readdir(dir).catch(() => [] as string[])).filter((d) => /^learning-[a-z0-9-]+-\d+$/.test(d))
+  return names.map((name) => ({ name, at: Number(name.split('-').pop()), reason: name.replace(/^learning-/, '').replace(/-\d+$/, '').replace(/-/g, ' ') })).sort((a, b) => b.at - a.at)
+}
+
+/** Puts one of those back (what was learned only; projects are left as they are). */
+export async function restoreSafetyBackup(name: string): Promise<number> {
+  if (!/^learning-[a-z0-9-]+-\d+$/.test(name)) throw new Error('Not a learning backup.')
+  return restoreFrom(join(app.getPath('userData'), 'backups', name))
+}
+
 /** A backup before every update; the newest three are kept. */
 const preUpdateBackup = (): Promise<string> => makeBackup(app.getPath('userData'), 'before-update', appVersion())
 

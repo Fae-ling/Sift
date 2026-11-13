@@ -330,6 +330,15 @@ details.insp-section[open] > summary { margin-bottom: var(--s2); }
 .card.person.dragging { opacity: 0.45; }
 .card.person.drop-over { outline: 2px dashed var(--pick); outline-offset: 2px; }
 .card.person.key { border-color: var(--pick); }
+.card.person { position: relative; cursor: grab; transition: transform .12s, opacity .12s; }
+.card.person.dragging { opacity: .45; cursor: grabbing; }
+.card.person.merge-target { border-color: var(--pick); transform: scale(1.02); box-shadow: 0 0 0 2px var(--pick); }
+.merge-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 12px; font-weight: 600; background: color-mix(in srgb, var(--pick) 22%, var(--panel)); border-radius: inherit; pointer-events: none; z-index: 2; }
+.person-x { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; padding: 0; justify-content: center; border-radius: 50%; font-size: 14px; line-height: 1; background: transparent; border: 0; color: var(--muted, inherit); opacity: 0; transition: opacity .12s; }
+.card.person:hover .person-x, .person-x:focus-visible { opacity: 1; }
+.person-x:hover:not(:disabled) { background: var(--reject); color: var(--sunk); }
+.person-bin { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 16px 32px; border: 2px dashed var(--reject); border-radius: var(--r); background: var(--panel); font-weight: 600; z-index: 20; }
+.person-bin.over { background: var(--reject); color: var(--sunk); }
 .trend { display: flex; align-items: flex-end; gap: 6px; height: 72px; margin-top: var(--s3); }
 .trend > div { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; width: 34px; }
 .trend i { display: block; width: 14px; background: var(--focus); border-radius: 2px 2px 0 0; }
@@ -547,3 +556,17 @@ label.list-row.proposal:not(.on) .list-main { opacity: .55; }
 .face-x:hover:not(:disabled) { background: var(--reject); }
 .people-learning { margin-top: var(--s4); }
 .people-learning h3 { margin-top: 0; }
+
+.face-tile { cursor: pointer; }
+.face-tile.picked { outline: 3px solid var(--pick); outline-offset: -3px; }
+.confirm-backdrop { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 24px; background: rgba(18, 18, 18, .6); }
+.confirm { max-width: 420px; }
+.confirm h3 { margin-top: 0; }
+.undo-bar { position: fixed; left: 24px; bottom: 24px; z-index: 20; display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--raised); border: 1px solid var(--line-strong); border-radius: var(--r-lg); box-shadow: var(--shadow); }
+.stack.join-target { background: color-mix(in srgb, var(--accent) 28%, transparent); outline: 2px dashed var(--accent); }
+.stack { cursor: grab; }
+.thumb .cut { position: absolute; left: 2px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; padding: 0; justify-content: center; border: 0; border-radius: 50%; font-size: 11px; line-height: 1; background: rgba(0, 0, 0, .75); color: #fff; opacity: 0; transition: opacity .12s; z-index: 3; }
+.thumb:hover .cut, .thumb .cut:focus-visible { opacity: 1; }
+.scene-join { padding: 0 6px; font-size: 11px; opacity: 0; transition: opacity .12s; }
+.scene:hover .scene-join, .scene-join:focus-visible { opacity: 1; }
+.toast { display: flex; align-items: center; gap: 12px; }

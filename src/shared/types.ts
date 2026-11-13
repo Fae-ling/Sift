@@ -507,6 +507,12 @@ export interface StudioApi {
     /** Asks for a backup folder and restores from it. Returns the number of files, or null if cancelled. */
     restore(): Promise<number | null>
     reveal(): Promise<void>
+    /** Saves what has been learned to the data folder, just before something wipes it. Returns the backup's name. */
+    safety(reason: string): Promise<string>
+    /** The automatic learning backups, newest first. */
+    list(): Promise<{ name: string; at: number; reason: string }[]>
+    /** Puts one of them back, and reloads. Returns the number of files. */
+    restoreNamed(name: string): Promise<number>
   }
   ai: {
     story(req: StoryRequest): Promise<StoryAdvice>

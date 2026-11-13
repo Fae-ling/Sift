@@ -21,7 +21,7 @@ const KINDS: { kind: Proposal['kind']; title: string; hint: string }[] = [
  * and sees afterwards whether they helped on decisions held back from learning.
  */
 export function ReviewView(): React.JSX.Element {
-  const { settings, guidance, reviewing, reviewLearning, reviewDigest, applyReview, dismissReview, forgetPrior, forgetForgive, forgetGuidance, tasteData } = useStore()
+  const { settings, guidance, reviewing, reviewLearning, reviewDigest, applyReview, dismissReview, forgetPrior, forgetForgive, forgetGuidance, tasteData, undoable } = useStore()
   const [showData, setShowData] = useState(false)
   const req = useMemo(() => reviewDigest(), [reviewDigest, tasteData, guidance])
   const latest = guidance.reviews.at(-1)
@@ -95,7 +95,7 @@ export function ReviewView(): React.JSX.Element {
                     <div className="list-detail">{p.why}</div>
                   </div>
                   <div className="list-actions">
-                    <button className="ghost sm" onClick={() => forgetPrior(key)}>
+                    <button className="ghost sm" onClick={() => undoable('Removed the guidance.', () => forgetPrior(key))}>
                       Remove
                     </button>
                   </div>
@@ -112,14 +112,14 @@ export function ReviewView(): React.JSX.Element {
                   <div className="list-detail">{f.why}</div>
                 </div>
                 <div className="list-actions">
-                  <button className="ghost sm" onClick={() => forgetForgive(f.flaw, f.asset)}>
+                  <button className="ghost sm" onClick={() => undoable('Removed the guidance.', () => forgetForgive(f.flaw, f.asset))}>
                     Remove
                   </button>
                 </div>
               </div>
             ))}
           </div>
-          <button className="ghost sm" style={{ marginTop: 8 }} onClick={forgetGuidance}>
+          <button className="ghost sm" style={{ marginTop: 8 }} onClick={() => undoable('Removed all of Claude’s guidance.', forgetGuidance)}>
             Remove all of Claude's guidance
           </button>
         </>
