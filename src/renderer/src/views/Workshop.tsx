@@ -112,7 +112,7 @@ export function Overview(): React.JSX.Element {
 // --- your eye ---------------------------------------------------------------------
 
 export function Taste(): React.JSX.Element {
-  const { taste, tasteData, setBlindBursts, relearn, forgetLearning, setIgnoredMeasurement, forgetProjectDecisions } = useStore()
+  const { taste, tasteData, setBlindBursts, relearn, forgetLearning, setIgnoredMeasurement, forgetProjectDecisions, notify } = useStore()
   const [confirm, setConfirm] = useState(false)
   const [allLeans, setAllLeans] = useState(false)
   const [names, setNames] = useState<Record<string, string>>({})
@@ -189,7 +189,7 @@ export function Taste(): React.JSX.Element {
         {projects.length === 0 && <p className="faint small">No projects yet.</p>}
         {projects.map(([id, p]) => (
           <Row key={id} title={names[id] ?? 'A deleted project'} detail={`${p.examples.length} frames · ${p.genre} · ${new Date(p.updatedAt).toLocaleDateString()}`}>
-            <button className="ghost sm" onClick={() => forgetProjectDecisions(id)}>
+            <button className="ghost sm" onClick={() => void forgetProjectDecisions(id).then(() => notify('Forgotten. A copy was saved first: Settings, Your data, Restore.'))}>
               Forget
             </button>
           </Row>
@@ -198,7 +198,7 @@ export function Taste(): React.JSX.Element {
       <div style={{ marginTop: 24 }}>
         {confirm ? (
           <div className="row">
-            <button className="danger" onClick={() => void forgetLearning().then(() => setConfirm(false))}>
+            <button className="danger" onClick={() => void forgetLearning().then(() => (setConfirm(false), notify('Forgotten. A copy was saved first: Settings, Your data, Restore.')))}>
               Forget every decision learned
             </button>
             <button onClick={() => setConfirm(false)}>Keep</button>

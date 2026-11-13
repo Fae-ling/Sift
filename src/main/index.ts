@@ -7,7 +7,7 @@ import { atmosphere, developStyle, diagnose, nameFaces, narrativeRead, storyAdvi
 import { promises as fs } from 'node:fs'
 import { copySelects, exportXmp, readRatings, saveFiles } from './exporter'
 import { exiftool, extractPreview, savePreview, scanFolder } from './ingest'
-import { appVersion, backupTo, checkForUpdate, downloadAndInstall, installFromFile, restoreFrom, setUpdateToken } from './updater'
+import { appVersion, backupTo, checkForUpdate, downloadAndInstall, installFromFile, listSafetyBackups, restoreFrom, restoreSafetyBackup, safetyBackup, setUpdateToken } from './updater'
 import {
   getData,
   saveData,
@@ -195,6 +195,9 @@ function registerIpc(): void {
     if (result.canceled) return null
     return restoreFrom(result.filePaths[0])
   })
+  handle('data:safety', (reason: string) => safetyBackup(reason))
+  handle('data:backups', listSafetyBackups)
+  handle('data:restoreNamed', (name: string) => restoreSafetyBackup(name))
   handle('data:folder', () => shell.openPath(app.getPath('userData')))
   handle('app:version', appVersion)
   handle('ai:story', (req: StoryRequest) => storyAdvice(req))

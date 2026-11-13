@@ -249,7 +249,7 @@ interface State {
   forgetClaudeRecord(projectId: string): void
   setExcluded(key: string, excluded: boolean): void
   setIgnoredMeasurement(key: string, ignored: boolean): void
-  forgetProjectDecisions(projectId: string): void
+  forgetProjectDecisions(projectId: string): Promise<void>
   /** Reloads a store another window changed, without saving anything back. */
   reloadChanged(name: string): Promise<void>
   /** Frames a re-estimate of the open project turned up. */
@@ -1231,6 +1231,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   forgetLearning: async () => {
+    await window.studio.backup.safety('forget all learning').catch(() => {})
     const learning = { ...emptyLearning(), blindBursts: get().tasteData.blindBursts }
     currentTaste = null
     set({ tasteData: learning, taste: null })
@@ -1468,7 +1469,8 @@ export const useStore = create<State>((set, get) => ({
     set({ tasteData: { ...data, ignored: [...list] } })
     get().relearn()
   },
-  forgetProjectDecisions: (projectId) => {
+  forgetProjectDecisions: async (projectId) => {
+    await window.studio.backup.safety('forget project decisions').catch(() => {})
     const data = get().tasteData
     const projects = { ...data.projects }
     delete projects[projectId]
