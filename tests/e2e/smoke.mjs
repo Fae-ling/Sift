@@ -338,6 +338,26 @@ try {
     assert.ok(JSON.parse(readFileSync(join(userData, 'knowledge.json'), 'utf8')).people?.length > 0, 'the correction is stored as a judgement about faces')
   }
 
+  // Several people ticked and joined in one step, which can be undone.
+  const more = page.getByRole('button', { name: /^Show \d+ more who appear only a few times/ })
+  if (await more.count()) await more.click()
+  const personCards = page.locator('.card.person')
+  const peopleBefore = await personCards.count()
+  const judgementsBefore = JSON.parse(readFileSync(join(userData, 'knowledge.json'), 'utf8')).people?.length ?? 0
+  if (peopleBefore >= 2) {
+    await page.locator('.person-pick input').nth(0).check()
+    await page.locator('.person-pick input').nth(1).check()
+    await page.getByText('2 selected.').waitFor()
+    await snap('7-people-selected')
+    await page.getByRole('button', { name: /^Join the 2 into one person/ }).click()
+    await page.getByRole('button', { name: /^Join (them|all)/ }).click()
+    await until(() => personCards.count(), (n) => n === peopleBefore - 1, 'ticking two people and joining them leaves one fewer profile')
+    await until(() => readFileSync(join(userData, 'knowledge.json'), 'utf8'), (t) => (JSON.parse(t).people?.length ?? 0) > judgementsBefore, 'the join is learned from as judgements about faces')
+    await page.locator('.undo-bar').getByText('Joined two people.').waitFor()
+    await page.locator('.undo-bar').getByRole('button', { name: 'Undo' }).click()
+    await until(() => personCards.count(), (n) => n === peopleBefore, 'undo brings both profiles back')
+  } else console.log('note: fewer than two people in these samples, so the multi-select join was not exercised')
+
   // An older project: imported quickly, so its faces were found but people were not told apart. They can be read afterwards.
   await page.getByRole('button', { name: 'All projects' }).click()
   await page.getByLabel('Project name').fill('Older project')

@@ -219,6 +219,26 @@ describe('people', () => {
     expect(merged.people).toHaveLength(1)
     expect(merged.shots.every((s) => s.people![0] === bride.id)).toBe(true)
   })
+  it('joins any number of people into one, one after another, keeping the key mark and everyone’s faces', () => {
+    const idC = Array.from({ length: 48 }, (_, i) => (i % 5 ? 30 : -90))
+    const shots = [withFaces(idA), withFaces(idA), withFaces(idB), withFaces(idB), withFaces(idC), withFaces(idC)]
+    const first = assignPeople(shots, [])
+    expect(first.people).toHaveLength(3)
+    const [a, b, c] = first.people
+    const people = first.people.map((p) => (p === c ? { ...p, key: true } : p))
+    let joined = { shots: first.shots, people }
+    for (const from of [b.id, c.id]) joined = mergePeople(joined.shots, joined.people, from, a.id)
+    expect(joined.people).toHaveLength(1)
+    expect(joined.people[0].id).toBe(a.id)
+    expect(joined.people[0].key).toBe(true)
+    expect(joined.people[0].faces.length).toBe(a.faces.length + b.faces.length + c.faces.length)
+    expect(joined.shots.every((s) => s.people![0] === a.id)).toBe(true)
+  })
+  it('joining a person with itself changes nothing', () => {
+    const first = assignPeople([withFaces(idA), withFaces(idA)], [])
+    const same = mergePeople(first.shots, first.people, first.people[0].id, first.people[0].id)
+    expect(same.people).toBe(first.people)
+  })
 })
 
 describe('re-estimating a culled project', () => {
