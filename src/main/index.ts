@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, net, protocol, screen, shell } from 'electron'
 import { join } from 'node:path'
 import { existsSync, renameSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
@@ -66,12 +66,32 @@ protocol.registerSchemesAsPrivileged([
 const BACKGROUND = '#2e2e2e'
 const ICON = join(__dirname, '../renderer/icon.png')
 
+/**
+ * The size asked for, brought inside the screen the window opens on. A window larger than the usable area
+ * (a laptop with display scaling, a small monitor) would hang off its edges, hiding the right-hand panel,
+ * the close button and the bottom of the sidebar.
+ */
+function fitToScreen(options: Electron.BrowserWindowConstructorOptions): Electron.BrowserWindowConstructorOptions {
+  const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+  const width = Math.min(options.width ?? 1200, area.width)
+  const height = Math.min(options.height ?? 800, area.height)
+  return {
+    ...options,
+    width,
+    height,
+    minWidth: Math.min(options.minWidth ?? 0, area.width),
+    minHeight: Math.min(options.minHeight ?? 0, area.height),
+    x: area.x + Math.round((area.width - width) / 2),
+    y: area.y + Math.round((area.height - height) / 2)
+  }
+}
+
 function newWindow(options: Electron.BrowserWindowConstructorOptions, hash = ''): BrowserWindow {
   const win = new BrowserWindow({
     backgroundColor: BACKGROUND,
     icon: ICON,
     autoHideMenuBar: true,
-    ...options,
+    ...fitToScreen(options),
     webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, sandbox: false }
   })
   win.webContents.setWindowOpenHandler(({ url }) => {
