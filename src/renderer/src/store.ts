@@ -219,10 +219,12 @@ interface State {
   peopleLearning(): TuningReport
   editPerson(id: string, patch: Partial<Pick<Person, 'name' | 'key'>>): void
   mergePerson(fromId: string, intoId: string): void
+  /** Joins any number of people into one, as a single step that can be undone. */
+  mergeMany(fromIds: string[], intoId: string): void
   /** Takes some faces out of a person and makes them a person of their own: for two people the app took for one. */
   splitPerson(id: string, faces: { shotId: string; face: number }[]): void
   /** Takes someone off the list (a passer-by, or a mistake): their faces become nobody in particular and stay that way. */
-  removePerson(id: string): void
+  removePerson(id: string | string[]): void
   /** Says who a face is: an existing person, 'new' for someone not listed yet, or null for nobody in particular. */
   setFacePerson(shotId: string, face: number, personId: string | 'new' | null): void
   /** What surrounds the photo in Cull: the side panel, the filmstrip, and everything at once (focus). */
@@ -1732,19 +1734,21 @@ export const useStore = create<State>((set, get) => ({
     setKnowledge(set, { ...get().knowledge, people: last.learned })
   },
 
-  mergePerson: (fromId, intoId) => {
-    rememberPeople(get, set, 'Joined two people')
+  mergePerson: (fromId, intoId) => get().mergeMany([fromId], intoId),
+
+  mergeMany: (fromIds, intoId) => {
     const before = get().project
-    const from = before?.people?.find((x) => x.id === fromId)
     const into = before?.people?.find((x) => x.id === intoId)
-    if (!from || !into || from.id === into.id) return
-    {
-      // "These are the same person": every face known of one against the faces known of the other.
-      const more = from.faces.slice(-6).flatMap((id, i) => judge({ id, wear: from.wear[from.faces.length - Math.min(6, from.faces.length) + i] }, into, true, 4))
-      if (more.length) setKnowledge(set, { ...get().knowledge, people: addJudgements(get().knowledge.people, more) })
-    }
+    const froms = fromIds.filter((id) => id !== intoId).flatMap((id) => before?.people?.find((x) => x.id === id) ?? [])
+    if (!into || !froms.length) return
+    rememberPeople(get, set, froms.length === 1 ? 'Joined two people' : `Joined ${froms.length + 1} people`)
+    // "These are the same person": every face known of each one against the faces known of the one they join.
+    let more = [] as ReturnType<typeof judge>
+    for (const from of froms) more = more.concat(from.faces.slice(-6).flatMap((id, i) => judge({ id, wear: from.wear[from.faces.length - Math.min(6, from.faces.length) + i] }, into, true, 4)))
+    if (more.length) setKnowledge(set, { ...get().knowledge, people: addJudgements(get().knowledge.people, more) })
     get().update((p) => {
-      const merged = mergePeople(p.shots, p.people ?? [], fromId, intoId)
+      let merged = { shots: p.shots, people: p.people ?? [] }
+      for (const from of froms) merged = mergePeople(merged.shots, merged.people, from.id, intoId)
       // With more faces known of the person, look again for others that are theirs.
       // Everyone else keeps their identity: only the faces nobody fixed are looked at again.
       const found = assignPeople(merged.shots, merged.people, tuningNow().tuning)
@@ -1786,15 +1790,16 @@ export const useStore = create<State>((set, get) => ({
     })
   },
 
-  removePerson: (id) => {
-    rememberPeople(get, set, 'Removed a person')
+  removePerson: (ids) => {
+    const gone = new Set(Array.isArray(ids) ? ids : [ids])
+    rememberPeople(get, set, gone.size > 1 ? `Removed ${gone.size} people` : 'Removed a person')
     get().update((p) => {
-      const people = (p.people ?? []).filter((x) => x.id !== id)
+      const people = (p.people ?? []).filter((x) => !gone.has(x.id))
       const shots = p.shots.map((s) => {
-        if (!s.people?.includes(id)) return s
+        if (!s.people?.some((who) => who && gone.has(who))) return s
         const peopleSet = new Set(s.peopleSet ?? [])
-        s.people.forEach((who, i) => who === id && peopleSet.add(i))
-        return { ...s, people: s.people.map((who) => (who === id ? null : who)), peopleSet: [...peopleSet] }
+        s.people.forEach((who, i) => who && gone.has(who) && peopleSet.add(i))
+        return { ...s, people: s.people.map((who) => (who && gone.has(who) ? null : who)), peopleSet: [...peopleSet] }
       })
       return { ...p, people, shots: scoreAndSuggest(shots, scoring({ ...p, people }, get().learned)) }
     })
