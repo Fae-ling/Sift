@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_LIMITS, findings, type Reading } from '../src/renderer/src/analysis/diagnose'
 import { deriveLook, lookStats } from '../src/renderer/src/analysis/look'
-import { addSamples, addToHouseLook, emptyTraining, houseLookAsLook, leniency, limitsFrom, MIN_NORM, quantile, trainingSummary } from '../src/renderer/src/analysis/training'
+import { addSamples, addToHouseLook, canGiveFeedback, STRICTNESS_CHECKS, emptyTraining, houseLookAsLook, leniency, limitsFrom, MIN_NORM, quantile, trainingSummary } from '../src/renderer/src/analysis/training'
 
 const many = (value: (i: number) => number, n = 40): number[] => Array.from({ length: n }, (_, i) => value(i))
 
@@ -82,5 +82,11 @@ describe('house look', () => {
     expect(house.pairs).toBe(2)
     expect(house.curve[0]).toBeCloseTo((a.curve[0] + b.curve[0]) / 2, 3)
     expect(houseLookAsLook(house).curve.length).toBe(256)
+  })
+})
+
+describe('strictness controls', () => {
+  it('only offers checks that feedback can move', () => {
+    for (const c of STRICTNESS_CHECKS) expect(canGiveFeedback(c.topic)).toBe(true)
   })
 })

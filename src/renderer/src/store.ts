@@ -38,7 +38,7 @@ import { faceThumb } from './analysis/pipeline'
 import { FEATURES, tendencies } from './analysis/learner'
 import { digest, emptyGuidance, forgivePriors, GUIDANCE_VERSION, priorOf, toProposals, type Check, type Guidance, type Review } from './analysis/guidance'
 
-type ViewBase = 'projects' | 'profiles' | 'emotions' | 'training' | 'look' | 'diagnose' | 'brief' | 'import' | 'cull' | 'story' | 'export' | 'learn' | 'settings'
+type ViewBase = 'projects' | 'profiles' | 'emotions' | 'training' | 'look' | 'brief' | 'import' | 'cull' | 'story' | 'export' | 'learn' | 'settings'
 export type View = ViewBase | 'people' | 'overview' | 'taste' | 'gestures' | 'words' | 'reasons' | 'claude' | 'review'
 export type Filter = 'all' | 'suggested' | 'undecided' | 'picks' | 'rejects' | 'warnings' | 'gems' | 'unkept' | 'must' | 'relook' | 'key'
 
@@ -305,7 +305,8 @@ function scoring(p: Pick<Project, 'genre' | 'balance' | 'styleIds' | 'storyPlan'
     balance: p.balance,
     style: mergeProfiles(active.flatMap((s) => (s.profile ? [s.profile] : []))),
     feel: active.length ? feelOf(active.flatMap((s) => s.tags)) : undefined,
-    learned: taste ? { model: taste.model, trust: taste.trust } : undefined
+    learned: taste ? { model: taste.model, trust: taste.trust } : undefined,
+    limits: limitsFrom(useStore.getState().training)
   }
 }
 
@@ -1105,6 +1106,7 @@ export const useStore = create<State>((set, get) => ({
     })
     if (!count) throw new Error('No people were found in those photographs, so there was nothing to learn norms from.')
     saveTraining(set, get, { norms }, { kind: 'finished', name: baseName(folder), count })
+    rescore(get)
   },
 
   trainLook: async (beforeFolder, afterFolder) => {
@@ -1151,9 +1153,13 @@ export const useStore = create<State>((set, get) => ({
     const prev = get().training.feedback[topic] ?? { agree: 0, dismiss: 0 }
     const feedback = { ...get().training.feedback, [topic]: agree ? { ...prev, agree: prev.agree + 1 } : { ...prev, dismiss: prev.dismiss + 1 } }
     saveTraining(set, get, { feedback })
+    rescore(get)
   },
 
-  resetTraining: (area) => saveTraining(set, get, { [area]: emptyTraining()[area] } as Partial<Training>),
+  resetTraining: (area) => {
+    saveTraining(set, get, { [area]: emptyTraining()[area] } as Partial<Training>)
+    if (area === 'norms' || area === 'feedback') rescore(get)
+  },
 
   loadEmotions: async () => {
     const stored = (await window.studio.data.get('emotions')) as EmotionStore | null

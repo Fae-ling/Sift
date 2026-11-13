@@ -2,8 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'elect
 import { join } from 'node:path'
 import { existsSync, renameSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
-import type { TuneRequest, AtmosphereRequest, DevelopStyleRequest, DiagnoseRequest, NameFacesRequest, EssenceRequest, Learned, Project, ReadRequest, StoryRequest, XmpItem } from '@shared/types'
-import { atmosphere, developStyle, diagnose, nameFaces, narrativeRead, storyAdvice, styleEssence, tuneLearning } from './ai'
+import type { TuneRequest, AtmosphereRequest, DevelopStyleRequest, NameFacesRequest, EssenceRequest, Learned, Project, ReadRequest, StoryRequest, XmpItem } from '@shared/types'
+import { atmosphere, developStyle, nameFaces, narrativeRead, storyAdvice, styleEssence, tuneLearning } from './ai'
 import { promises as fs } from 'node:fs'
 import { copySelects, exportXmp, readRatings, saveFiles } from './exporter'
 import { exiftool, extractPreview, savePreview, scanFolder } from './ingest'
@@ -202,7 +202,6 @@ function registerIpc(): void {
   handle('ai:nameFaces', (req: NameFacesRequest) => nameFaces(req))
   handle('ai:developStyle', (req: DevelopStyleRequest) => developStyle(req))
   handle('ai:atmosphere', (req: AtmosphereRequest) => atmosphere(req))
-  handle('ai:diagnose', (req: DiagnoseRequest) => diagnose(req))
   handle('ai:essence', (req: EssenceRequest) => styleEssence(req))
   handle('ai:tune', (req: TuneRequest) => tuneLearning(req))
 }

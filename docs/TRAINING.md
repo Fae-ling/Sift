@@ -19,7 +19,7 @@ whenever you have new finished work. Each area can be forgotten separately.
 | --- | --- | --- | --- |
 | Culling suggestions | Past shoots you culled; every decision you make here | about 30 set-aside comparisons, in practice a few hundred decisions in bursts | Workshop → Your eye |
 | Why you reject | A reason, one key press after each reject | 4 frames with the same reason | Workshop → Mistakes and reasons |
-| Diagnose a photo | Finished photographs you are happy with | 12 photographs with a person in them | "Judged against your N finished photographs" in Diagnose |
+| Photo norms | Finished photographs you are happy with | 12 photographs with a person in them | "Judged against your N finished photographs" in Training |
 | Emotion reading | Faces you name in Cull; unnamed expressions you or Claude name | one example creates an emotion; a dozen make it dependable | Emotions |
 | Your look | Unedited frames and their finished versions, same file names | 1 pair; 10 or more gives a stable average | Look extractor → Your house look |
 | Shoot styles | Your culling in the style; a folder of photographs in it; Claude's development | about 30 decisions for emotion weights to shift | Shoot styles |
@@ -64,9 +64,9 @@ your learned taste has earned. It stays at zero until it demonstrably does bette
 *How much:* three or four past weddings is a strong start. More kinds of shoot is
 better than more of the same.
 
-## 2. Diagnose a photo: what your finished work looks like
+## 2. Photo norms: what your finished work looks like
 
-Out of the box the diagnosis uses general limits (how much lost outline is too much,
+Out of the box the cull's composition and skin checks use general limits (how much lost outline is too much,
 what range skin hue should fall in, and so on). Those are not your limits. If you
 make dark, low-key portraits, a general rule will keep telling you the subject merges
 with the background.
@@ -79,12 +79,13 @@ From 12 photographs on, a new photo is flagged when it is worse than 85% of your
 finished work on that measure. The limits stay within bounds of the general ones, so
 an odd training set cannot switch a check off.
 
-**Feedback.** Under each finding in Diagnose you can answer **I agree** or **Not a
-problem for me**. Each "not a problem" makes that check 8% more lenient for you; each
-"agree" makes it 8% stricter.
-
 *How much:* 50 to 200 photographs gives stable norms. Train separately when your
 style changes; old samples are dropped once 3,000 are stored.
+
+**Strictness.** Teach → Composition: how strict has two buttons per check (subject lost
+against the background, eye lands on the subject): **Stricter** and **More lenient**.
+Each press moves that limit by 8%, up to 30% stricter or 80% more lenient, and the cull
+re-scores the open shoot at once. **Reset strictness** puts both back.
 
 ## 3. Emotions: what a face is showing
 
