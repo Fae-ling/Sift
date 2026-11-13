@@ -1,13 +1,13 @@
 import { PageHeader } from '../components/PageHeader'
 import { PastShootForm } from '../components/PastShootForm'
-import { limitsFrom, trainingSummary } from '../analysis/training'
+import { leniency, limitsFrom, STRICTNESS_CHECKS, trainingSummary } from '../analysis/training'
 import { useStore } from '../store'
 
 const KIND = { finished: 'Finished photographs', look: 'Before/after pairs', decisions: 'Past decisions' }
 
 /** Teaching the app with the photographer's own photographs. Lives in the workshop window. */
 export function TrainingView(): React.JSX.Element {
-  const { training, teaching, learned, trainFinished, trainLook, resetTraining, setView, notify } = useStore()
+  const { training, teaching, learned, trainFinished, trainLook, resetTraining, giveFeedback, setView, notify } = useStore()
   const summary = trainingSummary(training)
   const limits = limitsFrom(training)
   const pct = (v: number): string => `${Math.round(v * 100)}%`
@@ -44,10 +44,10 @@ export function TrainingView(): React.JSX.Element {
         </section>
 
         <section className="card">
-          <h2 className="card-title">Diagnosis: your finished work</h2>
+          <h2 className="card-title">Composition: your finished work</h2>
           <p className="small muted">
-            Finished photographs you are happy with. A new photo is then flagged when it is worse than 85% of your own
-            work, not against a general standard.
+            Finished photographs you are happy with. The cull then marks a frame down for composition only when it is
+            worse than 85% of your own work, not against a general standard.
           </p>
           <p className="small">{summary.diagnosis}</p>
           {limits.basis && (
@@ -70,12 +70,38 @@ export function TrainingView(): React.JSX.Element {
                 Forget norms
               </button>
             )}
-            {Object.keys(training.feedback).length > 0 && (
-              <button className="ghost sm" onClick={() => resetTraining('feedback')}>
-                Forget my feedback
-              </button>
-            )}
           </div>
+        </section>
+
+        <section className="card">
+          <h2 className="card-title">Composition: how strict</h2>
+          <p className="small muted">
+            When the cull marks a frame down for composition, how hard should it be? Each press moves the limit by
+            8%, and applies to every shoot straight away.
+          </p>
+          {STRICTNESS_CHECKS.map((c) => {
+            const k = leniency(training.feedback[c.topic])
+            const say = k > 1.001 ? `${Math.round((k - 1) * 100)}% more lenient` : k < 0.999 ? `${Math.round((1 - k) * 100)}% stricter` : 'as measured'
+            return (
+              <div key={c.topic} style={{ marginBottom: 10 }}>
+                <b className="small">{c.label}</b> <span className="muted small">· {say}</span>
+                <div className="small muted">{c.asks}</div>
+                <div className="row" style={{ marginTop: 4 }}>
+                  <button className="sm" onClick={() => giveFeedback(c.topic, true)} disabled={k <= 0.7}>
+                    Stricter
+                  </button>
+                  <button className="sm" onClick={() => giveFeedback(c.topic, false)} disabled={k >= 1.8}>
+                    More lenient
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+          {Object.keys(training.feedback).length > 0 && (
+            <button className="ghost sm" onClick={() => resetTraining('feedback')}>
+              Reset strictness
+            </button>
+          )}
         </section>
 
         <section className="card">

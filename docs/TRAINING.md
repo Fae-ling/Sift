@@ -82,6 +82,11 @@ an odd training set cannot switch a check off.
 *How much:* 50 to 200 photographs gives stable norms. Train separately when your
 style changes; old samples are dropped once 3,000 are stored.
 
+**Strictness.** Teach → Composition: how strict has two buttons per check (subject lost
+against the background, eye lands on the subject): **Stricter** and **More lenient**.
+Each press moves that limit by 8%, up to 30% stricter or 80% more lenient, and the cull
+re-scores the open shoot at once. **Reset strictness** puts both back.
+
 ## 3. Emotions: what a face is showing
 
 The app reads 51 measurements of each face and matches them to emotions it
