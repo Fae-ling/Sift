@@ -7,16 +7,18 @@ import { useStore } from '../store'
 
 /** The people of the open shoot: who they are, who matters most, and how well each is covered. */
 export function People(): React.JSX.Element {
-  const { project, readIdentities, editPerson, mergePerson, removePerson, splitPerson, setFacePerson, peopleUndo, undoPeople, setFilter, setView, identifying, peopleLearning } = useStore()
+  const { project, readIdentities, editPerson, mergeMany, removePerson, splitPerson, setFacePerson, peopleUndo, undoPeople, setFilter, setView, identifying, peopleLearning } = useStore()
   const shots = project?.shots ?? []
   const seen = useMemo(() => appearances(shots), [shots])
   const people = useMemo(() => [...(project?.people ?? [])].sort((a, b) => Number(b.key) - Number(a.key) || (seen.get(b.id)?.frames ?? 0) - (seen.get(a.id)?.frames ?? 0)), [project?.people, seen])
   const [showAll, setShowAll] = useState(false)
   // The card being dragged, and the card or the bin it is over.
-  const [drag, setDrag] = useState<string | null>(null)
+  const [drag, setDrag] = useState<string[] | null>(null)
+  // Cards ticked to be joined or removed together.
+  const [chosen, setChosen] = useState<Set<string>>(new Set())
   const [over, setOver] = useState<string | null>(null)
   // A merge or removal waits here for the photographer to say yes.
-  const [ask, setAsk] = useState<{ kind: 'merge'; from: string; into: string } | { kind: 'remove'; id: string } | null>(null)
+  const [ask, setAsk] = useState<{ kind: 'merge'; from: string[]; into: string } | { kind: 'remove'; ids: string[] } | null>(null)
   const lastChange = peopleUndo.at(-1)
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -63,13 +65,13 @@ export function People(): React.JSX.Element {
               <>
                 <h3>Join these two as one person?</h3>
                 <p>
-                  <b>{nameOf(ask.from)}</b> will be folded into <b>{nameOf(ask.into)}</b>: their frames and faces become one profile. You can undo it straight after.
+                  {ask.from.length === 1 ? <b>{nameOf(ask.from[0])}</b> : <><b>{ask.from.length} people</b> ({ask.from.slice(0, 4).map(nameOf).join(', ')}{ask.from.length > 4 ? '…' : ''})</>} will be folded into <b>{nameOf(ask.into)}</b>: their frames and faces become one profile. You can undo it straight after.
                 </p>
               </>
             ) : (
               <>
-                <h3>Remove {nameOf(ask.id)}?</h3>
-                <p>They leave the list and their faces count as nobody in particular. Finding people again will not bring them back. You can undo it straight after.</p>
+                <h3>Remove {ask.ids.length === 1 ? nameOf(ask.ids[0]) : `these ${ask.ids.length} people`}?</h3>
+                <p>{ask.ids.length === 1 ? 'They leave' : 'They leave'} the list and their faces count as nobody in particular. Finding people again will not bring them back. You can undo it straight after.</p>
               </>
             )}
             <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
@@ -77,12 +79,13 @@ export function People(): React.JSX.Element {
               <button
                 className="primary"
                 onClick={() => {
-                  if (ask.kind === 'merge') mergePerson(ask.from, ask.into)
-                  else removePerson(ask.id)
+                  if (ask.kind === 'merge') mergeMany(ask.from, ask.into)
+                  else removePerson(ask.ids)
+                  setChosen(new Set())
                   setAsk(null)
                 }}
               >
-                {ask.kind === 'merge' ? 'Join them' : 'Remove'}
+                {ask.kind === 'merge' ? (ask.from.length > 1 ? `Join all ${ask.from.length + 1}` : 'Join them') : 'Remove'}
               </button>
             </div>
           </div>
@@ -142,6 +145,31 @@ export function People(): React.JSX.Element {
               </button>
             </p>
           )}
+          {chosen.size > 0 && (
+            <div className="note teach choose-bar">
+              <b>{chosen.size} selected.</b>{' '}
+              {chosen.size > 1 ? 'Join them all into one person, or drag any selected card onto another person to join them all to that one.' : 'Tick more people who are the same person.'}
+              <div className="row" style={{ gap: 8, marginTop: 6 }}>
+                {chosen.size > 1 && (
+                  <button
+                    className="primary"
+                    onClick={() => {
+                      // They join the one that is named, or failing that the one seen most.
+                      const ids = [...chosen]
+                      const into = [...ids].sort((a, b) => Number(!!people.find((x) => x.id === b)?.name) - Number(!!people.find((x) => x.id === a)?.name) || (seen.get(b)?.frames ?? 0) - (seen.get(a)?.frames ?? 0))[0]
+                      setAsk({ kind: 'merge', from: ids.filter((x) => x !== into), into })
+                    }}
+                  >
+                    Join the {chosen.size} into one person
+                  </button>
+                )}
+                <button onClick={() => setAsk({ kind: 'remove', ids: [...chosen] })}>Remove {chosen.size === 1 ? 'them' : 'all'}</button>
+                <button className="link" onClick={() => setChosen(new Set())}>
+                  Clear selection
+                </button>
+              </div>
+            </div>
+          )}
           <div className="cards" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
             {listed.map((p, i) => (
               <PersonCard
@@ -154,20 +182,22 @@ export function People(): React.JSX.Element {
                 shots={shots}
                 onNotThem={(shotId, face) => setFacePerson(shotId, face, null)}
                 onEdit={(patch) => editPerson(p.id, patch)}
-                onMerge={(into) => setAsk({ kind: 'merge', from: p.id, into })}
-                onRemove={() => setAsk({ kind: 'remove', id: p.id })}
+                onMerge={(into) => setAsk({ kind: 'merge', from: [p.id], into })}
+                onRemove={() => setAsk({ kind: 'remove', ids: [p.id] })}
+                chosen={chosen.has(p.id)}
+                onChoose={() => setChosen((c) => (c.has(p.id) ? new Set([...c].filter((x) => x !== p.id)) : new Set([...c, p.id])))}
                 onSplit={(faces) => splitPerson(p.id, faces)}
-                dragging={drag === p.id}
-                target={!!drag && drag !== p.id && over === p.id}
-                onDragStart={() => setDrag(p.id)}
+                dragging={!!drag?.includes(p.id)}
+                target={!!drag && !drag.includes(p.id) && over === p.id}
+                onDragStart={() => setDrag(chosen.has(p.id) ? [...chosen] : [p.id])}
                 onDragEnd={() => {
                   setDrag(null)
                   setOver(null)
                 }}
-                onDragOver={() => drag && drag !== p.id && setOver(p.id)}
+                onDragOver={() => drag && !drag.includes(p.id) && setOver(p.id)}
                 onDragLeave={() => setOver((o) => (o === p.id ? null : o))}
                 onDropHere={() => {
-                  if (drag && drag !== p.id) setAsk({ kind: 'merge', from: drag, into: p.id })
+                  if (drag && !drag.includes(p.id)) setAsk({ kind: 'merge', from: drag, into: p.id })
                   setDrag(null)
                   setOver(null)
                 }}
@@ -184,12 +214,12 @@ export function People(): React.JSX.Element {
               onDragLeave={() => setOver((o) => (o === 'bin' ? null : o))}
               onDrop={(e) => {
                 e.preventDefault()
-                setAsk({ kind: 'remove', id: drag })
+                setAsk({ kind: 'remove', ids: drag })
                 setDrag(null)
                 setOver(null)
               }}
             >
-              Drop here to remove this person
+              Drop here to remove {drag.length > 1 ? `these ${drag.length} people` : 'this person'}
             </div>
           )}
           {people.length > listed.length && (
@@ -241,7 +271,7 @@ function faceCrop(shot: Shot, face: number): React.CSSProperties {
   return { backgroundSize: `${W * 100}% auto`, backgroundPosition: `${pos(cx, W)} ${pos(cy, H)}` }
 }
 
-function PersonCard(props: { person: Person; label: string; frames: number; kept: number; others: Person[]; shots: Shot[]; onNotThem: (shotId: string, face: number) => void; onEdit: (patch: Partial<Pick<Person, 'name' | 'key'>>) => void; onMerge: (intoId: string) => void; onRemove: () => void; onSplit: (faces: { shotId: string; face: number }[]) => void; dragging: boolean; target: boolean; onDragStart: () => void; onDragEnd: () => void; onDragOver: () => void; onDragLeave: () => void; onDropHere: () => void }): React.JSX.Element {
+function PersonCard(props: { person: Person; label: string; frames: number; kept: number; others: Person[]; shots: Shot[]; onNotThem: (shotId: string, face: number) => void; onEdit: (patch: Partial<Pick<Person, 'name' | 'key'>>) => void; onMerge: (intoId: string) => void; onRemove: () => void; chosen: boolean; onChoose: () => void; onSplit: (faces: { shotId: string; face: number }[]) => void; dragging: boolean; target: boolean; onDragStart: () => void; onDragEnd: () => void; onDragOver: () => void; onDragLeave: () => void; onDropHere: () => void }): React.JSX.Element {
   const { person: p } = props
   const [name, setName] = useState(p.name)
   const [open, setOpen] = useState(false)
@@ -256,7 +286,7 @@ function PersonCard(props: { person: Person; label: string; frames: number; kept
   const projectId = useStore((x) => x.project?.id ?? '')
   return (
     <div
-      className={`card person ${p.key ? 'key' : ''} ${props.dragging ? 'dragging' : ''} ${props.target ? 'merge-target' : ''}`}
+      className={`card person ${p.key ? 'key' : ''} ${props.chosen ? 'chosen' : ''} ${props.dragging ? 'dragging' : ''} ${props.target ? 'merge-target' : ''}`}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'move'
@@ -275,6 +305,9 @@ function PersonCard(props: { person: Person; label: string; frames: number; kept
       }}
     >
       {props.target && <div className="merge-hint">Let go to join as the same person</div>}
+      <label className="person-pick" title="Tick several people to join or remove them together">
+        <input type="checkbox" checked={props.chosen} onChange={props.onChoose} aria-label={`Select ${props.label}`} />
+      </label>
       <button className="person-x" onClick={props.onRemove} aria-label={`Remove ${props.label}`} title="Remove this person">
         ×
       </button>
