@@ -140,6 +140,7 @@ The full list is in [docs/FEATURES.md](docs/FEATURES.md#known-limits).
 
 | | |
 | --- | --- |
+| [docs/Sift-guide.pdf](docs/Sift-guide.pdf) | Illustrated 19-page overview for a general reader |
 | [docs/CONCEPT.md](docs/CONCEPT.md) | What the product is and how its learning parts fit together |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Processes, modules, data on disk, Claude calls |
 | [docs/LEARNING.md](docs/LEARNING.md) | How the taste model learns and is kept honest |
