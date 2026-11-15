@@ -158,4 +158,4 @@ the author's.
 
 ## Licence
 
-MIT, see [LICENSE](LICENSE). © Fae-ling.
+MIT, see [LICENSE](LICENSE). © Anežka Šťastná.

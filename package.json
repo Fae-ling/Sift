@@ -4,7 +4,7 @@
   "version": "0.2.0",
   "description": "Sift: culling that learns your eye.",
   "main": "out/main/index.js",
-  "author": "Fae-ling",
+  "author": "Anežka Šťastná",
   "license": "MIT",
   "private": true,
   "scripts": {
