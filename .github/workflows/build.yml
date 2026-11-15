@@ -52,4 +52,4 @@ jobs:
             --repo "${{ github.repository }}" \
             --target "${{ github.sha }}" \
             --title "Sift 0.2.${{ github.run_number }}" \
-            --notes "$(git log -1 --pretty=%B)"
+            --notes "$(git log -1 --pretty=%B | grep -v -e '^Claude-Session:' -e '^Co-Authored-By:')"

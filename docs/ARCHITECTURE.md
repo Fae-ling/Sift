@@ -2,7 +2,7 @@
 
 What exists today, where it lives, and how the parts talk to each other. For what
 the app is and how its learning parts fit together, see `CONCEPT.md`; for what
-comes next, `DEVELOPMENT_PLAN.md`.
+comes next, `ROADMAP.md`.
 
 ## Principles
 

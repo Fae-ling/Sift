@@ -1,10 +1,10 @@
 {
-  "name": "atelier-studio",
+  "name": "sift",
   "productName": "Sift",
   "version": "0.2.0",
   "description": "Sift: culling that learns your eye.",
   "main": "out/main/index.js",
-  "author": "Atelier",
+  "author": "Fae-ling",
   "license": "MIT",
   "private": true,
   "scripts": {

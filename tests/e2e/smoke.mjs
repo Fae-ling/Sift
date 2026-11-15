@@ -1,7 +1,7 @@
 // End-to-end smoke test: launches the built app, imports a folder of photos
 // and checks that analysis, culling and the Lightroom hand-off work.
 //
-//   ATELIER_SAMPLES=/path/to/photos npm run test:e2e
+//   SIFT_SAMPLES=/path/to/photos npm run test:e2e
 //
 // On a machine without a display, prefix with `xvfb-run -a`.
 import { createRequire } from 'node:module'
@@ -14,20 +14,20 @@ import assert from 'node:assert/strict'
 const require = createRequire(import.meta.url)
 const { _electron: electron } = require('playwright')
 
-const samples = process.env.ATELIER_SAMPLES
-if (!samples) throw new Error('Set ATELIER_SAMPLES to a folder of photos')
-const shotsDir = process.env.ATELIER_SCREENSHOTS
-const userData = mkdtempSync(join(tmpdir(), 'atelier-e2e-'))
-// Unprompted bursts are chosen pseudo-randomly per project; they are off unless ATELIER_BLIND=1, so the run is repeatable.
-writeFileSync(join(userData, 'learning.json'), JSON.stringify({ version: 1, blindBursts: process.env.ATELIER_BLIND === '1', projects: {} }))
+const samples = process.env.SIFT_SAMPLES
+if (!samples) throw new Error('Set SIFT_SAMPLES to a folder of photos')
+const shotsDir = process.env.SIFT_SCREENSHOTS
+const userData = mkdtempSync(join(tmpdir(), 'sift-e2e-'))
+// Unprompted bursts are chosen pseudo-randomly per project; they are off unless SIFT_BLIND=1, so the run is repeatable.
+writeFileSync(join(userData, 'learning.json'), JSON.stringify({ version: 1, blindBursts: process.env.SIFT_BLIND === '1', projects: {} }))
 
-// Set ATELIER_APP to a packaged executable to test the installed form of the app.
-const packaged = process.env.ATELIER_APP
+// Set SIFT_APP to a packaged executable to test the installed form of the app.
+const packaged = process.env.SIFT_APP
 const app = await electron.launch({
   executablePath: packaged ?? require('electron'),
   // Software WebGL, so the face model also runs on machines without a graphics card.
   args: [...(packaged ? [] : [resolve('out/main/index.js')]), '--no-sandbox', '--enable-unsafe-swiftshader'],
-  env: { ...process.env, ATELIER_USER_DATA: userData, ANTHROPIC_API_KEY: 'stand-in' }
+  env: { ...process.env, SIFT_USER_DATA: userData, ANTHROPIC_API_KEY: 'stand-in' }
 })
 const errors = []
 /** Waits until a count read from the window satisfies a condition: the window redraws a moment after a key press. */

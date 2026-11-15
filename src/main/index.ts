@@ -29,7 +29,7 @@ import {
 } from './store'
 
 // A separate profile lets automated tests run without touching real projects.
-if (process.env.ATELIER_USER_DATA) app.setPath('userData', process.env.ATELIER_USER_DATA)
+if (process.env.SIFT_USER_DATA) app.setPath('userData', process.env.SIFT_USER_DATA)
 else keepData()
 
 /**

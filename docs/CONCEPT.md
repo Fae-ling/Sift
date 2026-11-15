@@ -9,9 +9,6 @@ It is built around one idea: **the photographer makes it their own.** The app
 starts with general knowledge and becomes specific to one person's work, because
 that person, with Claude's help when they want it, teaches it what they see.
 
-Where this document conflicts with earlier descriptions of the project, this
-document wins.
-
 ## What it is for
 
 1. **Cull any shoot quickly.** From a 200-frame portrait session to a wedding or
@@ -129,7 +126,6 @@ app afterwards.
 
 ## Directions it can grow in
 
-Kept from earlier plans, not built: reading emotion from the body as well as the
-face; recognising who is who (key people); depth and scene understanding for the
+Not built: depth and scene understanding for the
 photo diagnosis; video selects; planning (light and shadow, shot lists, deadlines)
-and inspiration (moodboards). See `DEVELOPMENT_PLAN.md`.
+and inspiration (moodboards). See `ROADMAP.md`.
