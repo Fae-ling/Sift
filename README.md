@@ -140,6 +140,7 @@ The full list is in [docs/FEATURES.md](docs/FEATURES.md#known-limits).
 
 | | |
 | --- | --- |
+| [docs/Sift-pitch.pdf](docs/Sift-pitch.pdf) | Six-page pitch: the problem, the idea, how it learns, where it stands |
 | [docs/Sift-guide.pdf](docs/Sift-guide.pdf) | Illustrated 19-page overview for a general reader |
 | [docs/CONCEPT.md](docs/CONCEPT.md) | What the product is and how its learning parts fit together |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Processes, modules, data on disk, Claude calls |
